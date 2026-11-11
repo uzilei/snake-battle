@@ -24,8 +24,8 @@ export const PHASES = Object.freeze({
 });
 
 export const CONFIG_LIMITS = Object.freeze({
-  tickMs: { min: 40, max: 1000, default: 150 },
-  appleCount: { min: 0, max: 50, default: 3 },
+  tickMs: { min: 80, max: 600, default: 150 }, // below ~80 ms phone swipes over wifi can't keep up
+  appleCount: { min: 0, max: 30, default: 3 },
   growthPerApple: { min: 1, max: 10, default: 1 },
   maxPlayers: { min: 1, max: 12, default: 12 },
   gridSize: { min: 10, max: 80, default: 30 },
@@ -378,6 +378,17 @@ export function createEngine({ config, random = Math.random } = {}) {
     };
   }
 
+  // Abandons the current round (if any) and starts a fresh one with every
+  // player, including queued ones. With no players it returns to waiting.
+  function restartRound() {
+    if (players.size > 0) startRound();
+    else {
+      phase = PHASES.WAITING;
+      apples = [];
+      winnerId = null;
+    }
+  }
+
   function updateConfig(partial) {
     const accepted = sanitizeConfig(partial);
     Object.assign(cfg, accepted);
@@ -397,5 +408,5 @@ export function createEngine({ config, random = Math.random } = {}) {
     },
   };
 
-  return { addPlayer, removePlayer, setDirection, tick, getState, updateConfig, config: cfg, _debug };
+  return { addPlayer, removePlayer, setDirection, tick, getState, updateConfig, restartRound, config: cfg, _debug };
 }

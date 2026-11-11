@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Snake Battle</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #fff; color: #000; font-family: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .sheet {
+      width: 186mm;
+      margin: 0 auto;
+      padding: 6mm 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5mm;
+      text-align: center;
+    }
+    h1 { margin: 0; font-size: 26pt; }
+    .qr { display: flex; flex-direction: column; align-items: center; gap: 2mm; }
+    .qr h2 { margin: 0; font-size: 18pt; }
+    .qr img { width: 84mm; height: 84mm; }
+    .qr .detail { font-size: 13pt; font-weight: 600; overflow-wrap: anywhere; max-width: 170mm; }
+    .note { font-size: 13pt; font-weight: 700; border: 0.6mm solid #000; border-radius: 3mm; padding: 3mm 6mm; }
+    .toolbar { text-align: center; padding: 12px; }
+    .toolbar button { font: inherit; font-size: 16px; padding: 8px 20px; }
+    @media print { .toolbar { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar"><button id="print"></button></div>
+  <div class="sheet">
+    <h1 id="heading"></h1>
+    <div class="qr">
+      <h2 id="wifi-label"></h2>
+      <img src="/qr/wifi.svg" alt="" id="qr-wifi">
+      <div class="detail" id="wifi-ssid"></div>
+      <div class="detail" id="wifi-pass"></div>
+    </div>
+    <div class="qr">
+      <h2 id="game-label"></h2>
+      <img src="/qr/play.svg" alt="" id="qr-play">
+      <div class="detail" id="game-url"></div>
+    </div>
+    <div class="note" id="note"></div>
+  </div>
+  <script type="module">
+    import { STRINGS, fmt } from '/shared/strings.js';
+    const P = STRINGS.print;
+    const $ = (id) => document.getElementById(id);
+    document.title = P.title;
+    $('print').textContent = P.printButton;
+    $('print').addEventListener('click', () => window.print());
+    $('heading').textContent = P.heading;
+    $('wifi-label').textContent = P.wifiLabel;
+    $('game-label').textContent = P.gameLabel;
+    $('note').textContent = P.mobileData;
+    const res = await fetch('/admin/api/info', { cache: 'no-store' });
+    if (res.ok) {
+      const info = await res.json();
+      if (info.ssid) $('wifi-ssid').textContent = fmt(STRINGS.join.wifiName, { ssid: info.ssid });
+      if (info.wifiPassword) $('wifi-pass').textContent = fmt(STRINGS.join.wifiPassword, { password: info.wifiPassword });
+      $('game-url').textContent = info.playUrl;
+    }
+  </script>
+</body>
+</html>

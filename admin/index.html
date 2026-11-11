@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Snake Battle – Admin</title>
+  <link rel="stylesheet" href="/admin/assets/admin.css">
+</head>
+<body>
+  <div class="topbar">
+    <h1 id="title"></h1>
+    <span><span id="conn-dot" class="status-dot"></span><span id="conn-text"></span></span>
+    <form method="post" action="/admin/logout"><button type="submit" id="logout"></button></form>
+  </div>
+
+  <div class="grid">
+    <section class="card">
+      <h2 id="h-game"></h2>
+      <div class="phase" id="phase"></div>
+      <div class="muted" id="round"></div>
+      <div class="controls">
+        <button id="btn-pause" class="primary"></button>
+        <button id="btn-restart"></button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 id="h-settings"></h2>
+      <div id="sliders"></div>
+    </section>
+
+    <section class="card">
+      <h2 id="h-display"></h2>
+      <label class="field"><span id="l-side"></span>
+        <select id="side-panel"></select>
+      </label>
+      <p class="muted" id="side-hint"></p>
+      <label class="check"><input type="checkbox" id="keyboard"><span id="l-keyboard"></span></label>
+    </section>
+
+    <section class="card" style="grid-column: 1 / -1">
+      <h2 id="h-players"></h2>
+      <table>
+        <thead><tr><th id="c-name"></th><th id="c-status"></th><th id="c-length"></th><th id="c-source"></th><th></th></tr></thead>
+        <tbody id="players"></tbody>
+      </table>
+      <p class="muted" id="no-players"></p>
+    </section>
+
+    <section class="card links">
+      <h2 id="h-links"></h2>
+      <div id="links"></div>
+    </section>
+  </div>
+
+  <footer class="credits" id="credits"></footer>
+
+  <script type="module" src="/admin/assets/admin.js"></script>
+</body>
+</html>

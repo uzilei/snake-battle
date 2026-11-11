@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Snake Battle</title>
+  <link rel="stylesheet" href="/static/display/display.css">
+</head>
+<body>
+  <main id="game">
+    <canvas id="board"></canvas>
+    <div id="overlay" class="overlay hidden">
+      <div id="overlay-title"></div>
+      <div id="overlay-sub"></div>
+    </div>
+  </main>
+
+  <aside id="side">
+    <section id="leaderboard" class="panel">
+      <header>
+        <h1 id="lb-title"></h1>
+        <span id="lb-round"></span>
+      </header>
+      <ol id="lb-list"></ol>
+      <p id="lb-empty" class="muted"></p>
+    </section>
+
+    <section id="join" class="panel hidden">
+      <h1 id="join-title"></h1>
+      <div class="qr-row">
+        <figure>
+          <img src="/qr/wifi.svg" alt="" id="qr-wifi">
+          <figcaption>
+            <strong id="join-step1-title"></strong>
+            <span id="join-step1-text"></span>
+            <span id="join-ssid" class="detail"></span>
+            <span id="join-wifipass" class="detail"></span>
+          </figcaption>
+        </figure>
+        <figure>
+          <img src="/qr/play.svg" alt="" id="qr-play">
+          <figcaption>
+            <strong id="join-step2-title"></strong>
+            <span id="join-step2-text"></span>
+            <span id="join-url" class="detail"></span>
+          </figcaption>
+        </figure>
+      </div>
+      <p id="join-step3" class="warning"></p>
+    </section>
+
+    <p id="keyboard-hint" class="hint hidden"></p>
+  </aside>
+
+  <div id="connection" class="connection hidden"></div>
+
+  <script type="module" src="/static/display/display.js"></script>
+</body>
+</html>

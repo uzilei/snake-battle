@@ -441,6 +441,29 @@ describe('players and rounds', () => {
     assert.equal(e.getState().winnerId, 'b');
   });
 
+  test('restartRound respawns everyone, including queued players', () => {
+    const e = setup({
+      a: [[[5, 5], [4, 5], [3, 5]], 'right'],
+      b: [[[5, 10], [4, 10], [3, 10]], 'right'],
+    });
+    e.addPlayer('late', 'Late');
+    e.tick();
+    e.tick();
+    assert.equal(player(e, 'late').status, 'queued');
+    e.restartRound();
+    const s = e.getState();
+    assert.equal(s.round, 2);
+    assert.equal(s.phase, 'playing');
+    assert.ok(s.players.every((p) => p.status === 'alive' && p.length === 3));
+  });
+
+  test('restartRound with no players returns to waiting', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'] });
+    e.removePlayer('a');
+    e.restartRound();
+    assert.equal(e.getState().phase, 'waiting');
+  });
+
   test('getState returns a copy', () => {
     const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'] });
     e.getState().snakes[0].segments[0].x = 99;
