@@ -58,9 +58,10 @@ describe('game controller', () => {
     assert.ok(c.sent.some((m) => m.t === 'error' && m.code === 'badMessage'));
   });
 
-  test('names are sanitized, capped at 12 characters, and empty ones rejected', () => {
+  test('names are sanitized, capped at 16 characters, and empty ones rejected', () => {
     assert.equal(sanitizeName('  Mario\u0000‮  Rossi  '), 'Mario Rossi');
-    assert.equal(sanitizeName('x'.repeat(50)).length, 12);
+    assert.equal(sanitizeName('x'.repeat(50)).length, 16);
+    assert.equal(sanitizeName('Mariagrazia Bian'), 'Mariagrazia Bian');
     assert.equal(sanitizeName(123), '');
     const game = createGame({ log: quiet });
     const c = fakeClient(game);

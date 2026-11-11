@@ -14,7 +14,7 @@
     <form id="name-form" class="name-form" novalidate>
       <h1 id="title"></h1>
       <label for="name-input" id="name-label"></label>
-      <input id="name-input" type="text" maxlength="12" autocomplete="nickname" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="go" autofocus>
+      <input id="name-input" type="text"autocomplete="nickname" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="go" autofocus>
       <button type="submit" id="join-btn" class="big"></button>
       <p id="name-error" class="error" role="alert"></p>
     </form>
@@ -42,6 +42,7 @@
     <button id="rejoin" type="button" class="big"></button>
   </main>
 
+  <script src="/vendor/nosleep/NoSleep.min.js"></script>
   <script type="module" src="/static/play/play.js"></script>
 </body>
 </html>

@@ -4,6 +4,7 @@
 
 import { STRINGS } from '/shared/strings.js';
 import { playerColor, contrastText } from '/shared/colors.js';
+import { MAX_NAME_LENGTH } from '/shared/limits.js';
 
 const P = STRINGS.play;
 const E = STRINGS.errors;
@@ -55,6 +56,7 @@ document.title = P.title;
 $('title').textContent = P.title;
 $('name-label').textContent = P.namePrompt;
 $('name-input').placeholder = P.namePlaceholder;
+$('name-input').maxLength = MAX_NAME_LENGTH;
 $('join-btn').textContent = P.join;
 $('rejoin').textContent = P.rejoin;
 $('swipe-hint').textContent = P.swipeHint;
@@ -88,7 +90,6 @@ function showName(error = '') {
 
 function showLost(title, detail = '') {
   me = null;
-  releaseWakeLock();
   show('screen-lost');
   $('lost-title').textContent = title;
   $('lost-detail').textContent = detail;
@@ -104,7 +105,6 @@ function showGame() {
   show('screen-game');
   setPad(load(localStorage, PAD_KEY) === '1');
   fitName();
-  keepAwake();
 }
 
 // Largest font size at which the name fits on one line.
@@ -200,6 +200,7 @@ function connect() {
 let sendToServer = () => {};
 
 function join() {
+  keepAwake(); // must run inside the tap/submit, browsers only start video playback on a user gesture
   $('join-btn').disabled = true;
   $('join-btn').textContent = P.connecting;
   $('rejoin').disabled = true;
@@ -320,27 +321,31 @@ addEventListener('keydown', (e) => {
 });
 
 // ---- keep the screen awake ------------------------------------------------------------------
-// The Wake Lock API only exists in secure contexts, so over plain http on the
-// LAN most browsers won't offer it; then this quietly does nothing.
-let wakeLock = null;
-async function keepAwake() {
-  if (!('wakeLock' in navigator) || wakeLock) return;
+// NoSleep (served from node_modules) uses the Wake Lock API where it exists.
+// That API needs https, so over plain http on the LAN it falls back to playing
+// a tiny looping video, which phones treat as "something is playing". It stays
+// on from the first Gioca until the page closes, so the screen doesn't lock
+// between rounds or on the connection-lost screen.
+const noSleep = typeof window.NoSleep === 'function' ? new window.NoSleep() : null;
+// The clip carries a silent audio track (an old iOS workaround). Muting it
+// keeps the player's music playing and keeps this page free of audio.
+if (noSleep?.noSleepVideo) {
+  noSleep.noSleepVideo.muted = true;
+  noSleep.noSleepVideo.setAttribute('muted', '');
+}
+
+function keepAwake() {
+  if (!noSleep) return;
   try {
-    wakeLock = await navigator.wakeLock.request('screen');
-    wakeLock.addEventListener('release', () => {
-      wakeLock = null;
-    });
+    noSleep.enable()?.catch?.(() => {});
   } catch {
-    wakeLock = null;
+    /* not supported here: the screen may lock, that's all */
   }
 }
-function releaseWakeLock() {
-  wakeLock?.release().catch(() => {});
-  wakeLock = null;
-}
 document.addEventListener('visibilitychange', () => {
-  // The lock is dropped whenever the page is hidden; take it again on return.
-  if (document.visibilityState === 'visible' && me) keepAwake();
+  // Browsers pause the video (or drop the lock) while hidden; resume on return.
+  // A muted video may restart without a new tap.
+  if (document.visibilityState === 'visible' && noSleep?.isEnabled) keepAwake();
 });
 
 showName();

@@ -64,6 +64,9 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
   app.get('/play', (req, res) => res.sendFile(path.join(PUBLIC, 'play', 'index.html')));
   app.use('/static', express.static(PUBLIC, { index: false }));
   app.use('/shared', express.static(path.join(ROOT, 'src', 'shared'), { index: false }));
+  // Keeps phone screens awake on /play (a tiny looping video, since the Wake
+  // Lock API needs https).
+  app.use('/vendor/nosleep', express.static(path.join(ROOT, 'node_modules', 'nosleep.js', 'dist'), { index: false, maxAge: '1d' }));
   app.use('/twemoji', express.static(path.join(ROOT, 'node_modules', '@twemoji', 'svg'), { index: false, maxAge: '1d' }));
 
   // One QR generator for both /display and /admin/print, so they always match.

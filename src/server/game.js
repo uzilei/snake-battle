@@ -7,11 +7,12 @@
 import { createEngine, createDefaultConfig, CONFIG_LIMITS, PHASES } from '../engine.js';
 import { STRINGS } from '../shared/strings.js';
 import { createWordList } from './profanity.js';
+import { MAX_NAME_LENGTH } from '../shared/limits.js';
 
 export const SIDE_PANEL_MODES = Object.freeze(['auto', 'leaderboard', 'join']);
 export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
 const SELF = 'self';
-export const MAX_NAME_LENGTH = 12;
+export { MAX_NAME_LENGTH };
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const MAX_MESSAGES_PER_SECOND = 40;
 
