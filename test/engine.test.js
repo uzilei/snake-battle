@@ -192,22 +192,59 @@ describe('direction handling', () => {
     assert.deepEqual(snake(e, 'a').segments[0], { x: 6, y: 5 });
   });
 
-  test('double-tap within one tick cannot reverse the snake', () => {
+  test('a quick double-tap U-turns over two ticks without reversing', () => {
     const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'] });
     assert.equal(e.setDirection('a', 'up'), true);
-    // Relative to "up" this would be legal, but the snake is still moving right.
-    assert.equal(e.setDirection('a', 'left'), false);
+    assert.equal(e.setDirection('a', 'left'), true); // valid after "up"
+    e.tick();
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 5, y: 4 });
     e.tick();
     assert.equal(player(e, 'a').status, 'alive');
-    assert.deepEqual(snake(e, 'a').segments[0], { x: 5, y: 4 });
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 4, y: 4 });
   });
 
-  test('latest valid turn in a tick wins', () => {
+  test('buffered turns apply one per tick, in order (zigzag)', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'left'] });
+    e._debug.setSnake('a', [[5, 5], [6, 5], [7, 5]], 'left');
+    for (const d of ['up', 'left', 'up']) assert.equal(e.setDirection('a', d), true);
+    const heads = [];
+    for (let i = 0; i < 4; i++) {
+      e.tick();
+      heads.push(snake(e, 'a').segments[0]);
+    }
+    assert.deepEqual(heads, [
+      { x: 5, y: 4 },
+      { x: 4, y: 4 },
+      { x: 4, y: 3 },
+      { x: 4, y: 2 }, // queue empty: keeps going up
+    ]);
+  });
+
+  test('a turn reversing the previous queued turn is rejected', () => {
     const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'] });
-    e.setDirection('a', 'up');
-    e.setDirection('a', 'down');
+    assert.equal(e.setDirection('a', 'up'), true);
+    assert.equal(e.setDirection('a', 'down'), false); // opposite of the queued "up"
+    assert.equal(e.setDirection('a', 'up'), false); // repeat: no wasted slot
     e.tick();
-    assert.deepEqual(snake(e, 'a').segments[0], { x: 5, y: 6 });
+    e.tick();
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 5, y: 3 });
+  });
+
+  test('when the buffer is full the newest turn replaces the last one', () => {
+    const e = setup({ a: [[[10, 10], [9, 10], [8, 10]], 'right'] });
+    for (const d of ['up', 'right', 'down']) assert.equal(e.setDirection('a', d), true);
+    assert.equal(e.setDirection('a', 'up'), true); // replaces "down" (valid after "right")
+    assert.equal(e.setDirection('a', 'left'), false); // invalid after "right": "up" is kept
+    const heads = [];
+    for (let i = 0; i < 3; i++) {
+      e.tick();
+      heads.push(snake(e, 'a').segments[0]);
+    }
+    assert.deepEqual(heads, [
+      { x: 10, y: 9 },
+      { x: 11, y: 9 },
+      { x: 11, y: 8 },
+    ]);
   });
 
   test('invalid directions and unknown players are ignored', () => {

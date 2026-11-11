@@ -15,6 +15,7 @@ const OPPOSITE = Object.freeze({ up: 'down', down: 'up', left: 'right', right: '
 
 export const START_LENGTH = 3;
 const SPAWN_CLEARANCE = 3; // free cells required ahead of a freshly spawned head
+export const INPUT_BUFFER_SIZE = 3; // queued turns per snake; one is applied per tick
 
 export const PHASES = Object.freeze({
   WAITING: 'waiting', // no round running, waiting for players
@@ -121,7 +122,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     const placed = trySpawn(occupied, SPAWN_CLEARANCE) ?? trySpawn(occupied, 0);
     if (!placed) return null;
     for (const c of placed.segments) occupied.add(cellKey(c.x, c.y));
-    return { segments: placed.segments, dir: placed.dir, pendingDir: null, pendingGrowth: 0 };
+    return { segments: placed.segments, dir: placed.dir, dirQueue: [], pendingGrowth: 0 };
   }
 
   function spawnApple(occupied) {
@@ -203,10 +204,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     const players_ = [...players.values()].filter((p) => p.status === 'alive');
     const moves = players_.map((p) => {
       const s = p.snake;
-      if (s.pendingDir) {
-        s.dir = s.pendingDir;
-        s.pendingDir = null;
-      }
+      if (s.dirQueue.length) s.dir = s.dirQueue.shift(); // one queued turn per tick
       const head = s.segments[0];
       const d = DIRECTIONS[s.dir];
       return {
@@ -311,10 +309,18 @@ export function createEngine({ config, random = Math.random } = {}) {
     const p = players.get(id);
     if (!p || p.status !== 'alive') return false;
     if (typeof dir !== 'string' || !Object.hasOwn(DIRECTIONS, dir)) return false;
-    // Validate against the direction actually travelled, not the pending one,
-    // so two quick taps within one tick can never add up to a reversal.
-    if (dir === OPPOSITE[p.snake.dir]) return false;
-    p.snake.pendingDir = dir; // at most one pending turn: the latest valid one wins
+    // Turns are buffered so quick sequences (zigzags, U-turns) aren't lost.
+    // Each queued turn is validated against the one before it, so every tick
+    // turns at most 90 degrees and the snake can never reverse into its neck.
+    const queue = p.snake.dirQueue;
+    // When full, the newest input replaces the last queued one (validated
+    // against the turn before it), so a frantic tap never gets stuck behind old ones.
+    const full = queue.length >= INPUT_BUFFER_SIZE;
+    const prevIndex = queue.length - (full ? 2 : 1);
+    const previous = prevIndex >= 0 ? queue[prevIndex] : p.snake.dir;
+    if (dir === previous || dir === OPPOSITE[previous]) return false;
+    if (full) queue.pop();
+    queue.push(dir);
     return true;
   }
 
@@ -400,7 +406,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     setSnake(id, segments, dir) {
       const p = players.get(id);
       if (!p) throw new Error(`unknown player ${id}`);
-      p.snake = { segments: segments.map(([x, y]) => ({ x, y })), dir, pendingDir: null, pendingGrowth: 0 };
+      p.snake = { segments: segments.map(([x, y]) => ({ x, y })), dir, dirQueue: [], pendingGrowth: 0 };
       p.status = 'alive';
     },
     setApples(list) {
