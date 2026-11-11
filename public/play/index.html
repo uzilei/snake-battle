@@ -2,23 +2,46 @@
 <html lang="it">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#070a12">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Snake Battle</title>
-  <style>
-    html, body { margin: 0; height: 100%; background: #070a12; color: #f2f4f8; font-family: system-ui, sans-serif; }
-    body { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; box-sizing: border-box; }
-    h1 { font-size: 2.2rem; margin: 0 0 1rem; }
-    p { font-size: 1.2rem; color: #8a93a8; }
-  </style>
+  <link rel="stylesheet" href="/static/play/play.css">
 </head>
 <body>
-  <!-- Placeholder: the phone controller is the next step. -->
-  <h1 id="title"></h1>
-  <p id="text"></p>
-  <script type="module">
-    import { STRINGS } from '/shared/strings.js';
-    document.getElementById('title').textContent = STRINGS.play.title;
-    document.getElementById('text').textContent = STRINGS.play.comingSoon;
-  </script>
+  <main id="screen-name" class="screen name-screen">
+    <form id="name-form" class="name-form" novalidate>
+      <h1 id="title"></h1>
+      <label for="name-input" id="name-label"></label>
+      <input id="name-input" type="text" maxlength="12" autocomplete="nickname" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="go" autofocus>
+      <button type="submit" id="join-btn" class="big"></button>
+      <p id="name-error" class="error" role="alert"></p>
+    </form>
+  </main>
+
+  <main id="screen-game" class="screen game" hidden>
+    <div id="player-name" class="player-name"></div>
+    <div id="swipe-hint" class="swipe-hint"></div>
+    <div id="status" class="status" aria-live="polite"></div>
+    <button id="gear" class="gear no-swipe" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>
+    </button>
+    <div id="pad" class="pad no-swipe" hidden>
+      <button type="button" class="dir up" data-dir="up"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 15l7-7 7 7"/></svg></button>
+      <button type="button" class="dir left" data-dir="left"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button type="button" class="dir right" data-dir="right"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+      <button type="button" class="dir down" data-dir="down"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9l7 7 7-7"/></svg></button>
+    </div>
+    <div id="flash" class="flash"></div>
+  </main>
+
+  <main id="screen-lost" class="screen lost" hidden>
+    <h1 id="lost-title"></h1>
+    <p id="lost-detail" class="muted"></p>
+    <button id="rejoin" type="button" class="big"></button>
+  </main>
+
+  <script type="module" src="/static/play/play.js"></script>
 </body>
 </html>

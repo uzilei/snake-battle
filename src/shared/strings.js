@@ -3,7 +3,6 @@
 
 export const STRINGS = Object.freeze({
   appName: 'Snake Battle',
-  defaultName: 'Giocatore {n}',
 
   // ---- /display ----------------------------------------------------------
   display: {
@@ -40,10 +39,26 @@ export const STRINGS = Object.freeze({
     gameUrl: 'Indirizzo: {url}',
   },
 
-  // ---- /play (placeholder until the phone controller is built) -----------
+  // ---- /play (phone controller) ---------------------------------------------
   play: {
     title: 'Snake Battle',
-    comingSoon: 'Il controller per telefono è in arrivo.',
+    namePrompt: 'Come ti chiami?',
+    namePlaceholder: 'Il tuo nome',
+    join: 'Gioca',
+    connecting: 'Connessione…',
+    cannotConnect: 'Impossibile raggiungere il gioco. Sei connesso al wifi della partita?',
+    queued: 'in coda',
+    dead: 'sei morto, aspetta il prossimo round',
+    paused: 'in pausa',
+    connectionLost: 'Connessione persa',
+    replaced: 'Il gioco è stato aperto in un’altra scheda.',
+    rejoin: 'Rientra',
+    swipeHint: 'Scorri il dito sullo schermo per muoverti',
+    toggleControls: 'Mostra o nascondi i pulsanti',
+    dirUp: 'Su',
+    dirDown: 'Giù',
+    dirLeft: 'Sinistra',
+    dirRight: 'Destra',
   },
 
   // ---- /admin/login ------------------------------------------------------
@@ -106,6 +121,18 @@ export const STRINGS = Object.freeze({
     playerStatus: { alive: 'In gioco', dead: 'Eliminato', queued: 'In attesa' },
     links: 'Indirizzi',
     printPage: 'Pagina da stampare con i codici QR',
+    words: 'Parole vietate nei nomi',
+    wordsHint:
+      'Controllate senza distinguere maiuscole e minuscole, anche con sostituzioni come 0→o, 1→i, 3→e, 4→a, 5→s. Le parole di 3 lettere o meno bloccano solo la parola intera.',
+    wordPlaceholder: 'Nuova parola',
+    addWord: 'Aggiungi',
+    removeWord: 'Rimuovi «{word}»',
+    wordCount: '{n} parole',
+    wordErrors: {
+      word_invalid: 'Parola non valida: servono almeno 2 lettere, massimo 30 caratteri.',
+      word_exists: 'Questa parola è già nella lista.',
+      word_tooMany: 'La lista è piena.',
+    },
     credits: 'Grafica emoji: Twemoji di Twitter, Inc. e altri contributori, licenza CC-BY 4.0.',
   },
 
@@ -125,6 +152,9 @@ export const STRINGS = Object.freeze({
     keyboardDisabled: 'I giocatori da tastiera sono disattivati.',
     badMessage: 'Messaggio non valido.',
     kicked: 'Sei stato espulso dalla partita.',
+    nameEmpty: 'Scrivi il tuo nome.',
+    nameTaken: 'Questo nome è già in uso. Scegline un altro.',
+    nameProfane: 'Questo nome non è permesso. Scegline un altro.',
   },
 });
 

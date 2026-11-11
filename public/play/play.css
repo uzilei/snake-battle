@@ -1,0 +1,154 @@
+/* /play: phone controller. */
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: #070a12;
+  color: #f2f4f8;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  text-align: center;
+}
+
+button { font: inherit; cursor: pointer; }
+button.big {
+  font-size: 1.4rem;
+  font-weight: 800;
+  padding: 16px 28px;
+  border: 0;
+  border-radius: 16px;
+  background: #3ddc84;
+  color: #08130c;
+  min-width: 220px;
+}
+button.big:disabled { opacity: 0.6; }
+.error { color: #ff8a8a; font-weight: 700; min-height: 1.4em; margin: 0; }
+.muted { color: #8a93a8; }
+
+/* ---- name prompt ---- */
+.name-form { width: min(380px, 100%); display: flex; flex-direction: column; gap: 16px; }
+.name-form h1 { margin: 0 0 8px; font-size: 2.2rem; }
+.name-form label { font-size: 1.25rem; font-weight: 700; }
+.name-form input {
+  font: inherit;
+  font-size: 1.6rem; /* >= 16px keeps iOS from zooming in on focus */
+  text-align: center;
+  padding: 14px;
+  border-radius: 14px;
+  border: 2px solid #2a3245;
+  background: #111827;
+  color: #fff;
+  width: 100%;
+}
+.name-form input:focus { outline: none; border-color: #3ddc84; }
+
+/* ---- in game ---- */
+.game {
+  --player: #3ddc84;
+  --on-player: #111;
+  background: var(--player);
+  color: var(--on-player);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: background-color 0.3s;
+}
+/* Dead: same color, dimmed. */
+.game.dead { background-image: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)); color: rgba(255, 255, 255, 0.85); }
+
+.player-name {
+  font-weight: 900;
+  line-height: 1.05;
+  white-space: nowrap;
+  max-width: 100%;
+  pointer-events: none;
+}
+.swipe-hint {
+  margin-top: 18px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  opacity: 0.75;
+  max-width: 18em;
+  pointer-events: none;
+}
+.status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  font-size: 1.05rem;
+  font-weight: 700;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.gear {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  right: 10px;
+  width: 44px;
+  height: 44px;
+  padding: 8px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+}
+.gear svg { width: 100%; height: 100%; fill: currentColor; }
+.gear[aria-pressed="true"] { opacity: 1; }
+
+.pad {
+  position: absolute;
+  left: 50%;
+  bottom: max(56px, calc(env(safe-area-inset-bottom) + 40px));
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(3, 80px);
+  grid-template-rows: repeat(3, 80px);
+  gap: 6px;
+}
+.pad .dir {
+  border: 3px solid currentColor;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.18);
+  color: inherit;
+  padding: 14px;
+  touch-action: none;
+}
+.pad .dir:active { background: rgba(255, 255, 255, 0.45); }
+.pad svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.pad .up { grid-area: 1 / 2; }
+.pad .left { grid-area: 2 / 1; }
+.pad .right { grid-area: 2 / 3; }
+.pad .down { grid-area: 3 / 2; }
+
+/* With the pad shown, the name moves up to make room. */
+.game.with-pad { justify-content: flex-start; padding-top: max(80px, env(safe-area-inset-top)); }
+
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.flash.on { animation: flash 0.18s ease-out; }
+@keyframes flash { from { opacity: 0.4; } to { opacity: 0; } }
+
+/* ---- connection lost ---- */
+.lost { gap: 18px; }
+.lost h1 { margin: 0; font-size: 2rem; }
+.lost p { margin: 0; font-size: 1.1rem; max-width: 26em; }
+.lost button.big { font-size: 1.8rem; padding: 22px 40px; }

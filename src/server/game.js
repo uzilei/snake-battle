@@ -5,12 +5,14 @@
 // role. The WebSocket wiring lives in app.js.
 
 import { createEngine, createDefaultConfig, CONFIG_LIMITS, PHASES } from '../engine.js';
-import { STRINGS, fmt } from '../shared/strings.js';
+import { STRINGS } from '../shared/strings.js';
+import { createWordList } from './profanity.js';
 
 export const SIDE_PANEL_MODES = Object.freeze(['auto', 'leaderboard', 'join']);
 export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
 const SELF = 'self';
-const MAX_NAME_LENGTH = 16;
+export const MAX_NAME_LENGTH = 12;
+const SESSION_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const MAX_MESSAGES_PER_SECOND = 40;
 
 // Strips control/format characters and extra whitespace; caps the length.
@@ -23,12 +25,15 @@ export function sanitizeName(raw) {
   return [...cleaned].slice(0, MAX_NAME_LENGTH).join('').trim();
 }
 
+// Key for the case-insensitive uniqueness check.
+export const nameKey = (name) => name.normalize('NFC').toLocaleLowerCase('it');
+
 export function resolveSidePanel(mode, state) {
   if (mode === 'leaderboard' || mode === 'join') return mode;
   return state.players.length < 2 || state.phase === PHASES.INTERMISSION ? 'join' : 'leaderboard';
 }
 
-export function createGame({ random = Math.random, log = console.log, joinInfo = {} } = {}) {
+export function createGame({ random = Math.random, log = console.log, joinInfo = {}, wordList = createWordList() } = {}) {
   const config = createDefaultConfig();
   const engine = createEngine({ config, random });
   const settings = { sidePanel: 'auto', keyboardPlayers: false };
@@ -37,7 +42,7 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
   let timer = null;
 
   const clients = new Set();
-  const owners = new Map(); // playerId -> { client, slot, source }
+  const owners = new Map(); // playerId -> { client, slot, source, session }
 
   // ---- outgoing ------------------------------------------------------------
 
@@ -78,7 +83,9 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
     const out = {};
     for (const [slot, id] of client.owned) {
       const p = state.players.find((x) => x.id === id);
-      if (p) out[slot] = { id, colorIndex: p.colorIndex, status: p.status };
+      if (!p) continue;
+      const snake = state.snakes.find((x) => x.id === id);
+      out[slot] = { id, name: p.name, colorIndex: p.colorIndex, status: p.status, dir: snake?.dir ?? null };
     }
     return out;
   }
@@ -90,7 +97,7 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
     for (const c of clients) {
       if (c.role === 'display') safeSend(c, { ...display, localPlayers: localPlayersOf(c, state) });
       else if (c.role === 'admin') safeSend(c, admin);
-      else if (c.role === 'player') safeSend(c, { t: 'me', phase: state.phase, paused, players: localPlayersOf(c, state) });
+      else if (c.role === 'player') safeSend(c, { t: 'me', phase: state.phase, round: state.round, paused, players: localPlayersOf(c, state) });
     }
   }
 
@@ -124,15 +131,15 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
 
   // ---- players ---------------------------------------------------------------
 
-  function addOwnedPlayer(client, slot, name, source) {
+  function addOwnedPlayer(client, slot, name, source, session = null) {
     if (client.owned.has(slot)) return { ok: true, already: true };
     const id = `p${nextPlayerNumber++}`;
-    const result = engine.addPlayer(id, name || fmt(STRINGS.defaultName, { n: id.slice(1) }));
+    const result = engine.addPlayer(id, name);
     if (!result.ok) return result;
     client.owned.set(slot, id);
-    owners.set(id, { client, slot, source });
+    owners.set(id, { client, slot, source, session });
     log(`[game] ${id} joined (${source}${slot === SELF ? '' : ` ${slot}`})`);
-    return { ok: true, id, colorIndex: result.colorIndex };
+    return { ok: true, id, name, colorIndex: result.colorIndex };
   }
 
   function removeOwnedPlayer(id) {
@@ -150,6 +157,60 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
     if (owner) safeSend(owner.client, { t: 'kicked', slot: owner.slot });
     log(`[game] ${id} kicked by admin`);
     return true;
+  }
+
+  // Phone name rules. Returns an error code, or null if the name is fine.
+  // `ownId` is excluded from the uniqueness check (a reconnecting player).
+  function nameProblem(name, ownId) {
+    if (!name) return 'nameEmpty';
+    if (wordList.matches(name)) return 'nameProfane';
+    const key = nameKey(name);
+    const taken = engine.getState().players.some((p) => p.id !== ownId && nameKey(p.name) === key);
+    return taken ? 'nameTaken' : null;
+  }
+
+  // The phone player that belongs to this session token, if any.
+  function playerOfSession(session) {
+    if (!session) return null;
+    for (const [id, o] of owners) if (o.session === session) return id;
+    return null;
+  }
+
+  // A device rejoining (e.g. after its wifi dropped before the server noticed)
+  // replaces its old player instead of being told its own name is taken.
+  function replaceStale(id) {
+    const old = owners.get(id);
+    removeOwnedPlayer(id);
+    if (!old) return;
+    safeSend(old.client, { t: 'replaced' });
+    try {
+      old.client.close(4000, 'replaced');
+    } catch {
+      /* already closed */
+    }
+    log(`[game] ${id} replaced by a new connection from the same device`);
+  }
+
+  function joinPhone(client, msg) {
+    if (client.owned.has(SELF)) return; // already playing on this connection
+    const name = sanitizeName(msg.name);
+    const session = typeof msg.session === 'string' && SESSION_PATTERN.test(msg.session) ? msg.session : null;
+    const previous = playerOfSession(session);
+    const problem = nameProblem(name, previous);
+    if (problem) return safeSend(client, { t: 'error', code: problem, slot: SELF });
+    if (previous) replaceStale(previous);
+    const result = addOwnedPlayer(client, SELF, name, 'phone', session);
+    if (!result.ok) return safeSend(client, { t: 'error', code: result.reason === 'full' ? 'full' : 'badMessage', slot: SELF });
+    safeSend(client, { t: 'joined', slot: SELF, id: result.id, name: result.name, colorIndex: result.colorIndex });
+    broadcast();
+  }
+
+  function sendWords(client) {
+    safeSend(client, { t: 'words', words: wordList.words() });
+  }
+
+  function broadcastWords() {
+    for (const c of clients) if (c.role === 'admin') sendWords(c);
   }
 
   // ---- incoming --------------------------------------------------------------
@@ -174,19 +235,12 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
       case 'join': {
         const slot = slotFor(client, msg);
         if (!slot) return badMessage(client);
-        let name;
-        let source;
-        if (client.role === 'display') {
-          if (!settings.keyboardPlayers) return safeSend(client, { t: 'error', code: 'keyboardDisabled' });
-          name = slot === 'wasd' ? STRINGS.display.keyboardWasd : STRINGS.display.keyboardArrows;
-          source = 'keyboard';
-        } else {
-          name = sanitizeName(msg.name);
-          source = 'phone';
-        }
-        const result = addOwnedPlayer(client, slot, name, source);
+        if (slot === SELF) return joinPhone(client, msg);
+        if (!settings.keyboardPlayers) return safeSend(client, { t: 'error', code: 'keyboardDisabled' });
+        const name = slot === 'wasd' ? STRINGS.display.keyboardWasd : STRINGS.display.keyboardArrows;
+        const result = addOwnedPlayer(client, slot, name, 'keyboard');
         if (!result.ok) return safeSend(client, { t: 'error', code: result.reason === 'full' ? 'full' : 'badMessage', slot });
-        if (!result.already) safeSend(client, { t: 'joined', slot, id: result.id, colorIndex: result.colorIndex });
+        if (!result.already) safeSend(client, { t: 'joined', slot, id: result.id, name, colorIndex: result.colorIndex });
         broadcast();
         return;
       }
@@ -246,6 +300,16 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
         }
         break;
       }
+      case 'addWord': {
+        const result = wordList.add(msg.word);
+        if (!result.ok) return safeSend(client, { t: 'error', code: `word_${result.reason}` });
+        log('[admin] banned word added');
+        return broadcastWords();
+      }
+      case 'removeWord':
+        if (!wordList.remove(msg.word)) return badMessage(client);
+        log('[admin] banned word removed');
+        return broadcastWords();
       default:
         return badMessage(client);
     }
@@ -284,7 +348,10 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
       windowCount: 0,
     };
     clients.add(client);
-    if (admin) safeSend(client, adminMessage(engine.getState()));
+    if (admin) {
+      safeSend(client, adminMessage(engine.getState()));
+      sendWords(client);
+    }
 
     return {
       message(raw) {
@@ -317,5 +384,5 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
     };
   }
 
-  return { engine, config, settings, connect, start, stop, tickOnce, isPaused: () => paused };
+  return { engine, config, settings, wordList, connect, start, stop, tickOnce, isPaused: () => paused };
 }

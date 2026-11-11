@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, sanitizeName, resolveSidePanel } from '../src/server/game.js';
+import { createWordList } from '../src/server/profanity.js';
 import { wifiPayload, detectLanIp } from '../src/server/network.js';
 import { passwordMatches, parseCookies, createLoginLimiter, createSessionStore } from '../src/server/auth.js';
 
@@ -57,13 +58,15 @@ describe('game controller', () => {
     assert.ok(c.sent.some((m) => m.t === 'error' && m.code === 'badMessage'));
   });
 
-  test('names are sanitized and fall back to a default', () => {
+  test('names are sanitized, capped at 12 characters, and empty ones rejected', () => {
     assert.equal(sanitizeName('  Mario\u0000‮  Rossi  '), 'Mario Rossi');
-    assert.equal(sanitizeName('x'.repeat(50)).length, 16);
+    assert.equal(sanitizeName('x'.repeat(50)).length, 12);
     assert.equal(sanitizeName(123), '');
     const game = createGame({ log: quiet });
-    fakeClient(game).send({ t: 'join', name: '\u0007\u0007' });
-    assert.match(game.engine.getState().players[0].name, /^Giocatore \d+$/);
+    const c = fakeClient(game);
+    c.send({ t: 'join', name: '\u0007  \u0007' });
+    assert.equal(c.last('error').code, 'nameEmpty');
+    assert.equal(game.engine.getState().players.length, 0);
   });
 
   test('keyboard players need the admin toggle and a display role', () => {
@@ -113,8 +116,9 @@ describe('game controller', () => {
     const c = fakeClient(game);
     c.send({ t: 'hello', role: 'player' });
     c.send({ t: 'hello', role: 'display' });
-    c.send({ t: 'join', slot: 'wasd' });
-    assert.equal(game.engine.getState().players[0].name, 'Giocatore 1');
+    c.send({ t: 'join', slot: 'wasd', name: 'Pippo' });
+    assert.equal(game.engine.getState().players.length, 1);
+    assert.equal(game.engine.getState().players[0].name, 'Pippo'); // a phone player, not a keyboard one
   });
 
   test('admin config is clamped server-side', () => {
@@ -174,6 +178,128 @@ describe('game controller', () => {
     const c = fakeClient(game);
     for (let i = 0; i < 100; i++) c.send('{"t":"nope"}');
     assert.equal(c.sent.filter((m) => m.t === 'error').length, 40);
+  });
+});
+
+describe('phone players', () => {
+  const SESSION_A = 'a'.repeat(32);
+  const SESSION_B = 'b'.repeat(32);
+
+  test('banned words in names are rejected', () => {
+    const game = createGame({ log: quiet, wordList: createWordList(['cazzo']) });
+    const c = fakeClient(game);
+    c.send({ t: 'join', name: 'C4zz0ne' });
+    assert.equal(c.last('error').code, 'nameProfane');
+    assert.equal(game.engine.getState().players.length, 0);
+    c.send({ t: 'join', name: 'Carlo' });
+    assert.equal(c.last('joined').name, 'Carlo');
+  });
+
+  test('names are unique among connected players, ignoring case', () => {
+    const game = createGame({ log: quiet });
+    const a = fakeClient(game);
+    const b = fakeClient(game);
+    a.send({ t: 'join', name: 'Anna', session: SESSION_A });
+    b.send({ t: 'join', name: 'ANNA', session: SESSION_B });
+    assert.equal(b.last('error').code, 'nameTaken');
+    // Once Anna leaves, the name is free again.
+    a.conn.disconnect();
+    b.send({ t: 'join', name: 'ANNA', session: SESSION_B });
+    assert.equal(b.last('joined').name, 'ANNA');
+  });
+
+  test('a reconnecting device keeps its name and replaces its stale player', () => {
+    const game = createGame({ log: quiet });
+    const old = fakeClient(game);
+    old.send({ t: 'join', name: 'Luca', session: SESSION_A });
+    const oldColor = old.last('joined').colorIndex;
+    // Same device, new socket, before the server noticed the old one died.
+    const again = fakeClient(game);
+    again.send({ t: 'join', name: 'luca', session: SESSION_A });
+    const players = game.engine.getState().players;
+    assert.equal(players.length, 1);
+    assert.equal(players[0].name, 'luca');
+    assert.equal(again.last('joined').colorIndex, oldColor); // color was released and reused
+    assert.ok(old.last('replaced'));
+    assert.deepEqual(old.closed, [4000]);
+    // The old socket closing later doesn't remove the new player.
+    old.conn.disconnect();
+    assert.equal(game.engine.getState().players.length, 1);
+  });
+
+  test('a session token only matches its own player', () => {
+    const game = createGame({ log: quiet });
+    const a = fakeClient(game);
+    a.send({ t: 'join', name: 'Luca', session: SESSION_A });
+    for (const session of [SESSION_B, 'short', { x: 1 }, undefined]) {
+      const thief = fakeClient(game);
+      thief.send({ t: 'join', name: 'Luca', session });
+      assert.equal(thief.last('error').code, 'nameTaken');
+    }
+    assert.equal(game.engine.getState().players.length, 1);
+    assert.equal(a.closed.length, 0);
+  });
+
+  test('a rejected rejoin leaves the old player alone', () => {
+    const game = createGame({ log: quiet, wordList: createWordList(['merda']) });
+    const old = fakeClient(game);
+    old.send({ t: 'join', name: 'Luca', session: SESSION_A });
+    const again = fakeClient(game);
+    again.send({ t: 'join', name: 'merda', session: SESSION_A });
+    assert.equal(again.last('error').code, 'nameProfane');
+    assert.equal(game.engine.getState().players[0].name, 'Luca');
+    assert.equal(old.closed.length, 0);
+  });
+
+  test('maxPlayers is respected', () => {
+    const game = createGame({ log: quiet });
+    game.engine.updateConfig({ maxPlayers: 2 });
+    for (const n of ['A', 'B']) fakeClient(game).send({ t: 'join', name: n });
+    const late = fakeClient(game);
+    late.send({ t: 'join', name: 'C' });
+    assert.equal(late.last('error').code, 'full');
+  });
+
+  test('the me message carries status, direction and round', () => {
+    const game = createGame({ log: quiet });
+    const c = fakeClient(game);
+    c.send({ t: 'join', name: 'Eva' });
+    game.tickOnce();
+    const me = c.last('me');
+    assert.equal(me.round, 1);
+    assert.equal(me.players.self.name, 'Eva');
+    assert.equal(me.players.self.status, 'alive');
+    assert.ok(['up', 'down', 'left', 'right'].includes(me.players.self.dir));
+  });
+});
+
+describe('banned words admin', () => {
+  test('admins can add and remove words live', () => {
+    const game = createGame({ log: quiet, wordList: createWordList([]) });
+    const admin = fakeClient(game, { admin: true, isAuthorized: () => true });
+    assert.deepEqual(admin.last('words').words, []);
+    admin.send({ t: 'addWord', word: 'Pirla' });
+    assert.deepEqual(admin.last('words').words, ['pirla']);
+    const phone = fakeClient(game);
+    phone.send({ t: 'join', name: 'pirla' });
+    assert.equal(phone.last('error').code, 'nameProfane');
+    admin.send({ t: 'addWord', word: 'P1RLA' });
+    assert.equal(admin.last('error').code, 'word_exists');
+    admin.send({ t: 'addWord', word: '!!' });
+    assert.equal(admin.last('error').code, 'word_invalid');
+    admin.send({ t: 'removeWord', word: 'pirla' });
+    assert.deepEqual(admin.last('words').words, []);
+    phone.send({ t: 'join', name: 'pirla' });
+    assert.ok(phone.last('joined'));
+  });
+
+  test('public clients cannot edit the list', () => {
+    const list = createWordList(['merda']);
+    const game = createGame({ log: quiet, wordList: list });
+    const c = fakeClient(game);
+    c.send({ t: 'removeWord', word: 'merda' });
+    c.send({ t: 'addWord', word: 'anna' });
+    assert.deepEqual(list.words(), ['merda']);
   });
 });
 

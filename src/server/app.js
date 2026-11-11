@@ -40,10 +40,12 @@ ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}
  * @param {Function} [opts.log]
  * @param {Function} [opts.random] RNG for the engine
  * @param {object} [opts.limiter] options for the login limiter
+ * @param {object} [opts.wordList] banned-word list for names (see profanity.js)
+ * @param {number} [opts.heartbeatMs] how often sockets are pinged; dead ones are dropped
  */
-export function createApp({ serverConfig, log = console.log, random, limiter: limiterOpts } = {}) {
+export function createApp({ serverConfig, log = console.log, random, limiter: limiterOpts, wordList, heartbeatMs = 5000 } = {}) {
   const joinInfo = { ssid: serverConfig.wifi.ssid, wifiPassword: serverConfig.wifi.password, playUrl: '' };
-  const game = createGame({ random, log, joinInfo });
+  const game = createGame({ random, log, joinInfo, wordList });
   const sessions = createSessionStore();
   const limiter = createLoginLimiter(limiterOpts);
   const lanIp = detectLanIp();
@@ -180,7 +182,30 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
     reject(socket, 404, 'Not Found');
   });
 
+  // Heartbeat: a phone that drops off the wifi never sends a close frame, so
+  // without pings its player would linger. A socket that misses one ping is
+  // terminated, which removes its player like any other disconnect.
+  const heartbeat = setInterval(() => {
+    for (const ws of [...publicWss.clients, ...adminWss.clients]) {
+      if (ws.isAlive === false) {
+        ws.terminate();
+        continue;
+      }
+      ws.isAlive = false;
+      try {
+        ws.ping();
+      } catch {
+        ws.terminate();
+      }
+    }
+  }, heartbeatMs);
+  heartbeat.unref();
+
   function attach(ws, opts) {
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
     const conn = game.connect(
       {
         send: (obj) => {
@@ -223,6 +248,7 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
   }
 
   function close() {
+    clearInterval(heartbeat);
     game.stop();
     for (const ws of [...publicWss.clients, ...adminWss.clients]) ws.terminate();
     return new Promise((resolve) => server.close(() => resolve()));

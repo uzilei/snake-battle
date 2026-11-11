@@ -64,7 +64,7 @@ function nextMessage(ws, t) {
 
 describe('public pages', () => {
   test('display, play, strings, QR codes and twemoji are served', async () => {
-    for (const path of ['/display', '/play', '/shared/strings.js', '/static/display/display.js', '/twemoji/1f34e.svg']) {
+    for (const path of ['/display', '/play', '/shared/strings.js', '/static/display/display.js', '/static/play/play.js', '/static/play/play.css', '/twemoji/1f34e.svg']) {
       assert.equal((await get(path)).status, 200, path);
     }
     const qr = await get('/qr/wifi.svg');

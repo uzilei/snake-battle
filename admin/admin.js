@@ -35,6 +35,10 @@ $('c-length').textContent = A.colLength;
 $('c-source').textContent = A.colSource;
 $('no-players').textContent = A.noPlayers;
 $('h-links').textContent = A.links;
+$('h-words').textContent = A.words;
+$('words-hint').textContent = A.wordsHint;
+$('word-input').placeholder = A.wordPlaceholder;
+$('word-add').textContent = A.addWord;
 $('credits').textContent = A.credits;
 
 for (const [value, label] of Object.entries(A.sidePanelOptions)) {
@@ -65,6 +69,8 @@ function connect() {
       return;
     }
     if (msg.t === 'admin') update(msg);
+    else if (msg.t === 'words') renderWords(msg.words);
+    else if (msg.t === 'error' && A.wordErrors[msg.code]) $('word-error').textContent = A.wordErrors[msg.code];
     else if (msg.t === 'unauthorized') sessionGone = true;
   };
   ws.onclose = async () => {
@@ -182,6 +188,40 @@ function renderPlayers(players) {
       actions.append(kick);
       tr.append(name, status, length, source, actions);
       return tr;
+    }),
+  );
+}
+
+// ---- banned words -------------------------------------------------------------
+$('word-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const word = $('word-input').value.trim();
+  if (!word) return;
+  $('word-error').textContent = '';
+  send({ t: 'addWord', word });
+});
+$('word-input').addEventListener('input', () => {
+  $('word-error').textContent = '';
+});
+
+let lastWords = null;
+
+function renderWords(words) {
+  // The server sends the list after every change; a grown list means our add worked.
+  if (lastWords && words.length > lastWords.length) $('word-input').value = '';
+  lastWords = words;
+  $('word-count').textContent = fmt(A.wordCount, { n: words.length });
+  $('word-list').replaceChildren(
+    ...words.map((word) => {
+      const li = document.createElement('li');
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '×';
+      remove.title = fmt(A.removeWord, { word });
+      remove.setAttribute('aria-label', remove.title);
+      remove.addEventListener('click', () => send({ t: 'removeWord', word }));
+      li.append(document.createTextNode(word), remove);
+      return li;
     }),
   );
 }

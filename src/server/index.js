@@ -4,12 +4,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadServerConfig } from './config.js';
 import { createApp } from './app.js';
+import { loadWordList } from './profanity.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const configPath = path.join(ROOT, 'config.json');
 
 const serverConfig = loadServerConfig(configPath);
-const { listen } = createApp({ serverConfig });
+// The live list is edited from /admin; it is seeded from the starter list on first run.
+const wordList = loadWordList(path.join(ROOT, 'banned-words.json'), path.join(ROOT, 'src', 'server', 'banned-words.default.json'));
+const { listen } = createApp({ serverConfig, wordList });
 
 // A single bad client must never take the server down.
 process.on('uncaughtException', (err) => console.error('[server] uncaught exception:', err));

@@ -18,3 +18,21 @@ export const PLAYER_COLORS = Object.freeze([
 export function playerColor(colorIndex) {
   return PLAYER_COLORS[colorIndex % PLAYER_COLORS.length] ?? '#ffffff';
 }
+
+// Relative luminance (WCAG) of a #rrggbb color.
+function luminance(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+// Black or white, whichever contrasts more with the player's color. Used for
+// the name on the phone, whose whole background is the snake color.
+export function contrastText(colorIndex) {
+  const l = luminance(playerColor(colorIndex));
+  const vsBlack = (l + 0.05) / 0.05;
+  const vsWhite = 1.05 / (l + 0.05);
+  return vsBlack >= vsWhite ? '#111111' : '#ffffff';
+}
