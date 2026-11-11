@@ -507,3 +507,218 @@ describe('players and rounds', () => {
     assert.deepEqual(snake(e, 'a').segments[0], { x: 5, y: 5 });
   });
 });
+
+describe('corpse apples', () => {
+  const kill = (config) =>
+    setup(
+      {
+        a: [[[5, 4], [4, 4], [3, 4]], 'right'], // hits b's body at (6,4)
+        b: [[[6, 3], [6, 4], [6, 5], [6, 6]], 'left'],
+        c: [[[15, 15], [14, 15], [13, 15]], 'right'],
+      },
+      config,
+    );
+  const corpseCells = (e) =>
+    e
+      .getState()
+      .apples.filter((a) => a.corpse)
+      .map(({ x, y }) => `${x},${y}`)
+      .sort();
+
+  test('a dead snake turns into one apple per segment, on top of appleCount', () => {
+    const e = kill({ corpseApples: true, appleCount: 2 });
+    e._debug.setApples([[0, 0], [0, 1]]);
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.deepEqual(corpseCells(e), ['3,4', '4,4', '5,4']);
+    assert.equal(e.getState().apples.length, 2 + 3);
+  });
+
+  test('replacement spawning never pushes the total above appleCount', () => {
+    const e = kill({ corpseApples: true, appleCount: 2 });
+    e._debug.setApples([[16, 15], [0, 0]]); // c eats (16,15) this tick
+    e.tick();
+    // 1 regular + 3 corpse apples = 4 >= 2, so the eaten one is not replaced.
+    assert.equal(e.getState().apples.length, 4);
+    // b eats the corpse apples one by one.
+    e._debug.setSnake('b', [[6, 3], [6, 2], [6, 1]], 'down');
+    e._debug.setSnake('c', [[15, 15], [14, 15], [13, 15]], 'right');
+    e.setDirection('b', 'left'); // (5,3)
+    e.tick();
+    e.setDirection('b', 'down'); // (5,4) corpse
+    e.tick();
+    e.setDirection('b', 'left'); // (4,4) corpse
+    e.tick();
+    assert.equal(e.getState().apples.length, 2); // 1 regular + 1 corpse: still nothing new
+    e.tick(); // (3,4), the last corpse apple: total 1 < 2, so one regular apple spawns
+    const apples = e.getState().apples;
+    assert.equal(apples.length, 2);
+    assert.equal(apples.filter((a) => a.corpse).length, 0);
+  });
+
+  test('lowering appleCount removes regular apples only', () => {
+    const e = kill({ corpseApples: true, appleCount: 2 });
+    e._debug.setApples([[0, 0], [0, 1]]);
+    e.tick();
+    e.updateConfig({ appleCount: 0 });
+    e.tick();
+    const apples = e.getState().apples;
+    assert.equal(apples.length, 3);
+    assert.ok(apples.every((a) => a.corpse));
+  });
+
+  test('no corpse apple under a head that moved into the dead tail', () => {
+    // a dies hitting c's body; b moves into a's tail cell, which counts as
+    // vacated, so b survives on a cell that a's corpse still covers.
+    const e = setup(
+      {
+        a: [[[5, 5], [4, 5], [3, 5]], 'right'],
+        b: [[[3, 6], [3, 7], [3, 8]], 'up'], // moves to (3,5)
+        c: [[[6, 4], [6, 5], [6, 6], [6, 7]], 'up'],
+      },
+      { corpseApples: true },
+    );
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.equal(player(e, 'b').status, 'alive');
+    assert.deepEqual(snake(e, 'b').segments[0], { x: 3, y: 5 });
+    assert.deepEqual(corpseCells(e), ['4,5', '5,5']);
+  });
+
+  test('no corpse apple under a head that passed through the dead head', () => {
+    const e = setup(
+      {
+        a: [[[5, 5], [4, 5], [3, 5], [2, 5]], 'right'],
+        b: [[[6, 5], [7, 5], [8, 5]], 'left'], // shorter: survives the head-on
+      },
+      { corpseApples: true },
+    );
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.deepEqual(snake(e, 'b').segments[0], { x: 5, y: 5 });
+    assert.deepEqual(corpseCells(e), ['2,5', '3,5', '4,5']);
+  });
+
+  test('off by default: dead snakes leave no apples', () => {
+    const e = kill({});
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.equal(e.getState().apples.length, 0);
+  });
+
+  test('turning it on mid-round applies from the next round only', () => {
+    const e = kill({});
+    e.updateConfig({ corpseApples: true });
+    assert.equal(e.getState().rules.corpseApples, false);
+    e.tick();
+    assert.equal(e.getState().apples.length, 0);
+    e.restartRound();
+    assert.equal(e.getState().rules.corpseApples, true);
+    assert.equal(e.getState().rules.wrapWalls, false); // the other rule stays off
+  });
+});
+
+describe('wrap-around walls', () => {
+  const cases = [
+    ['right', [[19, 5], [18, 5], [17, 5]], { x: 0, y: 5 }],
+    ['left', [[0, 5], [1, 5], [2, 5]], { x: 19, y: 5 }],
+    ['down', [[5, 19], [5, 18], [5, 17]], { x: 5, y: 0 }],
+    ['up', [[5, 0], [5, 1], [5, 2]], { x: 5, y: 19 }],
+  ];
+  for (const [dir, segments, expected] of cases) {
+    test(`leaving through the ${dir} edge enters from the opposite one`, () => {
+      const e = setup({ a: [segments, dir] }, { wrapWalls: true });
+      e.tick();
+      assert.equal(player(e, 'a').status, 'alive');
+      assert.deepEqual(snake(e, 'a').segments[0], expected);
+    });
+  }
+
+  test('walls still kill when it is off', () => {
+    const e = setup({ a: [[[19, 5], [18, 5], [17, 5]], 'right'] });
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+  });
+
+  test('bodies on the other side of the edge still collide', () => {
+    const e = setup(
+      {
+        a: [[[19, 5], [18, 5], [17, 5]], 'right'], // wraps into (0,5)
+        b: [[[0, 4], [0, 5], [0, 6], [0, 7]], 'up'], // (0,5) stays body
+        c: [[[10, 15], [9, 15], [8, 15]], 'right'],
+      },
+      { wrapWalls: true },
+    );
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.equal(player(e, 'b').status, 'alive');
+  });
+
+  test('apples on the other side of the edge are eaten', () => {
+    const e = setup({ a: [[[19, 5], [18, 5], [17, 5]], 'right'] }, { wrapWalls: true });
+    e._debug.setApples([[0, 5]]);
+    e.tick();
+    assert.equal(snake(e, 'a').pendingGrowth, 1);
+  });
+
+  test('turning it on mid-round applies from the next round only', () => {
+    const e = setup({ a: [[[19, 5], [18, 5], [17, 5]], 'right'], b: [[[5, 15], [4, 15], [3, 15]], 'right'] });
+    e.updateConfig({ wrapWalls: true });
+    assert.equal(e.getState().rules.wrapWalls, false);
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    e.restartRound();
+    assert.equal(e.getState().rules.wrapWalls, true);
+    assert.equal(e.getState().rules.corpseApples, false); // the other rule stays off
+  });
+});
+
+describe('corpse apples with wrap-around walls', () => {
+  const straddle = () =>
+    setup(
+      {
+        a: [[[1, 5], [0, 5], [19, 5], [18, 5]], 'right'], // body crosses the left/right edge
+        b: [[[2, 4], [2, 5], [2, 6], [2, 7]], 'up'], // a runs into (2,5)
+        c: [[[17, 6], [16, 6], [15, 6]], 'right'],
+      },
+      { wrapWalls: true, corpseApples: true },
+    );
+
+  test('a body straddling an edge becomes apples, all inside the board', () => {
+    const e = straddle();
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    const apples = e.getState().apples;
+    const corpse = apples.filter((a) => a.corpse).map(({ x, y }) => `${x},${y}`).sort();
+    assert.deepEqual(corpse, ['0,5', '18,5', '19,5', '1,5'].sort());
+    assert.ok(apples.every((a) => a.x >= 0 && a.y >= 0 && a.x < 20 && a.y < 20));
+  });
+
+  test('corpse apples can be eaten by wrapping across the edge', () => {
+    const e = straddle();
+    e.tick(); // a dies, c moves to (18,6)
+    e.setDirection('c', 'up'); // (18,5) corpse
+    e.tick();
+    e.setDirection('c', 'right'); // (19,5) corpse
+    e.tick();
+    e.tick(); // wraps to (0,5) corpse
+    const c = snake(e, 'c');
+    assert.deepEqual(c.segments[0], { x: 0, y: 5 });
+    assert.equal(c.pendingGrowth + c.segments.length - 3, 3); // three apples eaten
+    assert.equal(e.getState().apples.filter((a) => a.corpse).length, 1);
+  });
+});
+
+describe('config toggles', () => {
+  test('only real booleans are accepted', () => {
+    assert.deepEqual(sanitizeConfig({ wrapWalls: true, corpseApples: 'yes' }), { wrapWalls: true });
+    assert.deepEqual(sanitizeConfig({ wrapWalls: 1, corpseApples: false }), { corpseApples: false });
+  });
+
+  test('both default to off', () => {
+    const e = createEngine();
+    assert.equal(e.config.wrapWalls, false);
+    assert.equal(e.config.corpseApples, false);
+    assert.deepEqual(e.getState().rules, { corpseApples: false, wrapWalls: false });
+  });
+});

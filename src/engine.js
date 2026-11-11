@@ -34,14 +34,21 @@ export const CONFIG_LIMITS = Object.freeze({
   countdownMs: { min: 0, max: 10000, default: 0 }, // 0 = no pre-round countdown
 });
 
+// On/off rules. Like gridSize, they are read when a round starts, so a change
+// applies from the next round.
+export const CONFIG_TOGGLES = Object.freeze({
+  corpseApples: false, // a dead snake's segments turn into apples
+  wrapWalls: false, // leaving one edge enters from the opposite one
+});
+
 export function createDefaultConfig() {
-  const config = {};
+  const config = { ...CONFIG_TOGGLES };
   for (const [key, limit] of Object.entries(CONFIG_LIMITS)) config[key] = limit.default;
   return config;
 }
 
-// Returns only the recognised, valid keys of `partial`, rounded and clamped.
-// Unknown keys and non-finite values are dropped.
+// Returns only the recognised, valid keys of `partial`: numbers rounded and
+// clamped, toggles accepted only as real booleans. Everything else is dropped.
 export function sanitizeConfig(partial) {
   const out = {};
   if (partial === null || typeof partial !== 'object') return out;
@@ -50,6 +57,9 @@ export function sanitizeConfig(partial) {
     const value = partial[key];
     if (typeof value !== 'number' || !Number.isFinite(value)) continue;
     out[key] = Math.min(limit.max, Math.max(limit.min, Math.round(value)));
+  }
+  for (const key of Object.keys(CONFIG_TOGGLES)) {
+    if (Object.hasOwn(partial, key) && typeof partial[key] === 'boolean') out[key] = partial[key];
   }
   return out;
 }
@@ -72,7 +82,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   let round = 0;
   let tickCount = 0;
   let gridSize = cfg.gridSize; // locked for the duration of a round
-  let apples = []; // [{ x, y }]
+  let rules = { corpseApples: cfg.corpseApples, wrapWalls: cfg.wrapWalls }; // locked per round too
+  let apples = []; // [{ x, y, corpse? }]; corpse apples come on top of cfg.appleCount
   let winnerId = null;
   let participants = 0; // snakes spawned at round start
   let intermissionElapsed = 0;
@@ -139,8 +150,17 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // Keeps the apple count in line with cfg.appleCount (applies live).
+  // Corpse apples count towards the total, so no new apple spawns while the
+  // board already holds appleCount or more. Lowering appleCount trims regular
+  // apples down to it; corpse apples are never removed.
   function syncApples() {
-    if (apples.length > cfg.appleCount) apples.length = cfg.appleCount;
+    let excess = apples.filter((a) => !a.corpse).length - cfg.appleCount;
+    for (let i = apples.length - 1; i >= 0 && excess > 0; i--) {
+      if (!apples[i].corpse) {
+        apples.splice(i, 1);
+        excess--;
+      }
+    }
     if (apples.length >= cfg.appleCount) return;
     const occupied = occupiedCells();
     while (apples.length < cfg.appleCount) {
@@ -156,6 +176,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   function startRound() {
     round++;
     gridSize = cfg.gridSize;
+    rules = { corpseApples: cfg.corpseApples, wrapWalls: cfg.wrapWalls };
     apples = [];
     winnerId = null;
     intermissionElapsed = 0;
@@ -207,11 +228,17 @@ export function createEngine({ config, random = Math.random } = {}) {
       if (s.dirQueue.length) s.dir = s.dirQueue.shift(); // one queued turn per tick
       const head = s.segments[0];
       const d = DIRECTIONS[s.dir];
+      let x = head.x + d.x;
+      let y = head.y + d.y;
+      if (rules.wrapWalls) {
+        x = (x + gridSize) % gridSize;
+        y = (y + gridSize) % gridSize;
+      }
       return {
         player: p,
         snake: s,
         head,
-        newHead: { x: head.x + d.x, y: head.y + d.y },
+        newHead: { x, y },
         grows: s.pendingGrowth > 0,
         length: s.segments.length,
       };
@@ -275,6 +302,25 @@ export function createEngine({ config, random = Math.random } = {}) {
       if (i !== -1) {
         apples.splice(i, 1);
         m.snake.pendingGrowth += cfg.growthPerApple;
+      }
+    }
+
+    if (rules.corpseApples && dead.size) dropCorpses([...dead].map((m) => m.snake));
+  }
+
+  // Every segment of the snakes that just died becomes an apple, except cells
+  // a living snake now covers (e.g. a head that moved into a dead snake's tail
+  // the same tick) and cells that already hold an apple.
+  function dropCorpses(corpses) {
+    const blocked = new Set();
+    for (const s of aliveSnakes()) for (const c of s.segments) blocked.add(cellKey(c.x, c.y));
+    for (const a of apples) blocked.add(cellKey(a.x, a.y));
+    for (const s of corpses) {
+      for (const c of s.segments) {
+        const k = cellKey(c.x, c.y);
+        if (!inBounds(c.x, c.y) || blocked.has(k)) continue;
+        blocked.add(k);
+        apples.push({ x: c.x, y: c.y, corpse: true });
       }
     }
   }
@@ -359,11 +405,12 @@ export function createEngine({ config, random = Math.random } = {}) {
       round,
       tick: tickCount,
       gridSize,
+      rules: { ...rules },
       winnerId,
       intermissionRemainingMs:
         phase === PHASES.INTERMISSION ? Math.max(0, cfg.intermissionMs - intermissionElapsed) : 0,
       countdownRemainingMs: phase === PHASES.COUNTDOWN ? Math.max(0, cfg.countdownMs - countdownElapsed) : 0,
-      apples: apples.map((a) => ({ x: a.x, y: a.y })),
+      apples: apples.map((a) => (a.corpse ? { x: a.x, y: a.y, corpse: true } : { x: a.x, y: a.y })),
       players: [...players.values()].map((p) => ({
         id: p.id,
         name: p.name,

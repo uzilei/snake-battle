@@ -4,15 +4,20 @@
 // Transport-agnostic: a client is { send(obj), close(code, reason) } plus a
 // role. The WebSocket wiring lives in app.js.
 
-import { createEngine, createDefaultConfig, CONFIG_LIMITS, PHASES } from '../engine.js';
+import { createEngine, createDefaultConfig, CONFIG_LIMITS, CONFIG_TOGGLES, PHASES } from '../engine.js';
 import { STRINGS } from '../shared/strings.js';
 import { createWordList } from './profanity.js';
 import { MAX_NAME_LENGTH } from '../shared/limits.js';
+import { nameKey } from './names.js';
+import { createRecords } from './records.js';
 
-export const SIDE_PANEL_MODES = Object.freeze(['auto', 'leaderboard', 'join']);
+// 'leaderboard' is the live scoreboard; 'records' is the wins leaderboard and
+// hall of fame (shown only when at least one of them is enabled).
+export const SIDE_PANEL_MODES = Object.freeze(['auto', 'leaderboard', 'records', 'join']);
+const RECORD_SETTINGS = Object.freeze(['leaderboard', 'hallOfFame']);
 export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
 const SELF = 'self';
-export { MAX_NAME_LENGTH };
+export { MAX_NAME_LENGTH, nameKey };
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const MAX_MESSAGES_PER_SECOND = 40;
 
@@ -26,18 +31,30 @@ export function sanitizeName(raw) {
   return [...cleaned].slice(0, MAX_NAME_LENGTH).join('').trim();
 }
 
-// Key for the case-insensitive uniqueness check.
-export const nameKey = (name) => name.normalize('NFC').toLocaleLowerCase('it');
-
-export function resolveSidePanel(mode, state) {
-  if (mode === 'leaderboard' || mode === 'join') return mode;
-  return state.players.length < 2 || state.phase === PHASES.INTERMISSION ? 'join' : 'leaderboard';
+// Which side column panel /display shows. The records panel only exists when
+// the leaderboard or the hall of fame is enabled; it replaces the scoreboard
+// (or, in auto mode, the join panel) between rounds, when nobody is playing.
+export function resolveSidePanel(mode, state, recordsOn = false) {
+  const betweenRounds = state.phase === PHASES.INTERMISSION || state.phase === PHASES.WAITING;
+  if (mode === 'join') return 'join';
+  if (mode === 'records') return recordsOn ? 'records' : 'leaderboard';
+  if (mode === 'leaderboard') return recordsOn && betweenRounds ? 'records' : 'leaderboard';
+  if (state.players.length < 2) return 'join';
+  if (state.phase === PHASES.INTERMISSION) return recordsOn ? 'records' : 'join';
+  return 'leaderboard';
 }
 
-export function createGame({ random = Math.random, log = console.log, joinInfo = {}, wordList = createWordList() } = {}) {
+export function createGame({
+  random = Math.random,
+  log = console.log,
+  joinInfo = {},
+  wordList = createWordList(),
+  records = createRecords(),
+} = {}) {
   const config = createDefaultConfig();
   const engine = createEngine({ config, random });
-  const settings = { sidePanel: 'auto', keyboardPlayers: false };
+  const settings = { sidePanel: 'auto', keyboardPlayers: false, leaderboard: false, hallOfFame: false };
+  let recordsView = records.top(); // cached: recomputed only when the records change
   let paused = false;
   let nextPlayerNumber = 1;
   let timer = null;
@@ -55,13 +72,19 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
     }
   }
 
+  const recordsOn = () => settings.leaderboard || settings.hallOfFame;
+
   function displayMessage(state) {
     return {
       t: 'state',
       state,
       paused,
-      sidePanel: resolveSidePanel(settings.sidePanel, state),
+      sidePanel: resolveSidePanel(settings.sidePanel, state, recordsOn()),
       keyboardPlayers: settings.keyboardPlayers,
+      records: {
+        leaderboard: settings.leaderboard ? recordsView.leaderboard : null,
+        hallOfFame: settings.hallOfFame ? recordsView.hallOfFame : null,
+      },
       localPlayers: null, // filled per client
     };
   }
@@ -74,7 +97,10 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
       paused,
       config: { ...config },
       limits: CONFIG_LIMITS,
+      toggles: Object.keys(CONFIG_TOGGLES),
+      rules: state.rules, // the rules of the round in progress
       settings: { ...settings },
+      hallOfFameSize: recordsView.hallOfFame.length,
       players: state.players.map((p) => ({ ...p, source: owners.get(p.id)?.source ?? 'unknown' })),
       joinInfo,
     };
@@ -104,8 +130,51 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
 
   // ---- tick loop -------------------------------------------------------------
 
+  // ---- records ------------------------------------------------------------------
+  // Whether a round counts for the leaderboard / hall of fame is decided when
+  // it starts, so toggling them mid-round applies from the next round.
+  let track = { round: 0, counting: { leaderboard: false, hallOfFame: false }, best: new Map(), done: true };
+
+  function commitRound(winnerId) {
+    if (track.done) return;
+    track.done = true;
+    const { leaderboard, hallOfFame } = track.counting;
+    if (!leaderboard && !hallOfFame) return;
+    try {
+      const winner = leaderboard && winnerId ? (track.best.get(winnerId)?.name ?? null) : null;
+      const changed = records.recordRound({ winner, lengths: hallOfFame ? [...track.best.values()] : [] });
+      if (changed) recordsView = records.top();
+    } catch (err) {
+      log(`[records] could not record round ${track.round}: ${err.message}`);
+    }
+  }
+
+  // Called after every tick and around an admin restart.
+  function observeRound() {
+    const state = engine.getState();
+    if (state.round !== track.round) {
+      commitRound(null); // a round abandoned by a restart: lengths count, no win
+      track = {
+        round: state.round,
+        counting: { leaderboard: settings.leaderboard, hallOfFame: settings.hallOfFame },
+        best: new Map(), // playerId -> { name, length }, kept for players who leave mid-round
+        done: false,
+      };
+    }
+    if (track.done) return;
+    for (const p of state.players) {
+      if (p.status === 'queued') continue;
+      const best = track.best.get(p.id);
+      if (!best || p.length > best.length) track.best.set(p.id, { name: p.name, length: p.length });
+    }
+    if (state.phase === PHASES.INTERMISSION || state.phase === PHASES.WAITING) commitRound(state.winnerId);
+  }
+
   function tickOnce() {
-    if (!paused) engine.tick();
+    if (!paused) {
+      engine.tick();
+      observeRound();
+    }
     broadcast();
   }
 
@@ -281,7 +350,9 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
         paused = false;
         break;
       case 'restart':
+        observeRound(); // capture the lengths reached so far
         engine.restartRound();
+        observeRound();
         log('[admin] round restarted');
         break;
       case 'kick':
@@ -299,8 +370,18 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
             for (const [id, o] of [...owners]) if (o.source === 'keyboard') kick(id);
           }
         }
+        for (const key of RECORD_SETTINGS) {
+          if (!Object.hasOwn(msg, key)) continue;
+          if (typeof msg[key] !== 'boolean') return badMessage(client);
+          settings[key] = msg[key];
+        }
         break;
       }
+      case 'resetHallOfFame':
+        records.resetHallOfFame();
+        recordsView = records.top();
+        log('[admin] hall of fame reset');
+        break;
       case 'addWord': {
         const result = wordList.add(msg.word);
         if (!result.ok) return safeSend(client, { t: 'error', code: `word_${result.reason}` });
@@ -385,5 +466,5 @@ export function createGame({ random = Math.random, log = console.log, joinInfo =
     };
   }
 
-  return { engine, config, settings, wordList, connect, start, stop, tickOnce, isPaused: () => paused };
+  return { engine, config, settings, wordList, records, connect, start, stop, tickOnce, isPaused: () => paused };
 }

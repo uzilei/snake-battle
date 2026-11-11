@@ -28,6 +28,19 @@ $('h-display').textContent = A.display;
 $('l-side').textContent = A.sidePanel;
 $('side-hint').textContent = A.sidePanelAutoHint;
 $('l-keyboard').textContent = A.keyboardPlayers;
+$('h-rules').textContent = A.rules;
+$('rules-hint').textContent = A.rulesHint;
+$('btn-reset-fame').textContent = A.resetHallOfFame;
+
+// Engine rules go through 'config'; the records toggles are server settings.
+const RULE_TOGGLES = { corpseApples: 'config', wrapWalls: 'config', leaderboard: 'settings', hallOfFame: 'settings' };
+for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
+  $(`l-${key}`).textContent = A[key];
+  $(`t-${key}`).addEventListener('change', (e) => {
+    const value = e.target.checked;
+    send(kind === 'config' ? { t: 'config', values: { [key]: value } } : { t: 'settings', [key]: value });
+  });
+}
 $('h-players').textContent = A.players;
 $('c-name').textContent = A.colName;
 $('c-status').textContent = A.colStatus;
@@ -98,6 +111,9 @@ $('btn-restart').addEventListener('click', () => {
 });
 $('side-panel').addEventListener('change', (e) => send({ t: 'settings', sidePanel: e.target.value }));
 $('keyboard').addEventListener('change', (e) => send({ t: 'settings', keyboardPlayers: e.target.checked }));
+$('btn-reset-fame').addEventListener('click', () => {
+  if (confirm(A.confirmResetHallOfFame)) send({ t: 'resetHallOfFame' });
+});
 
 const sliderEls = {};
 let slidersBuilt = false;
@@ -154,6 +170,12 @@ function update(msg) {
   }
   if (document.activeElement !== $('side-panel')) $('side-panel').value = msg.settings.sidePanel;
   $('keyboard').checked = msg.settings.keyboardPlayers;
+  for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
+    $(`t-${key}`).checked = Boolean(kind === 'config' ? msg.config[key] : msg.settings[key]);
+  }
+  const active = Object.keys(msg.rules ?? {}).filter((k) => msg.rules[k]).map((k) => A[k]);
+  $('rules-active').textContent = msg.round > 0 ? fmt(A.activeThisRound, { list: active.length ? active.join(', ') : A.noneActive }) : '';
+  $('btn-reset-fame').disabled = !msg.hallOfFameSize;
 
   const key = JSON.stringify(msg.players);
   if (key !== lastPlayersKey) {

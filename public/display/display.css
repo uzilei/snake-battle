@@ -138,6 +138,41 @@ h1 { margin: 0 0 3vh; font-size: 6vh; font-weight: 900; letter-spacing: 0.02em; 
 #lb-list.compact .status { font-size: 2vh; }
 
 .muted { color: var(--muted); font-size: 3.6vh; }
+.muted.small { font-size: 2.8vh; margin: 0; }
+
+/* ---- records (wins leaderboard and hall of fame) ---- */
+
+#records { gap: 3vh; }
+
+h2 { margin: 0 0 1.6vh; font-size: 4.2vh; font-weight: 900; color: var(--accent); }
+
+.records-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6vh;
+}
+
+.records-list li {
+  display: grid;
+  grid-template-columns: 3.4vh minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 1.6vh;
+  padding: 0.5vh 1.6vh;
+  border-radius: 1vh;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 3vh;
+  line-height: 1.2;
+}
+
+.records-list.fame li { grid-template-columns: 3.4vh minmax(0, 1fr) auto auto; }
+.records-list li:first-child { background: rgba(255, 210, 63, 0.16); }
+.records-list .rank { color: var(--muted); font-weight: 800; font-variant-numeric: tabular-nums; }
+.records-list .name { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.records-list .when { font-size: 2.2vh; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.records-list .value { font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---- join panel ---- */
 

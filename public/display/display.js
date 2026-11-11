@@ -18,6 +18,10 @@ $('join-step2-title').textContent = STRINGS.join.step2Title;
 $('join-step2-text').textContent = STRINGS.join.step2Text;
 $('join-step3').textContent = STRINGS.join.step3;
 $('keyboard-hint').textContent = T.keyboardHint;
+$('wins-title').textContent = T.winsTitle;
+$('fame-title').textContent = T.fameTitle;
+$('wins-empty').textContent = T.noRecords;
+$('fame-empty').textContent = T.noRecords;
 $('connection').textContent = T.disconnected;
 
 // ---- assets -------------------------------------------------------------------
@@ -150,12 +154,23 @@ function drawBoard(state) {
     }
   }
 
-  // Dead snakes first so living ones are drawn on top.
-  const snakes = [...state.snakes].sort((a, b) => Number(a.alive) - Number(b.alive));
-  for (const s of snakes) drawSnake(s, cell);
+  // Dead snakes first so living ones are drawn on top. When dead snakes turn
+  // into apples, their bodies are not drawn at all.
+  const corpses = state.rules?.corpseApples;
+  const snakes = [...state.snakes].filter((s) => s.alive || !corpses).sort((a, b) => Number(a.alive) - Number(b.alive));
+  for (const s of snakes) drawSnake(s, cell, n);
 }
 
-function drawSnake(s, cell) {
+// Fills the joint between cell c and its neighbour in direction (dx, dy),
+// covering half a cell on c's side.
+function halfBridge(c, dx, dy, cell, inset) {
+  const cx = (c.x + 0.5) * cell;
+  const cy = (c.y + 0.5) * cell;
+  if (dy === 0) ctx.fillRect(dx > 0 ? cx : cx - cell / 2, c.y * cell + inset, cell / 2, cell - 2 * inset);
+  else ctx.fillRect(c.x * cell + inset, dy > 0 ? cy : cy - cell / 2, cell - 2 * inset, cell / 2);
+}
+
+function drawSnake(s, cell, n) {
   const color = playerColor(s.colorIndex);
   ctx.globalAlpha = s.alive ? 1 : 0.22;
   ctx.fillStyle = color;
@@ -166,17 +181,17 @@ function drawSnake(s, cell) {
     const c = segs[i];
     roundRect(c.x * cell + inset, c.y * cell + inset, cell - 2 * inset, cell - 2 * inset, cell * 0.28);
     // Bridge to the next segment so the body reads as one continuous shape.
+    // Across a wrapped edge the two halves run off opposite sides of the board.
     const prev = segs[i - 1];
     if (prev) {
-      const minX = Math.min(c.x, prev.x);
-      const minY = Math.min(c.y, prev.y);
-      const horizontal = c.y === prev.y;
-      ctx.fillRect(
-        horizontal ? (minX + 0.5) * cell : minX * cell + inset,
-        horizontal ? minY * cell + inset : (minY + 0.5) * cell,
-        horizontal ? cell : cell - 2 * inset,
-        horizontal ? cell - 2 * inset : cell,
-      );
+      let dx = prev.x - c.x;
+      let dy = prev.y - c.y;
+      if (Math.abs(dx) > 1) dx = -Math.sign(dx);
+      if (Math.abs(dy) > 1) dy = -Math.sign(dy);
+      if (Math.abs(dx) + Math.abs(dy) === 1) {
+        halfBridge(c, dx, dy, cell, inset);
+        halfBridge(prev, -dx, -dy, cell, inset);
+      }
     }
   }
 
@@ -268,7 +283,48 @@ function updateLeaderboard(state) {
   $('lb-empty').classList.toggle('hidden', players.length > 0);
 }
 
+function recordRow(rank, name, extra, value) {
+  const li = document.createElement('li');
+  const r = document.createElement('span');
+  r.className = 'rank';
+  r.textContent = String(rank);
+  const n = document.createElement('span');
+  n.className = 'name';
+  n.textContent = name; // textContent: names come from clients
+  li.append(r, n);
+  if (extra !== null) {
+    const e = document.createElement('span');
+    e.className = 'when';
+    e.textContent = extra;
+    li.append(e);
+  }
+  const v = document.createElement('span');
+  v.className = 'value';
+  v.textContent = value;
+  li.append(v);
+  return li;
+}
+
+const fameTime = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+function updateRecords(records) {
+  const { leaderboard, hallOfFame } = records ?? {};
+  $('wins-block').classList.toggle('hidden', !leaderboard);
+  $('fame-block').classList.toggle('hidden', !hallOfFame);
+  if (leaderboard) {
+    $('wins-list').replaceChildren(
+      ...leaderboard.map((e, i) => recordRow(i + 1, e.name, null, e.wins === 1 ? T.winsOne : fmt(T.winsMany, { n: e.wins }))),
+    );
+    $('wins-empty').classList.toggle('hidden', leaderboard.length > 0);
+  }
+  if (hallOfFame) {
+    $('fame-list').replaceChildren(...hallOfFame.map((e, i) => recordRow(i + 1, e.name, fameTime.format(e.at), String(e.length))));
+    $('fame-empty').classList.toggle('hidden', hallOfFame.length > 0);
+  }
+}
+
 let lastSideKey = '';
+let lastRecordsKey = '';
 
 function render() {
   requestAnimationFrame(render);
@@ -277,11 +333,20 @@ function render() {
   const { state } = latest;
   drawBoard(state);
   updateOverlay(latest);
-  const showJoin = latest.sidePanel === 'join';
+  const panel = latest.sidePanel;
+  const showJoin = panel === 'join';
   $('join').classList.toggle('hidden', !showJoin);
-  $('leaderboard').classList.toggle('hidden', showJoin);
+  $('records').classList.toggle('hidden', panel !== 'records');
+  $('leaderboard').classList.toggle('hidden', panel !== 'leaderboard');
+  if (panel === 'records') {
+    const key = JSON.stringify(latest.records);
+    if (key !== lastRecordsKey) {
+      lastRecordsKey = key;
+      updateRecords(latest.records);
+    }
+  } else lastRecordsKey = '';
   $('keyboard-hint').classList.toggle('hidden', !latest.keyboardPlayers);
-  if (!showJoin) {
+  if (panel === 'leaderboard') {
     // Avoid rebuilding the list when nothing visible changed.
     const key = JSON.stringify([state.round, state.players]);
     if (key !== lastSideKey) {

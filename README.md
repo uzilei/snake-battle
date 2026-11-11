@@ -9,6 +9,8 @@ npm install
 npm start
 ```
 
+On Windows you can double-click `run.bat` instead: it installs the dependencies on the first run, then starts the server. Close the window to stop it.
+
 The first start creates `config.json` with a random admin password, which is printed in the console. Edit it before the expo:
 
 ```json
@@ -24,6 +26,8 @@ The first start creates `config.json` with a random admin password, which is pri
 - `gameUrl` is optional. If it is empty, the /play URL is built from the laptop's LAN IP, which is detected automatically.
 
 Player names are checked against `banned-words.json`. It is created from the starter list in `src/server/banned-words.default.json` on the first start, and can be edited live from /admin.
+
+The wins leaderboard and the hall of fame (longest snakes) are saved in `records.json`, created on the first recorded round. Both are off by default and are switched on from /admin, along with the game rules (dead snakes become apples, wrap-around walls). All four apply from the next round. If `records.json` is ever unreadable, it is renamed to `records.json.bad` and the records start empty.
 
 At startup the server prints the URLs for `/display`, `/play`, `/admin` and `/admin/print`.
 

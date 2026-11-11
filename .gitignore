@@ -2,3 +2,6 @@ node_modules/
 config.json
 banned-words.json
 banned-words.json.tmp
+records.json
+records.json.tmp
+records.json.bad
