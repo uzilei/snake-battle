@@ -722,3 +722,57 @@ describe('config toggles', () => {
     assert.deepEqual(e.getState().rules, { corpseApples: false, wrapWalls: false });
   });
 });
+
+describe('tick events', () => {
+  const bystander = [[[15, 15], [14, 15], [13, 15]], 'right'];
+  const events = (e) => e.getState().events;
+
+  test('eating an apple reports who ate it and where', () => {
+    const e = setup({ a: [[[4, 5], [3, 5], [2, 5]], 'right'], c: bystander });
+    e._debug.setApples([[5, 5]]);
+    e.tick();
+    assert.deepEqual(events(e), [{ type: 'eat', id: 'a', x: 5, y: 5 }]);
+  });
+
+  test('a wall death is a death event only', () => {
+    const e = setup({ a: [[[19, 5], [18, 5], [17, 5]], 'right'], c: bystander });
+    e.tick();
+    assert.deepEqual(events(e), [{ type: 'death', id: 'a' }]);
+  });
+
+  test('head-on into the same cell reports the collision and the deaths', () => {
+    const e = setup({
+      a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+      b: [[[6, 5], [7, 5], [8, 5]], 'left'],
+      c: bystander,
+    });
+    e.tick();
+    const ev = events(e);
+    assert.deepEqual(ev.find((x) => x.type === 'headOn'), { type: 'headOn', ids: ['a', 'b'] });
+    assert.deepEqual(ev.filter((x) => x.type === 'death').map((x) => x.id).sort(), ['a', 'b']);
+  });
+
+  test('heads passing through each other count as head-on', () => {
+    const e = setup({
+      a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+      b: [[[5, 5], [6, 5], [7, 5]], 'left'],
+      c: bystander,
+    });
+    e.tick();
+    assert.ok(events(e).some((x) => x.type === 'headOn'));
+  });
+
+  test('events last one tick and are cleared by a restart', () => {
+    const e = setup({ a: [[[4, 5], [3, 5], [2, 5]], 'right'], c: bystander });
+    e._debug.setApples([[5, 5]]);
+    e.tick();
+    assert.equal(events(e).length, 1);
+    e.tick();
+    assert.deepEqual(events(e), []);
+    e._debug.setApples([[7, 5]]);
+    e.tick();
+    assert.equal(events(e).length, 1);
+    e.restartRound();
+    assert.deepEqual(events(e), []);
+  });
+});

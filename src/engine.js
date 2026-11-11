@@ -88,6 +88,10 @@ export function createEngine({ config, random = Math.random } = {}) {
   let participants = 0; // snakes spawned at round start
   let intermissionElapsed = 0;
   let countdownElapsed = 0;
+  // What happened during the latest tick, for renderers (effects, sounds...):
+  // { type: 'eat', id, x, y } | { type: 'death', id } | { type: 'headOn', ids }.
+  // Rebuilt every tick; read-only output, never input.
+  let events = [];
 
   const cellKey = (x, y) => y * gridSize + x;
   const inBounds = (x, y) => x >= 0 && y >= 0 && x < gridSize && y < gridSize;
@@ -280,6 +284,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     // Head-on: the shortest snake survives; if several share the shortest
     // length, all of them die.
     for (const group of headOnGroups) {
+      events.push({ type: 'headOn', ids: group.map((m) => m.player.id) });
       const minLength = Math.min(...group.map((m) => m.length));
       const shortest = group.filter((m) => m.length === minLength);
       for (const m of group) if (m.length !== minLength || shortest.length > 1) dead.add(m);
@@ -288,6 +293,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     for (const m of moves) {
       if (dead.has(m)) {
         m.player.status = 'dead';
+        events.push({ type: 'death', id: m.player.id });
         continue;
       }
       m.snake.segments.unshift(m.newHead);
@@ -302,6 +308,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       if (i !== -1) {
         apples.splice(i, 1);
         m.snake.pendingGrowth += cfg.growthPerApple;
+        events.push({ type: 'eat', id: m.player.id, x: m.newHead.x, y: m.newHead.y });
       }
     }
 
@@ -372,6 +379,7 @@ export function createEngine({ config, random = Math.random } = {}) {
 
   function tick() {
     tickCount++;
+    events = [];
     if (phase === PHASES.WAITING) {
       if (players.size > 0) startRound();
       return;
@@ -407,6 +415,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       gridSize,
       rules: { ...rules },
       winnerId,
+      events: events.map((e) => ({ ...e, ...(e.ids ? { ids: [...e.ids] } : {}) })),
       intermissionRemainingMs:
         phase === PHASES.INTERMISSION ? Math.max(0, cfg.intermissionMs - intermissionElapsed) : 0,
       countdownRemainingMs: phase === PHASES.COUNTDOWN ? Math.max(0, cfg.countdownMs - countdownElapsed) : 0,
@@ -434,6 +443,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   // Abandons the current round (if any) and starts a fresh one with every
   // player, including queued ones. With no players it returns to waiting.
   function restartRound() {
+    events = [];
     if (players.size > 0) startRound();
     else {
       phase = PHASES.WAITING;

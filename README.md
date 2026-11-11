@@ -29,6 +29,8 @@ Player names are checked against `banned-words.json`. It is created from the sta
 
 The wins leaderboard and the hall of fame (longest snakes) are saved in `records.json`, created on the first recorded round. Both are off by default and are switched on from /admin, along with the game rules (dead snakes become apples, wrap-around walls). All four apply from the next round. If `records.json` is ever unreadable, it is renamed to `records.json.bad` and the records start empty.
 
+The /display effects (particles when a snake dies, a ring when an apple is eaten, a screen shake on head-on collisions) are also /admin toggles, off by default. They are purely visual and apply immediately.
+
 At startup the server prints the URLs for `/display`, `/play`, `/admin` and `/admin/print`.
 
 ## Pages

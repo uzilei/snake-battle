@@ -29,8 +29,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
 .card h2 { margin: 0 0 14px; font-size: 1.05rem; }
+.card h3 { margin: 18px 0 6px; font-size: 0.95rem; }
 .muted { color: var(--muted); }
 .error { color: var(--danger); font-weight: 600; }
+.note { background: #fff6e0; border: 1px solid #f0d58a; color: #6b4e00; border-radius: 8px; padding: 8px 10px; font-size: 0.9rem; }
+.note[hidden] { display: none; }
 
 /* ---- login ---- */
 body.login { min-height: 100vh; display: grid; place-items: center; padding: 16px; }

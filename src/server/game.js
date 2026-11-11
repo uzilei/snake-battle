@@ -15,6 +15,8 @@ import { createRecords } from './records.js';
 // hall of fame (shown only when at least one of them is enabled).
 export const SIDE_PANEL_MODES = Object.freeze(['auto', 'leaderboard', 'records', 'join']);
 const RECORD_SETTINGS = Object.freeze(['leaderboard', 'hallOfFame']);
+// Cosmetic /display effects: applied live, no effect on the game itself.
+export const EFFECT_SETTINGS = Object.freeze(['deathParticles', 'appleRings', 'screenShake']);
 export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
 const SELF = 'self';
 export { MAX_NAME_LENGTH, nameKey };
@@ -53,7 +55,13 @@ export function createGame({
 } = {}) {
   const config = createDefaultConfig();
   const engine = createEngine({ config, random });
-  const settings = { sidePanel: 'auto', keyboardPlayers: false, leaderboard: false, hallOfFame: false };
+  const settings = {
+    sidePanel: 'auto',
+    keyboardPlayers: false,
+    leaderboard: false,
+    hallOfFame: false,
+    ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, false])),
+  };
   let recordsView = records.top(); // cached: recomputed only when the records change
   let paused = false;
   let nextPlayerNumber = 1;
@@ -81,6 +89,8 @@ export function createGame({
       paused,
       sidePanel: resolveSidePanel(settings.sidePanel, state, recordsOn()),
       keyboardPlayers: settings.keyboardPlayers,
+      tickMs: config.tickMs, // for smooth movement between ticks
+      effects: Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, settings[k]])),
       records: {
         leaderboard: settings.leaderboard ? recordsView.leaderboard : null,
         hallOfFame: settings.hallOfFame ? recordsView.hallOfFame : null,
@@ -370,7 +380,7 @@ export function createGame({
             for (const [id, o] of [...owners]) if (o.source === 'keyboard') kick(id);
           }
         }
-        for (const key of RECORD_SETTINGS) {
+        for (const key of [...RECORD_SETTINGS, ...EFFECT_SETTINGS]) {
           if (!Object.hasOwn(msg, key)) continue;
           if (typeof msg[key] !== 'boolean') return badMessage(client);
           settings[key] = msg[key];

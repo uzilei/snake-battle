@@ -27,13 +27,24 @@ $('h-settings').textContent = A.settings;
 $('h-display').textContent = A.display;
 $('l-side').textContent = A.sidePanel;
 $('side-hint').textContent = A.sidePanelAutoHint;
+$('side-records-off').textContent = A.sidePanelRecordsOff;
 $('l-keyboard').textContent = A.keyboardPlayers;
 $('h-rules').textContent = A.rules;
 $('rules-hint').textContent = A.rulesHint;
 $('btn-reset-fame').textContent = A.resetHallOfFame;
+$('h-effects').textContent = A.effects;
+$('effects-hint').textContent = A.effectsHint;
 
-// Engine rules go through 'config'; the records toggles are server settings.
-const RULE_TOGGLES = { corpseApples: 'config', wrapWalls: 'config', leaderboard: 'settings', hallOfFame: 'settings' };
+// Engine rules go through 'config'; the records and effects toggles are server settings.
+const RULE_TOGGLES = {
+  corpseApples: 'config',
+  wrapWalls: 'config',
+  leaderboard: 'settings',
+  hallOfFame: 'settings',
+  deathParticles: 'settings',
+  appleRings: 'settings',
+  screenShake: 'settings',
+};
 for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
   $(`l-${key}`).textContent = A[key];
   $(`t-${key}`).addEventListener('change', (e) => {
@@ -170,6 +181,9 @@ function update(msg) {
   }
   if (document.activeElement !== $('side-panel')) $('side-panel').value = msg.settings.sidePanel;
   $('keyboard').checked = msg.settings.keyboardPlayers;
+  // "Record" with both records toggles off falls back to the scoreboard: say why.
+  $('side-records-off').hidden =
+    !(msg.settings.sidePanel === 'records' && !msg.settings.leaderboard && !msg.settings.hallOfFame);
   for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
     $(`t-${key}`).checked = Boolean(kind === 'config' ? msg.config[key] : msg.settings[key]);
   }

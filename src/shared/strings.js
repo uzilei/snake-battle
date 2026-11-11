@@ -115,7 +115,14 @@ export const STRINGS = Object.freeze({
     },
     sidePanelAutoHint:
       'Automatica: istruzioni con meno di 2 giocatori, classifica durante il round. Durante l’intervallo: record se attivi, altrimenti istruzioni. Con «Classifica», i record compaiono tra un round e l’altro.',
+    sidePanelRecordsOff:
+      'I record sono spenti, quindi lo schermo mostra la classifica. Per vederli attiva la classifica delle vittorie o i serpenti più lunghi in «Regole».',
     keyboardPlayers: 'Giocatori da tastiera sullo schermo (WASD e frecce)',
+    effects: 'Effetti grafici',
+    effectsHint: 'Solo grafica, valgono subito.',
+    deathParticles: 'Esplosione di particelle quando un serpente muore',
+    appleRings: 'Anello quando si mangia una mela',
+    screenShake: 'Scossa dello schermo negli scontri frontali',
     rules: 'Regole',
     rulesHint: 'Le modifiche valgono dal prossimo round.',
     corpseApples: 'I serpenti morti diventano mele',

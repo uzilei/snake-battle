@@ -536,3 +536,48 @@ describe('side panel with records', () => {
     assert.equal(resolveSidePanel('records', st(3, 'playing'), false), 'leaderboard');
   });
 });
+
+describe('display effects toggles', () => {
+  const setup = () => {
+    const game = createGame({ log: quiet });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    const admin = fakeClient(game, { admin: true, isAuthorized: () => true });
+    admin.send({ t: 'hello', role: 'admin' });
+    return { game, display, admin };
+  };
+
+  test('all off by default, and the display gets them with the tick length', () => {
+    const { game, display } = setup();
+    game.tickOnce();
+    const msg = display.last('state');
+    assert.deepEqual(msg.effects, { deathParticles: false, appleRings: false, screenShake: false });
+    assert.equal(msg.tickMs, game.config.tickMs);
+  });
+
+  test('the admin turns each one on and off, live', () => {
+    const { game, display, admin } = setup();
+    for (const key of ['deathParticles', 'appleRings', 'screenShake']) {
+      admin.send({ t: 'settings', [key]: true });
+      assert.equal(display.last('state').effects[key], true);
+      admin.send({ t: 'settings', [key]: false });
+      assert.equal(display.last('state').effects[key], false);
+    }
+    assert.equal(game.settings.screenShake, false);
+  });
+
+  test('non-boolean values are rejected', () => {
+    const { game, admin } = setup();
+    for (const value of ['yes', 1, null, {}]) {
+      admin.send({ t: 'settings', screenShake: value });
+      assert.equal(admin.last('error').code, 'badMessage');
+    }
+    assert.equal(game.settings.screenShake, false);
+  });
+
+  test('effects are not open to non-admin clients', () => {
+    const { game, display } = setup();
+    display.send({ t: 'settings', deathParticles: true });
+    assert.equal(game.settings.deathParticles, false);
+  });
+});
