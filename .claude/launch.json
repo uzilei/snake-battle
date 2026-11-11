@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "snake-battle",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["src/server/index.js"],
+      "port": 3000
+    }
+  ]
+}
