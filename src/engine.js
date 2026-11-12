@@ -239,7 +239,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       occupied.add(cellKey(c.x, c.y));
       others.push({ x: c.x, y: c.y, head: i === 0 });
     });
-    return { segments: placed.segments, dir: placed.dir, dirQueue: [], pendingGrowth: 0 };
+    return { segments: placed.segments, dir: placed.dir, dirQueue: [], pendingGrowth: 0, effect: null };
   }
 
   function spawnApple(occupied) {
@@ -351,18 +351,63 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // ---- movement & collisions ----------------------------------------------
+  //
+  // A tick is two sub-steps of one cell each. In the first every snake moves
+  // (a frozen one only every second tick); in the second only golden snakes
+  // do. Checking one cell at a time means nothing fast can jump over a cell.
+  // Who moves in each sub-step is decided when the tick starts.
 
-  // cell -> [{ m, index }]: the segments each move's snake still covers after
-  // moving (its tail is left out unless it grows).
-  function occupancy(moves) {
+  const effectOf = (p, type) => p.snake?.effect?.type === type;
+  const isGhost = (p) => effectOf(p, 'ghost');
+
+  // Frozen: some other living snake has the freeze effect.
+  function isFrozen(p) {
+    if (p.status !== 'alive') return false;
+    for (const o of players.values()) if (o !== p && o.status === 'alive' && effectOf(o, 'freeze')) return true;
+    return false;
+  }
+
+  function setEffect(p, type, durationMs) {
+    p.snake.effect = { type, remainingMs: durationMs, durationMs, since: tickCount };
+  }
+
+  function step() {
+    const alive = [...players.values()].filter((p) => p.status === 'alive');
+    // A frozen snake sits out every odd tick, golden or not.
+    const first = alive.filter((p) => !(tickCount % 2 === 1 && isFrozen(p)));
+    const second = first.filter((p) => effectOf(p, 'golden'));
+    substep(first);
+    substep(second.filter((p) => p.status === 'alive'));
+    countDown();
+  }
+
+  // Timers run on game time (tickMs per playing tick), so a speed change
+  // mid-effect keeps its length in milliseconds. An effect starts counting
+  // the tick after it was picked up.
+  function countDown() {
+    for (const p of players.values()) {
+      const e = p.snake?.effect;
+      if (!e || e.since === tickCount) continue;
+      e.remainingMs -= cfg.tickMs;
+      if (e.remainingMs <= 0) p.snake.effect = null;
+    }
+  }
+
+  // cell -> [{ p, index }]: every segment that is still there after this
+  // sub-step's moves (a moving snake's tail is left out unless it grows).
+  // Ghosts are left out: nothing collides with them.
+  function occupancy(moving) {
     const map = new Map();
-    for (const m of moves) {
-      const keep = m.grows ? m.length : m.length - 1;
+    for (const p of players.values()) {
+      if (p.status !== 'alive' || isGhost(p)) continue;
+      const segs = p.snake.segments;
+      const m = moving.get(p);
+      const keep = m && !m.grows ? segs.length - 1 : segs.length;
       for (let i = 0; i < keep; i++) {
-        const k = cellKey(m.snake.segments[i].x, m.snake.segments[i].y);
+        const k = cellKey(segs[i].x, segs[i].y);
         let list = map.get(k);
         if (!list) map.set(k, (list = []));
-        list.push({ m, index: i });
+        list.push({ p, index: i });
       }
     }
     return map;
@@ -372,16 +417,16 @@ export function createEngine({ config, random = Math.random } = {}) {
   // game (it may have left mid-round).
   function kill(p, by) {
     p.status = 'dead';
+    p.snake.effect = null;
     const credited = by && by !== p && players.get(by.id) === by ? by : null;
     if (credited) credited.kills++;
     events.push({ type: 'death', id: p.id, killerId: credited ? credited.id : null });
   }
 
-  function step() {
-    const players_ = [...players.values()].filter((p) => p.status === 'alive');
-    const moves = players_.map((p) => {
+  function substep(movers) {
+    const moves = movers.map((p) => {
       const s = p.snake;
-      if (s.dirQueue.length) s.dir = s.dirQueue.shift(); // one queued turn per tick
+      if (s.dirQueue.length) s.dir = s.dirQueue.shift(); // one queued turn per move
       const head = s.segments[0];
       const d = DIRECTIONS[s.dir];
       let x = head.x + d.x;
@@ -397,21 +442,20 @@ export function createEngine({ config, random = Math.random } = {}) {
         newHead: { x, y },
         grows: s.pendingGrowth > 0,
         length: s.segments.length,
+        ghost: isGhost(p),
       };
     });
-
-    // Post-move bodies: every current segment except tails that will move away.
-    // The old head stays (it becomes the neck); new heads are handled below.
-    // A cell can hold segments of several snakes, so each lists them all.
-    const body = occupancy(moves);
+    const moving = new Map(moves.map((m) => [m.player, m]));
+    const body = occupancy(moving);
 
     const dead = new Set();
     // Who gets the kill for each death: the owner of the body it ran into, or
     // the winner of the head-on it lost. Walls and self-collisions: nobody.
     // Each death counts for at most one killer, even one dying the same tick.
-    const killer = new Map();
+    const killer = new Map(); // move -> killing player
     const headOnGroups = [];
     const byCell = new Map();
+    const solid = moves.filter((m) => !m.ghost); // ghosts pass through heads too
 
     for (const m of moves) {
       const { x, y } = m.newHead;
@@ -419,20 +463,22 @@ export function createEngine({ config, random = Math.random } = {}) {
         dead.add(m);
         continue;
       }
+      if (m.ghost) continue;
       // Heads passing through each other: treated as head-on, not a body hit.
-      const partner = moves.find(
+      const partner = solid.find(
         (o) => o !== m && o.head.x === x && o.head.y === y && o.newHead.x === m.head.x && o.newHead.y === m.head.y,
       );
       if (partner) {
-        if (moves.indexOf(m) < moves.indexOf(partner)) headOnGroups.push([m, partner]);
+        if (solid.indexOf(m) < solid.indexOf(partner)) headOnGroups.push([m, partner]);
         continue;
       }
-      // A hit is a head entering a cell some body covers.
+      // A hit is a head entering a cell some body covers. A snake that isn't
+      // moving this sub-step is all body, its head included.
       const hits = body.get(cellKey(x, y));
       if (hits) {
         dead.add(m);
-        const other = hits.find((h) => h.m !== m);
-        if (other) killer.set(m, other.m);
+        const other = hits.find((h) => h.p !== m.player);
+        if (other) killer.set(m, other.p);
       }
       const k = cellKey(x, y);
       if (!byCell.has(k)) byCell.set(k, []);
@@ -449,13 +495,13 @@ export function createEngine({ config, random = Math.random } = {}) {
       for (const m of group) if (m.length !== minLength || shortest.length > 1) dead.add(m);
       if (shortest.length === 1) {
         // A body hit found above takes precedence over the head-on.
-        for (const m of group) if (m !== shortest[0] && !killer.has(m)) killer.set(m, shortest[0]);
+        for (const m of group) if (m !== shortest[0] && !killer.has(m)) killer.set(m, shortest[0].player);
       }
     }
 
     for (const m of moves) {
       if (dead.has(m)) {
-        kill(m.player, killer.get(m)?.player ?? null);
+        kill(m.player, killer.get(m) ?? null);
         continue;
       }
       m.snake.segments.unshift(m.newHead);
@@ -603,6 +649,12 @@ export function createEngine({ config, random = Math.random } = {}) {
           alive: p.status === 'alive',
           dir: p.snake.dir,
           pendingGrowth: p.snake.pendingGrowth,
+          // The active timed effect, if any, and whether another snake's
+          // freeze is slowing this one.
+          effect: p.snake.effect
+            ? { type: p.snake.effect.type, remainingMs: p.snake.effect.remainingMs, durationMs: p.snake.effect.durationMs }
+            : null,
+          frozen: isFrozen(p),
           segments: p.snake.segments.map((c) => ({ x: c.x, y: c.y })),
         })),
     };
@@ -631,8 +683,12 @@ export function createEngine({ config, random = Math.random } = {}) {
     setSnake(id, segments, dir) {
       const p = players.get(id);
       if (!p) throw new Error(`unknown player ${id}`);
-      p.snake = { segments: segments.map(([x, y]) => ({ x, y })), dir, dirQueue: [], pendingGrowth: 0 };
+      p.snake = { segments: segments.map(([x, y]) => ({ x, y })), dir, dirQueue: [], pendingGrowth: 0, effect: null };
       p.status = 'alive';
+    },
+    // Gives a snake a timed effect, as if it had just picked it up.
+    setEffect(id, type, durationMs) {
+      setEffect(players.get(id), type, durationMs);
     },
     setApples(list) {
       apples = list.map(([x, y]) => ({ x, y }));
