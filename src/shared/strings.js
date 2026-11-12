@@ -154,6 +154,28 @@ export const STRINGS = Object.freeze({
     },
     targetLengthWin: 'Lunghezza obiettivo (vince chi la raggiunge per primo)',
     targetLength: 'Lunghezza obiettivo',
+    // power-ups card
+    powerUpsTitle: 'Power-up',
+    powerUps: 'Power-up attivi (dal prossimo round)',
+    powerUpsHint:
+      'L’interruttore vale dal prossimo round; i cursori valgono subito. Un power-up prende il posto di una mela e conta nel numero di mele. Le bombe compaiono a parte e spariscono dopo 10 secondi.',
+    powerUpChance: 'Probabilità che una nuova mela sia un power-up (%)',
+    bombsPerMinute: 'Bombe al minuto (0 = nessuna)',
+    weightsTitle: 'Frequenza di ogni power-up',
+    weightsHint: 'Più alto = più frequente rispetto agli altri. 0 = mai.',
+    // One per entry of src/shared/powerups.js (the weight sliders use them).
+    powerUpNames: {
+      golden: 'Stella dorata: doppia velocità',
+      ghost: 'Fantasma: attraversa tutto',
+      gun: 'Pistola: un colpo dritto avanti',
+      magnet: 'Calamita: attira mele e power-up',
+      freeze: 'Ghiaccio: rallenta gli altri',
+      scissors: 'Forbici: taglia chi tocchi',
+      portal: 'Portale: ingresso e uscita',
+      feast: 'Banchetto: 10 mele intorno',
+      shield: 'Scudo: resiste a un colpo',
+      bomb: 'Bomba: accorcia di un quarto',
+    },
     activeThisRound: 'Attive in questo round: {list}',
     noneActive: 'nessuna',
     globalLeaderboard: 'Classifica globale',

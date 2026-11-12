@@ -3,11 +3,13 @@
 
 import { STRINGS, fmt } from '/shared/strings.js';
 import { playerColor } from '/shared/colors.js';
+import { WEIGHTED_POWER_UPS, weightKey } from '/shared/powerups.js';
 
 const A = STRINGS.admin;
 const $ = (id) => document.getElementById(id);
 
 // parent: the element the slider goes in (default: the Settings card).
+// label: shown instead of A[key].
 const SLIDERS = [
   { key: 'tickMs', step: 10 },
   { key: 'appleCount', step: 1 },
@@ -18,6 +20,15 @@ const SLIDERS = [
   { key: 'intermissionMs', step: 500 },
   { key: 'roundTimeLimitSec', step: 15, parent: 'sliders-time' },
   { key: 'targetLength', step: 1, parent: 'sliders-target' },
+  { key: 'powerUpChance', step: 5, parent: 'sliders-powerups' },
+  { key: 'bombsPerMinute', step: 1, parent: 'sliders-powerups' },
+  // One weight slider per power-up, generated from the shared list.
+  ...WEIGHTED_POWER_UPS.map((p) => ({
+    key: weightKey(p.type),
+    step: 1,
+    parent: 'sliders-weights',
+    label: `${p.emoji} ${A.powerUpNames[p.type] ?? p.type}`,
+  })),
 ];
 const RESET_STATS = ['wins', 'kills', 'score', 'all'];
 
@@ -41,6 +52,10 @@ $('l-timeLimitWinner').textContent = A.timeLimitWinner;
 $('h-global').textContent = A.globalLeaderboard;
 $('l-leaderboardStat').textContent = A.leaderboardStat;
 for (const stat of RESET_STATS) $(`btn-reset-${stat}`).textContent = A.reset[stat];
+$('h-powerups').textContent = A.powerUpsTitle;
+$('powerups-hint').textContent = A.powerUpsHint;
+$('h-weights').textContent = A.weightsTitle;
+$('weights-hint').textContent = A.weightsHint;
 $('h-effects').textContent = A.effects;
 $('effects-hint').textContent = A.effectsHint;
 
@@ -51,6 +66,7 @@ const RULE_TOGGLES = {
   wrapWalls: 'config',
   timeLimitWin: 'config',
   targetLengthWin: 'config',
+  powerUps: 'config',
   leaderboard: 'settings',
   deathParticles: 'settings',
   appleRings: 'settings',
@@ -160,14 +176,14 @@ const sliderEls = {};
 let slidersBuilt = false;
 
 function buildSliders(limits) {
-  for (const { key, step, parent = 'sliders' } of SLIDERS) {
+  for (const { key, step, parent = 'sliders', label: text } of SLIDERS) {
     const lim = limits[key];
     if (!lim) continue;
     const wrap = document.createElement('div');
     wrap.className = 'slider';
     const label = document.createElement('label');
     label.htmlFor = `s-${key}`;
-    label.textContent = A[key];
+    label.textContent = text ?? A[key];
     const input = document.createElement('input');
     input.type = 'range';
     input.id = `s-${key}`;
@@ -217,6 +233,7 @@ function update(msg) {
   // The settings of a win condition only matter while it is on.
   $('sliders-time').parentElement.classList.toggle('off', !msg.config.timeLimitWin);
   $('sliders-target').parentElement.classList.toggle('off', !msg.config.targetLengthWin);
+  $('powerup-settings').classList.toggle('off', !msg.config.powerUps);
   for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
     $(`t-${key}`).checked = Boolean(kind === 'config' ? msg.config[key] : msg.settings[key]);
   }
@@ -224,6 +241,7 @@ function update(msg) {
   const activeLabel = {
     timeLimitWin: () => `${A.timeLimitWin} (${win.timeLimitSec} s, ${A.timeLimitWinnerOptions[win.timeLimitWinner]})`,
     targetLengthWin: () => `${A.targetLength} ${win.targetLength}`,
+    powerUps: () => A.powerUpsTitle,
   };
   const active = Object.keys(msg.rules ?? {})
     .filter((k) => msg.rules[k])

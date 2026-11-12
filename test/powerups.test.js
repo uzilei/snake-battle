@@ -3,7 +3,10 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEngine, sanitizeConfig } from '../src/engine.js';
+import fs from 'node:fs';
+import { createEngine, sanitizeConfig, CONFIG_LIMITS } from '../src/engine.js';
+import { POWER_UPS, weightKey } from '../src/shared/powerups.js';
+import { STRINGS } from '../src/shared/strings.js';
 import { createGame } from '../src/server/game.js';
 
 // Deterministic RNG (mulberry32).
@@ -963,5 +966,19 @@ describe('settings', () => {
     const s = game.engine.getState();
     assert.equal(s.snakes.find((x) => x.id === 'a').effect.remainingMs, 3000);
     assert.equal(s.bombs[0].remainingMs, 10000);
+  });
+});
+
+describe('the power-up list', () => {
+  test('every entry has its weight setting, Italian name, Twemoji file and effect', () => {
+    const effects = createEngine()._debug.effectTypes();
+    for (const p of POWER_UPS) {
+      if (p.type === 'bomb') assert.equal(CONFIG_LIMITS[weightKey(p.type)], undefined);
+      else assert.deepEqual(CONFIG_LIMITS[weightKey(p.type)], { min: 0, max: 10, default: p.defaultWeight }, p.type);
+      assert.equal(typeof STRINGS.admin.powerUpNames[p.type], 'string', p.type);
+      assert.ok(fs.existsSync(new URL(`../node_modules/@twemoji/svg/${p.twemoji}.svg`, import.meta.url)), p.twemoji);
+      assert.ok(effects.includes(p.type), `no effect for ${p.type}`);
+    }
+    assert.equal(new Set(POWER_UPS.map((p) => p.type)).size, POWER_UPS.length);
   });
 });

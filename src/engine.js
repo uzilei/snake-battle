@@ -1138,6 +1138,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     addProjectile([x, y], dir, ownerId) {
       projectiles.push({ id: nextObjectId++, x, y, dir, ownerId });
     },
+    // The power-up types that have an effect, for the completeness test.
+    effectTypes: () => Object.keys(EFFECTS),
     setBombs(list) {
       bombs = list.map(([x, y, remainingMs = POWER_UP_RULES.bombLifetimeMs]) => ({ x, y, remainingMs, since: tickCount }));
     },
