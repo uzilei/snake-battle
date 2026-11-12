@@ -784,9 +784,53 @@ describe('scissors', () => {
     assert.equal(player(e, 'b').kills, 1);
   });
 
-  test('running into your own body still kills', () => {
-    const e = setup({ a: [[[5, 5], [5, 6], [6, 6], [6, 5], [6, 4], [5, 4]], 'right'], ...far });
+  // Curled up: moving right from (5,5) runs into its own segment 3 at (6,5).
+  const curl = [[[5, 5], [5, 6], [6, 6], [6, 5], [6, 4], [5, 4], [4, 4]], 'right'];
+
+  test('running into your own body cuts it there; with dead-snake apples on, the cut-off part becomes apples', () => {
+    const e = setup({ a: curl, ...far }, { corpseApples: true });
     e._debug.setEffect('a', 'scissors', 8000);
+    e.tick();
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.deepEqual(cells(e, 'a'), [[6, 5], [5, 5], [5, 6], [6, 6]]);
+    // (6,5) is under the head; the rest of the cut-off part is apples.
+    assert.deepEqual(e.getState().apples.map((c) => [c.x, c.y, c.corpse]), [[6, 4, true], [5, 4, true]]);
+    assert.equal(snake(e, 'a').effect, null); // used up
+    assert.deepEqual(events(e, 'cut').map((ev) => [ev.id, ev.byId]), [['a', 'a']]);
+    assert.equal(player(e, 'a').kills, 0);
+  });
+
+  test('a cut of your own body with dead-snake apples off just vanishes', () => {
+    const e = setup({ a: curl, ...far });
+    e._debug.setEffect('a', 'scissors', 8000);
+    e.tick();
+    assert.deepEqual(cells(e, 'a'), [[6, 5], [5, 5], [5, 6], [6, 6]]);
+    assert.deepEqual(e.getState().apples, []);
+  });
+
+  test('cutting yourself down to fewer than 3 segments kills you, with no kill credit', () => {
+    // A portal end under its own body: the head comes out on segment 1
+    // (2 would be left: dies) or segment 2 (3 left: lives).
+    const body = [[[7, 5], [6, 5], [6, 6], [7, 6], [8, 6], [9, 6]], 'right'];
+    const dies = setup({ a: body, ...far }, { corpseApples: true });
+    dies._debug.setEffect('a', 'scissors', 8000);
+    dies._debug.addPortal([8, 5], [6, 5]);
+    dies.tick();
+    assert.equal(player(dies, 'a').status, 'dead');
+    assert.equal(events(dies, 'cut').length, 1); // killed by the cut, not the plain self-hit
+    assert.equal(events(dies, 'death')[0].killerId, null);
+    assert.equal(player(dies, 'a').kills, 0);
+
+    const lives = setup({ a: body, ...far });
+    lives._debug.setEffect('a', 'scissors', 8000);
+    lives._debug.addPortal([8, 5], [6, 6]);
+    lives.tick();
+    assert.equal(player(lives, 'a').status, 'alive');
+    assert.deepEqual(cells(lives, 'a'), [[6, 6], [7, 5], [6, 5]]);
+  });
+
+  test('without scissors, running into your own body still kills', () => {
+    const e = setup({ a: curl, ...far });
     e.tick();
     assert.equal(player(e, 'a').status, 'dead');
   });

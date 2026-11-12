@@ -64,7 +64,7 @@ Off by default. "Power-up attivi" on /admin turns them on from the next round; t
 | 🔫 | Gun | Fires one projectile straight ahead: 2 cells per tick, never wraps. Any snake it hits dies (the shooter gets the kill, unless it hit itself). Two projectiles that meet both vanish. |
 | 🧲 | Magnet | For 5 s, apples and power-ups within 3 cells move one cell toward the head each tick. Bombs aren't pulled. |
 | 🧊 | Freeze | For 3 s, every other snake moves only every second tick. |
-| ✂️ | Scissors | For 8 s, the next time it runs into another snake's body, it cuts that snake there instead of dying. A cut leaving fewer than 3 segments kills (and counts as a kill). Head-ons and your own body are unaffected. |
+| ✂️ | Scissors | For 8 s, the next time it runs into a body (another snake's or its own), it cuts that snake there instead of dying. A cut leaving fewer than 3 segments kills: it counts as a kill when it was another snake, and as no kill when it was yourself. Head-ons and heads are unaffected. |
 | 🌀 | Portal | A two-way pair for 8 s: one end where it was eaten, the other somewhere safe with 3 free cells ahead. The eater's head goes through at once; after that, any head entering either end comes out of the other, same direction, and the body follows. Projectiles ignore portals. |
 | 🍗 | Feast | 10 extra apples on the free cells around the eater. |
 | 🛡️ | Shield | For 10 s, survives the next hit (wall, body, head-on or projectile): the shield pops and the snake is a ghost for 1 s. At a wall it turns aside instead. |

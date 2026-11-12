@@ -938,8 +938,9 @@ export function createEngine({ config, random = Math.random } = {}) {
       }
     }
 
-    // Who dies. A shield takes any one hit. Scissors turn a hit on another
-    // snake's body into a cut, but don't help with anything else.
+    // Who dies. A shield takes any one hit. Scissors turn a hit on a body
+    // (another snake's or its own, anywhere but a head) into a cut, but
+    // don't help with anything else.
     const dead = new Set();
     const cuts = [];
     const postIndex = (h) => (moving.has(h.p) ? h.index + 1 : h.index); // where the cell is after the move
@@ -956,7 +957,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         popShield(p);
         continue;
       }
-      const cuttable = hits.length && hits.every((h) => h.p !== p && postIndex(h) >= 1);
+      const cuttable = hits.length && hits.every((h) => postIndex(h) >= 1);
       if (effectOf(p, 'scissors') && cuttable && !lostHeadOn.has(m) && !wasShot) {
         p.snake.effect = null;
         for (const h of hits) cuts.push({ target: h.p, index: postIndex(h), by: p });
@@ -981,7 +982,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     }
 
     // Cuts, nearest the head first. Fewer than minLength segments left is a
-    // kill for the cutter; otherwise the cut-off part is removed.
+    // kill for the cutter (none when it cut itself); otherwise the cut-off
+    // part is removed.
     cuts.sort((a, b) => a.index - b.index);
     for (const { target, index, by } of cuts) {
       if (target.status !== 'alive' || index >= target.snake.segments.length) continue;
