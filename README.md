@@ -53,14 +53,14 @@ At startup the server prints the URLs for `/display`, `/play`, `/admin` and `/ad
 Off by default. "Power-up attivi" on /admin turns them on from the next round; the sliders below it apply immediately.
 
 - **Spawning:** a new apple becomes a power-up with the chosen probability, picked by each power-up's weight (0 = never). Power-ups take an apple's place, count toward the number of apples, never disappear, and grow the snake like an apple before their effect.
-- **Bombs:** spawn separately (bombs per minute, at most 5 at once), don't count as apples, don't grow the snake, and vanish after 10 seconds, blinking during the last 3.
+- **Bombs:** each covers a 3x3 block, drawn as one big bomb. They spawn separately (bombs per minute, at most 5 at once) only where all 9 cells are free, don't count as apples, don't grow the snake, and vanish after 10 seconds, blinking during the last 3.
 - **Timed effects** don't stack: a new one replaces the current one. A small badge by the head counts it down on /display.
 
 | | Power-up | Effect |
 |---|---|---|
 | ⭐ | Golden | Moves two cells per tick for 3 s. |
 | 👻 | Ghost | For 3 s passes through every snake and projectile, and nothing collides with it. Walls still count. |
-| 💣 | Bomb | Shrinks the snake by a quarter (never below 3) and cancels its pending growth. |
+| 💣 | Bomb | A head entering any of its 9 cells sets it off: the front quarter of the snake (at least 1 segment) is blown off and vanishes, and the snake carries on from the rest, in the direction that part was going, as a ghost for 1 s. Its pending growth and queued turns are cleared. If fewer than 3 segments would remain it dies, and nobody gets the kill. A ghost passes through without setting it off; a shield pops instead. |
 | 🔫 | Gun | Fires one projectile straight ahead: 2 cells per tick, never wraps. Any snake it hits dies (the shooter gets the kill, unless it hit itself). Two projectiles that meet both vanish. |
 | 🧲 | Magnet | For 5 s, apples and power-ups within 3 cells move one cell toward the head each tick. Bombs aren't pulled. |
 | 🧊 | Freeze | For 3 s, every other snake moves only every second tick. |
@@ -69,7 +69,7 @@ Off by default. "Power-up attivi" on /admin turns them on from the next round; t
 | 🍗 | Feast | 10 extra apples on the free cells around the eater. |
 | 🛡️ | Shield | For 10 s, survives the next hit (wall, body, head-on or projectile): the shield pops and the snake is a ghost for 1 s. At a wall it turns aside instead. |
 
-Segments removed from a living snake (the part scissors cut off) become apples when "I serpenti morti diventano mele" is on, and vanish otherwise. A bomb's lost tail always vanishes.
+Segments removed from a living snake (the part scissors cut off) become apples when "I serpenti morti diventano mele" is on, and vanish otherwise. The front a bomb blows off always vanishes.
 
 To add a power-up: an entry in `src/shared/powerups.js` (its weight slider, /admin label and sprite are generated from it), its effect in the engine's `EFFECTS` table, and its Italian name in `STRINGS.admin.powerUpNames`. A test checks all three are there.
 

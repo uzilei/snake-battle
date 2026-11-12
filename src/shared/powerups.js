@@ -40,8 +40,10 @@ export const POWER_UP_RULES = Object.freeze({
   bombLifetimeMs: 10000, // an uneaten bomb disappears after this long
   bombBlinkMs: 3000, // and blinks during its last this-many ms
   maxBombs: 5,
-  bombShrink: 0.25, // fraction of its length a snake loses to a bomb
-  minLength: 3, // a bomb never shrinks a snake below this; a cut below it kills
+  bombSize: 3, // a bomb covers a bombSize x bombSize block around its center
+  bombShrink: 0.25, // fraction of its length a snake loses off its front to a bomb
+  bombGhostMs: 1000, // after a bomb, the snake is a ghost for this long
+  minLength: 3, // a bomb or a cut that would leave fewer segments kills
   shieldGhostMs: 1000, // after a shield pops, the snake is a ghost for this long
   portalLifetimeMs: 8000,
   portalFadeMs: 2000, // /display fades a portal during its last this-many ms

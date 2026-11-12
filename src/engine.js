@@ -120,7 +120,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   // spawn order. Regular ones count toward cfg.appleCount; extras (corpse:
   // dead or cut snakes, feast: the feast power-up) come on top of it.
   let apples = [];
-  let bombs = []; // { x, y, remainingMs, since }: on top of appleCount, despawn
+  let bombs = []; // { x, y, remainingMs, since }: (x, y) is the center of a 3x3 block; on top of appleCount, despawn
   let projectiles = []; // { id, x, y, dir, ownerId }
   let portals = []; // { id, ends: [{x,y}, {x,y}], remainingMs, since }: two-way, both ends alike
   let nextObjectId = 1; // ids for projectiles and portals (for /display)
@@ -153,12 +153,23 @@ export function createEngine({ config, random = Math.random } = {}) {
 
   const isExtra = (a) => Boolean(a.corpse || a.feast);
 
+  // Bombs cover a block of cells around their center, always on the board.
+  const BOMB_REACH = (POWER_UP_RULES.bombSize - 1) / 2;
+  const bombCovers = (b, x, y) => Math.abs(x - b.x) <= BOMB_REACH && Math.abs(y - b.y) <= BOMB_REACH;
+  function bombCells(b) {
+    const out = [];
+    for (let dy = -BOMB_REACH; dy <= BOMB_REACH; dy++) {
+      for (let dx = -BOMB_REACH; dx <= BOMB_REACH; dx++) out.push({ x: b.x + dx, y: b.y + dy });
+    }
+    return out;
+  }
+
   // Cells no new item may go to: snakes, items, bombs and both ends of portals.
   function occupiedCells() {
     const set = new Set();
     for (const s of aliveSnakes()) for (const c of s.segments) set.add(cellKey(c.x, c.y));
     for (const a of apples) set.add(cellKey(a.x, a.y));
-    for (const b of bombs) set.add(cellKey(b.x, b.y));
+    for (const b of bombs) for (const c of bombCells(b)) set.add(cellKey(c.x, c.y));
     for (const p of portals) for (const c of p.ends) set.add(cellKey(c.x, c.y));
     return set;
   }
@@ -324,9 +335,9 @@ export function createEngine({ config, random = Math.random } = {}) {
     return null;
   }
 
-  // Bombs: each tick one may spawn, at bombsPerMinute on average, on a free
-  // cell away from the heads where possible (so it never lands right in
-  // front of someone).
+  // Bombs: each tick one may spawn, at bombsPerMinute on average, where its
+  // whole block is free and on the board, away from the heads where possible
+  // (so it never lands right in front of someone).
   function spawnBombs() {
     if (!rules.powerUps || cfg.bombsPerMinute <= 0 || bombs.length >= POWER_UP_RULES.maxBombs) return;
     if (random() >= (cfg.bombsPerMinute * cfg.tickMs) / 60000) return;
@@ -347,8 +358,24 @@ export function createEngine({ config, random = Math.random } = {}) {
         }
       }
     }
-    const cell = spawnApple(near) ?? spawnApple(occupied);
+    const cell = spawnBlock(near) ?? spawnBlock(occupied);
     if (cell) bombs.push({ x: cell.x, y: cell.y, remainingMs: POWER_UP_RULES.bombLifetimeMs, since: tickCount });
+  }
+
+  // A random center whose whole bomb block is on the board and free, or null.
+  function spawnBlock(blocked) {
+    const lo = BOMB_REACH;
+    const span = gridSize - 2 * BOMB_REACH;
+    if (span <= 0) return null;
+    const fits = (x, y) => bombCells({ x, y }).every((c) => !blocked.has(cellKey(c.x, c.y)));
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const x = lo + randInt(span);
+      const y = lo + randInt(span);
+      if (fits(x, y)) return { x, y };
+    }
+    const options = [];
+    for (let y = lo; y < lo + span; y++) for (let x = lo; x < lo + span; x++) if (fits(x, y)) options.push({ x, y });
+    return options.length ? options[randInt(options.length)] : null;
   }
 
   // ---- round lifecycle ----------------------------------------------------
@@ -568,11 +595,20 @@ export function createEngine({ config, random = Math.random } = {}) {
   // What each power-up does when eaten. Timed ones only need to become the
   // snake's effect: the movement and collision code asks "is X active".
   const EFFECTS = {
+    // Blows off the front of the snake: it carries on from what's left, as a
+    // ghost for a moment so it can't crash straight away. The lost part
+    // vanishes (no apples to eat it back). Too little left: it dies, and
+    // nobody gets the kill. A shield pops instead.
     bomb(p) {
-      const segs = p.snake.segments;
-      const length = Math.max(POWER_UP_RULES.minLength, Math.round(segs.length * (1 - POWER_UP_RULES.bombShrink)));
-      if (length < segs.length) segs.length = length; // the lost tail vanishes: no apples to eat it back
-      p.snake.pendingGrowth = 0;
+      if (effectOf(p, 'shield')) return popShield(p);
+      const s = p.snake;
+      const drop = Math.max(1, Math.round(s.segments.length * POWER_UP_RULES.bombShrink));
+      if (s.segments.length - drop < POWER_UP_RULES.minLength) return kill(p, null);
+      s.segments.splice(0, drop);
+      s.dir = travelDir(s.segments[1], s.segments[0]) ?? s.dir;
+      s.dirQueue = [];
+      s.pendingGrowth = 0;
+      setEffect(p, 'ghost', POWER_UP_RULES.bombGhostMs);
     },
     gun(p) {
       const s = p.snake;
@@ -619,6 +655,16 @@ export function createEngine({ config, random = Math.random } = {}) {
   };
   for (const p of Object.values(POWER_UP_TYPES)) {
     if (p.durationMs) EFFECTS[p.type] = (player) => setEffect(player, p.type, p.durationMs);
+  }
+
+  // The direction of one step from `from` to `to` (across an edge when walls
+  // wrap), or null if they aren't neighbours (e.g. a portal jump).
+  function travelDir(from, to) {
+    for (const dir of Object.keys(DIRECTIONS)) {
+      const n = nextCell(from, dir);
+      if (n.x === to.x && n.y === to.y) return dir;
+    }
+    return null;
   }
 
   function pickUp(player, type) {
@@ -945,7 +991,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     }
 
     // Items: eaten by surviving heads. A power-up grows the snake like an
-    // apple, then takes effect. A bomb doesn't grow it.
+    // apple, then takes effect. A head entering any cell of a bomb sets it
+    // off (a ghost passes through); it doesn't grow the snake.
     for (const m of moves) {
       if (dead.has(m) || m.player.status !== 'alive') continue;
       const { x, y } = m.newHead;
@@ -956,11 +1003,11 @@ export function createEngine({ config, random = Math.random } = {}) {
         events.push(item.type ? { type: 'eat', id: m.player.id, x, y, item: item.type } : { type: 'eat', id: m.player.id, x, y });
         if (item.type) pickUp(m.player, item.type);
       }
-      if (m.player.status !== 'alive') continue;
-      const b = bombs.findIndex((o) => o.x === x && o.y === y);
+      if (m.player.status !== 'alive' || isGhost(m.player)) continue;
+      const b = bombs.findIndex((o) => bombCovers(o, x, y));
       if (b !== -1) {
-        bombs.splice(b, 1);
-        events.push({ type: 'eat', id: m.player.id, x, y, item: 'bomb' });
+        const [bomb] = bombs.splice(b, 1);
+        events.push({ type: 'eat', id: m.player.id, x: bomb.x, y: bomb.y, item: 'bomb' });
         pickUp(m.player, 'bomb');
       }
     }

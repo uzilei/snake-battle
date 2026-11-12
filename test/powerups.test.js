@@ -43,6 +43,8 @@ const head = (e, id) => {
 };
 const cells = (e, id) => snake(e, id).segments.map((c) => [c.x, c.y]);
 const far = { z: [[[18, 18], [17, 18], [16, 18]], 'up'] }; // a bystander, so rounds don't end
+// The 3x3 block a bomb centered on (x, y) covers, as "x,y" keys.
+const bombBlock = ({ x, y }) => [-1, 0, 1].flatMap((dy) => [-1, 0, 1].map((dx) => `${x + dx},${y + dy}`));
 
 describe('golden', () => {
   test('moves two cells per tick while active', () => {
@@ -351,7 +353,7 @@ describe('spawning', () => {
     const e = setup({ ...loopers, c: [[[2, 16], [1, 16], [0, 16]], 'right'] }, { ...PU, wrapWalls: true, appleCount: 3, corpseApples: true });
     e._debug.setApples([[5, 7], [6, 7]]);
     e._debug.addPowerUps([[7, 7, 'ghost']]);
-    e._debug.setBombs([[8, 7]]);
+    e._debug.setBombs([[12, 7]]);
     e.tick();
     assert.equal(e.getState().apples.length + e.getState().powerUps.length, 3); // full: nothing new
     // c turns into its own body: 6 corpse apples, on top of appleCount.
@@ -367,19 +369,19 @@ describe('spawning', () => {
 
   test('bombs do not count toward appleCount', () => {
     const e = setup(loopers, { ...PU, wrapWalls: true, appleCount: 2, powerUpChance: 0 });
-    e._debug.setBombs([[5, 7], [6, 7], [7, 7]]);
+    e._debug.setBombs([[3, 7], [7, 7], [11, 7]]);
     e.tick();
     assert.equal(e.getState().apples.length, 2);
     assert.equal(e.getState().bombs.length, 3);
   });
 
-  test('no item spawns on a portal, a bomb or a snake', () => {
+  test('no item spawns on a portal, any cell of a bomb, or a snake', () => {
     const e = setup(loopers, { ...PU, gridSize: 10, wrapWalls: true, appleCount: 30, powerUpChance: 50 });
-    e._debug.setBombs([[5, 5]]);
-    e._debug.addPortal([4, 4], [6, 6]);
+    e._debug.setBombs([[5, 6]]);
+    e._debug.addPortal([1, 1], [8, 1]);
     e.tick();
     const s = e.getState();
-    const taken = new Set(['5,5', '4,4', '6,6', ...s.snakes.flatMap((x) => x.segments.map((c) => `${c.x},${c.y}`))]);
+    const taken = new Set([...bombBlock({ x: 5, y: 6 }), '1,1', '8,1', ...s.snakes.flatMap((x) => x.segments.map((c) => `${c.x},${c.y}`))]);
     for (const it of [...s.apples, ...s.powerUps]) assert.equal(taken.has(`${it.x},${it.y}`), false, `${it.x},${it.y}`);
   });
 });
@@ -395,27 +397,61 @@ describe('bombs', () => {
     assert.ok(e.getState().events.some((ev) => ev.type === 'bombExpired'));
   });
 
-  test('they spawn at bombsPerMinute, never more than 5 at once, away from heads', () => {
-    const e = setup(loopers, { ...PU, wrapWalls: true, tickMs: 600, bombsPerMinute: 20 });
+  test('they spawn at bombsPerMinute, never more than 5 at once, as whole free 3x3 blocks on the board, away from heads', () => {
+    const e = setup(loopers, { ...PU, wrapWalls: true, tickMs: 600, bombsPerMinute: 20, appleCount: 20, powerUpChance: 0 });
     let spawned = 0;
     let before = 0;
     for (let i = 0; i < 300; i++) {
       e.tick();
       const s = e.getState();
       assert.ok(s.bombs.length <= 5);
+      // No bomb cell is ever under a snake, an item or another bomb.
+      const seen = new Set([...s.snakes.flatMap((x) => x.segments), ...s.apples, ...s.powerUps].map((c) => `${c.x},${c.y}`));
+      for (const b of s.bombs) {
+        assert.ok(b.x >= 1 && b.y >= 1 && b.x <= 18 && b.y <= 18, 'bomb off the board');
+        for (const k of bombBlock(b)) {
+          assert.equal(seen.has(k), false, `bomb on ${k}`);
+          seen.add(k);
+        }
+      }
       if (s.bombs.length > before) {
         spawned++;
         const fresh = s.bombs[s.bombs.length - 1];
         for (const sn of s.snakes) {
           const h = sn.segments[0];
-          const dx = Math.min(Math.abs(h.x - fresh.x), 20 - Math.abs(h.x - fresh.x));
-          const dy = Math.min(Math.abs(h.y - fresh.y), 20 - Math.abs(h.y - fresh.y));
-          assert.ok(dx + dy > 2, 'bomb next to a head');
+          for (const k of bombBlock(fresh)) {
+            const [x, y] = k.split(',').map(Number);
+            const dx = Math.min(Math.abs(h.x - x), 20 - Math.abs(h.x - x));
+            const dy = Math.min(Math.abs(h.y - y), 20 - Math.abs(h.y - y));
+            assert.ok(dx + dy > 2, 'bomb next to a head');
+          }
         }
       }
       before = s.bombs.length;
     }
     assert.ok(spawned >= 10, `only ${spawned} bombs`);
+  });
+
+  test('a bomb only spawns where all 9 of its cells are free', () => {
+    // Apples on every (x % 3 == 1, y % 3 == 1) cell: every 3x3 block holds one.
+    const lattice = [];
+    for (const y of [1, 4, 7]) for (const x of [1, 4, 7]) lattice.push([x, y]);
+    const e = setup({ a: [[[2, 3], [1, 3], [0, 3]], 'right'] }, { ...PU, gridSize: 10, wrapWalls: true, tickMs: 600, bombsPerMinute: 20, appleCount: 9, powerUpChance: 0 });
+    e._debug.setApples(lattice);
+    for (let i = 0; i < 100; i++) e.tick();
+    assert.deepEqual(e.getState().bombs, []);
+    // Free the blocks around (7,7): bombs now spawn there and only there.
+    e.updateConfig({ appleCount: 8 });
+    e._debug.setApples(lattice.filter(([x, y]) => !(x === 7 && y === 7)));
+    let spawned = 0;
+    for (let i = 0; i < 100; i++) {
+      e.tick();
+      for (const b of e.getState().bombs) {
+        assert.ok(b.x >= 6 && b.x <= 8 && b.y >= 6 && b.y <= 8, `bomb at ${b.x},${b.y}`);
+        spawned++;
+      }
+    }
+    assert.ok(spawned > 0);
   });
 
   test('no bombs while power-ups are off', () => {
@@ -495,10 +531,10 @@ describe('rounds and state', () => {
     assert.equal(again.snakes.find((x) => x.id === 'a').effect.type, 'golden');
   });
 
-  test('corpse apples never land on power-ups or bombs', () => {
-    const e = setup({ a: [[[19, 5], [18, 5], [17, 5]], 'right'], ...far }, { ...PU, corpseApples: true, appleCount: 1 });
+  test('corpse apples never land on power-ups or any cell of a bomb', () => {
+    const e = setup({ a: [[[19, 5], [18, 5], [17, 5], [16, 5], [15, 5]], 'right'], ...far }, { ...PU, corpseApples: true, appleCount: 1 });
     e._debug.addPowerUps([[18, 5, 'ghost']]);
-    e._debug.setBombs([[17, 5]]);
+    e._debug.setBombs([[16, 6]]); // covers (15-17, 5-7)
     e.tick();
     const s = e.getState();
     assert.deepEqual(s.apples, [{ x: 19, y: 5, corpse: true }]);
@@ -775,26 +811,89 @@ describe('scissors', () => {
 });
 
 describe('bomb', () => {
-  test('shrinks by a quarter and clears pending growth; the lost tail vanishes even with dead-snake apples on', () => {
+  test('a head entering any of its 9 cells sets it off: the front comes off and vanishes, the snake carries on as a ghost', () => {
     const row = Array.from({ length: 12 }, (_, i) => [12 - i, 5]);
     const e = setup({ a: [row, 'right'], ...far }, { ...PU, corpseApples: true, growthPerApple: 3 });
     e._debug.setApples([[13, 5]]);
-    e._debug.setBombs([[14, 5]]);
+    e._debug.setBombs([[14, 3]]); // covers (13-15, 2-4)
     e.tick(); // apple: pending 3
-    e.tick(); // grows to 13 on the move, then the bomb: round(13 * 0.75) = 10
-    assert.equal(snake(e, 'a').segments.length, 10);
-    assert.equal(snake(e, 'a').pendingGrowth, 0);
-    assert.deepEqual(e.getState().apples, []);
+    e.setDirection('a', 'up');
+    e.setDirection('a', 'left'); // still queued when the bomb goes off
+    e.tick(); // up into (13,4), a corner of the bomb: 13 long, minus round(13 / 4) = 3 off the front
+    assert.deepEqual(cells(e, 'a'), Array.from({ length: 10 }, (_, i) => [11 - i, 5]));
+    const s = snake(e, 'a');
+    assert.equal(s.dir, 'right'); // from segment 1 toward segment 0 of what is left
+    assert.equal(s.pendingGrowth, 0);
+    assert.deepEqual(s.effect, { type: 'ghost', remainingMs: 1000, durationMs: 1000 });
+    assert.deepEqual(e.getState().apples, []); // even with dead-snake apples on
+    assert.deepEqual(e.getState().bombs, []);
+    assert.deepEqual(events(e, 'eat').map((ev) => [ev.item, ev.x, ev.y]), [['bomb', 14, 3]]);
+    e.tick(); // the queued left turn is gone: it goes on right
+    assert.deepEqual(head(e, 'a'), [12, 5]);
+  });
+
+  test('the new direction is the way the remaining body was going, across a wrapping edge too', () => {
+    // Came down column 5 and turned right: after losing 2 the head is (5,5), going down.
+    const e = setup({ a: [[[6, 5], [5, 5], [5, 4], [5, 3], [5, 2], [5, 1], [5, 0]], 'right'], ...far }, PU);
+    e._debug.setBombs([[8, 6]]);
+    e.tick();
+    assert.deepEqual(cells(e, 'a'), [[5, 5], [5, 4], [5, 3], [5, 2], [5, 1]]);
+    assert.equal(snake(e, 'a').dir, 'down');
+    // Wrapped from x = 19 to 0: the rest still goes right.
+    const w = setup({ a: [[[1, 5], [0, 5], [19, 5], [18, 5], [17, 5], [16, 5]], 'right'], ...far }, { ...PU, wrapWalls: true });
+    w._debug.setBombs([[3, 6]]);
+    w.tick();
+    assert.deepEqual(cells(w, 'a'), [[0, 5], [19, 5], [18, 5], [17, 5]]);
+    assert.equal(snake(w, 'a').dir, 'right');
+  });
+
+  test('if fewer than 3 segments would remain the snake dies, with no kill credit', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'], b: [[[5, 9], [4, 9], [3, 9], [2, 9]], 'right'], ...far }, PU);
+    e._debug.setBombs([[7, 5], [7, 9]]);
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead'); // 3 - 1 = 2 left
+    assert.equal(events(e, 'death')[0].killerId, null);
+    assert.ok(e.getState().players.every((p) => p.kills === 0));
+    assert.equal(player(e, 'b').status, 'alive'); // 4 - 1 = 3 left
+    assert.equal(snake(e, 'b').segments.length, 3);
+  });
+
+  test('a ghost passes through without setting it off', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5], [2, 5]], 'right'], ...far }, PU);
+    e._debug.setEffect('a', 'ghost', 3000);
+    e._debug.setBombs([[7, 5]]);
+    for (let i = 0; i < 4; i++) e.tick();
+    assert.deepEqual(head(e, 'a'), [9, 5]);
+    assert.equal(snake(e, 'a').segments.length, 4);
+    assert.equal(e.getState().bombs.length, 1);
+  });
+
+  test('a shield pops instead of losing segments', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5], [2, 5]], 'right'], ...far }, PU);
+    e._debug.setEffect('a', 'shield', 10000);
+    e._debug.setBombs([[7, 5]]);
+    e.tick();
+    assert.deepEqual(cells(e, 'a'), [[6, 5], [5, 5], [4, 5], [3, 5]]);
+    assert.equal(snake(e, 'a').effect.type, 'ghost');
+    assert.equal(events(e, 'shieldPop').length, 1);
     assert.deepEqual(e.getState().bombs, []);
   });
 
-  test('never below 3, and it never grows the snake', () => {
-    const e = setup({ a: [[[5, 5], [4, 5], [3, 5], [2, 5]], 'right'], b: [[[5, 9], [4, 9], [3, 9]], 'right'], ...far }, PU);
-    e._debug.setBombs([[6, 5], [6, 9]]);
+  test('a snake joining during the countdown never spawns on a bomb', () => {
+    const e = createEngine({ config: { gridSize: 10, appleCount: 0, intermissionMs: 0, countdownMs: 3000, ...PU }, random: seeded(7) });
+    e.addPlayer('a', 'a');
     e.tick();
-    assert.equal(snake(e, 'a').segments.length, 3);
-    assert.equal(snake(e, 'b').segments.length, 3);
-    assert.equal(snake(e, 'b').pendingGrowth, 0);
+    assert.equal(e.getState().phase, 'countdown');
+    e._debug.setSnake('a', [[9, 0], [9, 1], [9, 2]], 'down');
+    // Bombs over everything but column 9 and row 9.
+    const centers = [];
+    for (const y of [1, 4, 7]) for (const x of [1, 4, 7]) centers.push([x, y]);
+    e._debug.setBombs(centers);
+    e.addPlayer('b', 'b');
+    const taken = new Set(centers.flatMap(([x, y]) => bombBlock({ x, y })));
+    const b = snake(e, 'b');
+    assert.ok(b, 'b spawned');
+    for (const c of b.segments) assert.equal(taken.has(`${c.x},${c.y}`), false, `${c.x},${c.y}`);
   });
 });
 
@@ -892,6 +991,23 @@ describe('portal', () => {
     assert.deepEqual(projectiles(e).map((p) => [p.x, p.y]), [[7, 8]]);
   });
 
+  test('the other end never lands on any cell of a bomb', () => {
+    const block = new Set(bombBlock({ x: 5, y: 5 }));
+    const list = [];
+    for (let y = 0; y < 10; y++) {
+      for (let x = 0; x < 10; x++) {
+        if ((y === 1 && x <= 2) || block.has(`${x},${y}`) || (x === 9 && y === 9)) continue;
+        list.push([x, y]);
+      }
+    }
+    const e = setup({ a: [[[1, 1], [0, 1], [0, 2]], 'right'] }, { ...PU, gridSize: 10 });
+    e._debug.setApples(list);
+    e._debug.setBombs([[5, 5]]);
+    e._debug.addPowerUps([[2, 1, 'portal']]);
+    e.tick();
+    assert.deepEqual(e.getState().portals[0].ends[1], { x: 9, y: 9 });
+  });
+
   test('on a nearly full board the exit takes any free cell; on a full one no portal appears', () => {
     const fill = (except) => {
       const list = [];
@@ -914,23 +1030,24 @@ describe('portal', () => {
 });
 
 describe('magnet', () => {
-  test('pulls nearby apples and power-ups one cell a tick, never into snakes, items or portals; not bombs', () => {
-    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'], ...far }, { appleCount: 5 });
+  test('pulls nearby apples and power-ups one cell a tick, never into snakes, items, portals or any bomb cell; not bombs', () => {
+    const e = setup({ a: [[[6, 6], [6, 7], [6, 8]], 'up'], ...far }, { appleCount: 5 });
     e._debug.setEffect('a', 'magnet', 5000);
-    // After the move the head is at (6,5).
-    e._debug.setApples([[6, 8], [6, 9], [6, 2], [7, 5]]);
-    e._debug.addPowerUps([[9, 5, 'ghost']]);
-    e._debug.setBombs([[8, 5]]);
+    // After the move the head is at (6,5) and the body at (6,6), (6,7).
+    e._debug.setApples([[3, 5], [2, 5], [6, 2], [6, 4]]);
+    e._debug.addPowerUps([[7, 7, 'ghost']]);
+    e._debug.setBombs([[8, 5]]); // covers (7-9, 4-6)
     e._debug.addPortal([6, 3], [15, 15]);
     e.tick();
     const s = e.getState();
     assert.deepEqual(s.apples.map((c) => [c.x, c.y]), [
-      [6, 7], // pulled
-      [6, 9], // too far (4)
+      [4, 5], // pulled
+      [2, 5], // too far (4)
       [6, 2], // the portal is in the way
-      [7, 5], // the head is in the way: it stays to be eaten
+      [6, 4], // the head is in the way: it stays to be eaten
     ]);
-    assert.deepEqual(s.powerUps.map((c) => [c.x, c.y]), [[9, 5]]); // the bomb is in the way
+    // (7,6) is a bomb cell and (6,7) is the body: it stays.
+    assert.deepEqual(s.powerUps.map((c) => [c.x, c.y]), [[7, 7]]);
     assert.deepEqual(s.bombs.map((c) => [c.x, c.y]), [[8, 5]]); // never pulled
   });
 

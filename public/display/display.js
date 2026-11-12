@@ -224,15 +224,19 @@ const remainingNow = (ms, now) => Math.max(0, ms - (now - tickAt));
 function boardItems(state, now) {
   const items = state.apples.map((a) => ({ type: 'apple', x: a.x, y: a.y }));
   for (const p of state.powerUps ?? []) items.push({ type: p.type, x: p.x, y: p.y, power: true });
-  for (const b of state.bombs ?? []) items.push({ type: 'bomb', x: b.x, y: b.y, power: true, remainingMs: remainingNow(b.remainingMs, now) });
+  // A bomb is one big sprite over its whole block, centered on (x, y).
+  for (const b of state.bombs ?? []) {
+    items.push({ type: 'bomb', x: b.x, y: b.y, size: POWER_UP_RULES.bombSize, power: true, remainingMs: remainingNow(b.remainingMs, now) });
+  }
   // An eaten item stays until the (interpolated) head has reached it.
   for (const e of eaten) if (now < e.until) items.push({ type: e.item ?? 'apple', x: e.x, y: e.y, power: Boolean(e.item) });
   return items;
 }
 
 function drawItems(items, cell, now) {
-  const px = Math.max(1, Math.round(cell * 0.84));
   for (const it of items) {
+    const span = cell * (it.size ?? 1); // the item's whole block, in pixels
+    const px = Math.max(1, Math.round(span * 0.84));
     let scale = 1;
     let alpha = 1;
     if (it.power) {
@@ -241,15 +245,15 @@ function drawItems(items, cell, now) {
       scale = 1 + 0.09 * Math.sin(now / 190 + it.x * 1.7 + it.y);
       const cx = (it.x + 0.5) * cell;
       const cy = (it.y + 0.5) * cell;
-      const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, cell * 0.8);
+      const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, span * 0.8);
       // The bomb emoji is nearly black: it gets a light disc and a red glow.
       glow.addColorStop(0, it.type === 'bomb' ? 'rgba(255, 110, 80, 0.75)' : 'rgba(255, 240, 170, 0.32)');
       glow.addColorStop(1, it.type === 'bomb' ? 'rgba(255, 80, 60, 0)' : 'rgba(255, 240, 170, 0)');
       ctx.fillStyle = glow;
-      ctx.fillRect(cx - cell * 0.8, cy - cell * 0.8, cell * 1.6, cell * 1.6);
+      ctx.fillRect(cx - span * 0.8, cy - span * 0.8, span * 1.6, span * 1.6);
       if (it.type === 'bomb') {
         ctx.fillStyle = 'rgba(255, 235, 225, 0.55)';
-        disc(cx, cy, cell * 0.36);
+        disc(cx, cy, span * 0.36);
       }
     }
     // A bomb blinks during its last seconds.
@@ -264,7 +268,7 @@ function drawItems(items, cell, now) {
     if (img) ctx.drawImage(img, x, y, size, size);
     else {
       ctx.fillStyle = it.type === 'apple' ? '#e53935' : '#ffd54a';
-      disc((it.x + 0.5) * cell, (it.y + 0.5) * cell, cell * 0.38 * scale);
+      disc((it.x + 0.5) * cell, (it.y + 0.5) * cell, span * 0.38 * scale);
     }
     ctx.globalAlpha = 1;
   }
@@ -683,7 +687,8 @@ function onState(msg) {
     };
     for (const ev of s.events ?? []) {
       if (ev.type === 'eat') {
-        eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item });
+        // A bomb goes off at once (its x, y is the block's center).
+        if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item });
         if (ev.item === 'bomb') {
           if (fx.screenShake) shakeStart = now;
           if (fx.deathParticles) sparks(ev.x, ev.y, now, 24, ['#ff7043', '#ffca28', '#5d4037']);
