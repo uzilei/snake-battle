@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildChains, snakePath, pointAt, subPath } from '../src/shared/snake-path.js';
+import { buildChains, snakePath, pointAt, subPath, smoothPointAt, smoothSubPath } from '../src/shared/snake-path.js';
 
 const cells = (list) => list.map(([x, y]) => ({ x, y }));
 const snake = (list) => ({ segments: cells(list) });
@@ -186,5 +186,64 @@ describe('two cells per tick (golden)', () => {
     assert.equal(p.front, 0);
     assert.deepEqual(pointAt(p.chains[0], p.front), { x: 8, y: 8 });
     assert.equal(p.chains.length, 2);
+  });
+});
+
+describe('rounded corners (stripes)', () => {
+  // A zigzag like the playtest one: right, down, left, down, right.
+  const zig = buildChains(cells([[0, 0], [1, 0], [2, 0], [2, 1], [1, 1], [0, 1], [0, 2], [1, 2], [2, 2]]), N)[0];
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+
+  test('straight parts are unchanged', () => {
+    const p = smoothPointAt(zig, 1);
+    assert.deepEqual([p.x, p.y, p.tx, p.ty], [1, 0, 1, 0]);
+  });
+
+  test('a corner is a quarter circle of radius 1/2 around the grid corner, from edge middle to edge middle', () => {
+    // Corner at (2,0) (u = 2): in going right, out going down; circle center (1.5, 0.5).
+    const start = smoothPointAt(zig, 1.5);
+    const end = smoothPointAt(zig, 2.5);
+    assert.ok(near(start.x, 1.5) && near(start.y, 0) && near(start.tx, 1) && near(start.ty, 0));
+    assert.ok(near(end.x, 2) && near(end.y, 0.5) && near(end.tx, 0) && near(end.ty, 1));
+    for (const u of [1.6, 1.8, 2, 2.2, 2.4]) {
+      const p = smoothPointAt(zig, u);
+      assert.ok(near(Math.hypot(p.x - 1.5, p.y - 0.5), 0.5), `u = ${u}`);
+      assert.ok(near(Math.hypot(p.tx, p.ty), 1));
+      // The tangent is square to the radius, so a stripe's end points out from the center.
+      assert.ok(near((p.x - 1.5) * p.tx + (p.y - 0.5) * p.ty, 0));
+    }
+  });
+
+  test('back-to-back corners (a U-turn) share one center and join smoothly', () => {
+    // Corners at (2,0) and (2,1) both turn around (1.5, 0.5).
+    for (const u of [2.5, 2.7, 3, 3.3]) {
+      const p = smoothPointAt(zig, u);
+      assert.ok(near(Math.hypot(p.x - 1.5, p.y - 0.5), 0.5), `u = ${u}`);
+    }
+  });
+
+  test('the smoothed path is continuous and stays well inside the body', () => {
+    const pts = smoothSubPath(zig, 0, 8);
+    for (let i = 1; i < pts.length; i++) assert.ok(Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y) <= 0.125 + 1e-9);
+    // Never more than 0.21 cells off the straight path (the body is 0.35 each side).
+    const poly = subPath(zig, 0, 8);
+    const distToPoly = (q) => {
+      let best = Infinity;
+      for (let i = 1; i < poly.length; i++) {
+        const a = poly[i - 1];
+        const b = poly[i];
+        const t = Math.max(0, Math.min(1, ((q.x - a.x) * (b.x - a.x) + (q.y - a.y) * (b.y - a.y)) / ((b.x - a.x) ** 2 + (b.y - a.y) ** 2)));
+        best = Math.min(best, Math.hypot(q.x - (a.x + t * (b.x - a.x)), q.y - (a.y + t * (b.y - a.y))));
+      }
+      return best;
+    };
+    for (const q of pts) assert.ok(distToPoly(q) <= 0.21, `${q.x},${q.y}`);
+  });
+
+  test('ranges outside the chain give null; a wrap split keeps working', () => {
+    assert.equal(smoothSubPath(zig, 9, 10), null);
+    const [a, b] = buildChains(cells([[0, 4], [9, 4], [8, 4]]), N);
+    assert.deepEqual(smoothSubPath(a, 0, 1).map((p) => [p.x, p.y]).at(-1), [-1, 4]);
+    assert.ok(smoothSubPath(b, 0, 2).every((p) => p.y === 4));
   });
 });

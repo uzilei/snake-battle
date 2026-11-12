@@ -114,6 +114,68 @@ export function pointAt(chain, u) {
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
 }
 
+// ---- rounded corners (for the stripes) ----
+// The body is drawn along the straight path, with round joins. Stripes follow
+// a smoothed path instead: within half a cell of a corner it is a quarter
+// circle of radius 1/2, from the middle of one cell edge to the middle of the
+// next. Measured along it, a stripe's ends point out from the circle's center,
+// so they turn through the bend instead of cutting straight across it.
+
+// The corner at chain point i, or null if the path goes straight there.
+function cornerAt(chain, i) {
+  if (i <= 0 || i >= chain.length - 1) return null;
+  const a = chain[i - 1];
+  const c = chain[i];
+  const b = chain[i + 1];
+  const din = { x: c.x - a.x, y: c.y - a.y };
+  const dout = { x: b.x - c.x, y: b.y - c.y };
+  if (din.x === dout.x && din.y === dout.y) return null;
+  return { c, din, dout };
+}
+
+/**
+ * Point and unit tangent (direction of increasing u) at position u on the
+ * smoothed path. u must be within the chain's range.
+ * @returns {{x:number, y:number, tx:number, ty:number}}
+ */
+export function smoothPointAt(chain, u) {
+  const first = chain[0].u;
+  const i = Math.min(chain.length - 1, Math.max(0, Math.round(u - first)));
+  const k = cornerAt(chain, i);
+  if (k && Math.abs(u - chain[i].u) <= 0.5) {
+    const { c, din, dout } = k;
+    const a = (u - chain[i].u + 0.5) * (Math.PI / 2); // 0 at the incoming edge, 90 degrees at the outgoing one
+    const ox = c.x + (dout.x - din.x) / 2; // the circle's center: a grid corner
+    const oy = c.y + (dout.y - din.y) / 2;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    return {
+      x: ox + (-dout.x * cos + din.x * sin) / 2,
+      y: oy + (-dout.y * cos + din.y * sin) / 2,
+      tx: din.x * cos + dout.x * sin,
+      ty: din.y * cos + dout.y * sin,
+    };
+  }
+  const p = pointAt(chain, u);
+  if (chain.length === 1) return { ...p, tx: 0, ty: 0 };
+  const s = Math.min(chain.length - 2, Math.max(0, Math.floor(u - first)));
+  return { ...p, tx: chain[s + 1].x - chain[s].x, ty: chain[s + 1].y - chain[s].y };
+}
+
+/**
+ * The smoothed path between u0 and u1 as a list of points (sampled every
+ * `step`, so arcs come out round), or null if the chain doesn't overlap.
+ */
+export function smoothSubPath(chain, u0, u1, step = 0.125) {
+  const lo = Math.max(u0, chain[0].u);
+  const hi = Math.min(u1, chain[chain.length - 1].u);
+  if (lo > hi) return null;
+  const pts = [smoothPointAt(chain, lo)];
+  for (let u = (Math.floor(lo / step) + 1) * step; u < hi - 1e-9; u += step) pts.push(smoothPointAt(chain, u));
+  if (hi > lo) pts.push(smoothPointAt(chain, hi));
+  return pts;
+}
+
 /**
  * The part of a chain between u0 and u1, as a list of points (corners kept),
  * or null if the chain doesn't overlap that range.

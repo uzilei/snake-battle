@@ -3,7 +3,7 @@
 
 import { STRINGS, fmt } from '/shared/strings.js';
 import { playerColor } from '/shared/colors.js';
-import { snakePath, pointAt, subPath } from '/shared/snake-path.js';
+import { snakePath, pointAt, subPath, smoothSubPath } from '/shared/snake-path.js';
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
 
 const T = STRINGS.display;
@@ -397,6 +397,40 @@ function pointsAt(chains, u) {
   return out;
 }
 
+// Clips to the body's exact shape: a line with round joins and caps is the
+// union of a rectangle per straight piece and a circle at every point. All
+// pieces wind the same way, so the nonzero rule fills their union.
+function clipToBody(chains, u0, u1, cell, r) {
+  ctx.beginPath();
+  for (const chain of chains) {
+    const pts = subPath(chain, u0, u1);
+    if (!pts) continue;
+    const px = pts.map((q) => ({ x: (q.x + 0.5) * cell, y: (q.y + 0.5) * cell }));
+    for (let i = 1; i < px.length; i++) {
+      const a = px[i - 1];
+      const b = px[i];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 1e-6) continue;
+      const nx = (-(b.y - a.y) / len) * r;
+      const ny = ((b.x - a.x) / len) * r;
+      ctx.moveTo(a.x - nx, a.y - ny);
+      ctx.lineTo(b.x - nx, b.y - ny);
+      ctx.lineTo(b.x + nx, b.y + ny);
+      ctx.lineTo(a.x + nx, a.y + ny);
+      ctx.closePath();
+    }
+    for (const q of px) {
+      ctx.moveTo(q.x + r, q.y);
+      ctx.arc(q.x, q.y, r, 0, Math.PI * 2);
+    }
+  }
+  ctx.clip();
+}
+
+// How far a stripe band reaches either side of its path, in cells: enough to
+// cover the outside of a bend, short of the next leg of a tight zigzag.
+const STRIPE_REACH = 0.6;
+
 function disc(x, y, r) {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -450,20 +484,32 @@ function drawSnake(s, prev, t, cell, n, now) {
   ctx.shadowBlur = 0;
 
   // ...then every other segment in the darker shade. Stripes belong to the
-  // segments (counted from the head), so they travel with the body.
+  // segments (counted from the head), so they travel with the body. Each is
+  // a band along the rounded path, square to it, so it turns through bends,
+  // clipped to the body so nothing shows past its outline.
+  ctx.save();
+  clipToBody(chains, front, back, cell, width / 2);
   ctx.lineCap = 'butt';
+  ctx.lineWidth = cell * STRIPE_REACH * 2;
   ctx.strokeStyle = look.dark;
   ctx.beginPath();
   for (let j = 1; j < segU.length; j += 2) {
     const lo = Math.max(front, segU[j] - 0.5);
     const hi = Math.min(back, segU[j] + 0.5);
-    if (lo < hi) tracePath(chains, lo, hi, cell);
+    if (lo >= hi) continue;
+    for (const chain of chains) {
+      const pts = smoothSubPath(chain, lo, hi);
+      if (!pts || pts.length < 2) continue;
+      ctx.moveTo((pts[0].x + 0.5) * cell, (pts[0].y + 0.5) * cell);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo((pts[i].x + 0.5) * cell, (pts[i].y + 0.5) * cell);
+    }
   }
   ctx.stroke();
   ctx.fillStyle = look.dark;
   if (segU.length > 1 && (segU.length - 1) % 2 === 1) {
     for (const p of pointsAt(chains, back)) disc((p.x + 0.5) * cell, (p.y + 0.5) * cell, width / 2); // round tail tip
   }
+  ctx.restore();
 
   // Head: a bit wider than the body, eyes looking where it's going.
   const d = DIR_VECTORS[s.dir] ?? [1, 0];
