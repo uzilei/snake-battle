@@ -38,6 +38,7 @@ $('effects-hint').textContent = A.effectsHint;
 // Engine rules go through 'config'; the records and effects toggles are server settings.
 const RULE_TOGGLES = {
   corpseApples: 'config',
+  displayButtons: 'settings',
   wrapWalls: 'config',
   leaderboard: 'settings',
   hallOfFame: 'settings',
@@ -120,7 +121,10 @@ $('btn-pause').addEventListener('click', () => send({ t: latest?.paused ? 'resum
 $('btn-restart').addEventListener('click', () => {
   if (confirm(A.confirmRestart)) send({ t: 'restart' });
 });
-$('side-panel').addEventListener('change', (e) => send({ t: 'settings', sidePanel: e.target.value }));
+$('side-panel').addEventListener('change', (e) => {
+  send({ t: 'settings', sidePanel: e.target.value });
+  e.target.blur(); // so changes made from /display show up here too
+});
 $('keyboard').addEventListener('change', (e) => send({ t: 'settings', keyboardPlayers: e.target.checked }));
 $('btn-reset-fame').addEventListener('click', () => {
   if (confirm(A.confirmResetHallOfFame)) send({ t: 'resetHallOfFame' });

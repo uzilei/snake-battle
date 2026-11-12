@@ -46,6 +46,34 @@ export function resolveSidePanel(mode, state, recordsOn = false) {
   return 'leaderboard';
 }
 
+// Order of the manual modes when cycling them from /display (← and →).
+const SIDE_PANEL_RING = Object.freeze(['leaderboard', 'join', 'records']);
+
+/**
+ * The ← / → buttons on /display, for a manual side panel mode: each side
+ * names the mode it switches to and the panel that will actually appear.
+ * A side is null when it wouldn't change what's on screen, and only one is
+ * kept when both would show the same panel. Null in auto mode.
+ */
+export function sidePanelNav(mode, state, recordsOn = false) {
+  const i = SIDE_PANEL_RING.indexOf(mode);
+  if (i < 0) return null;
+  const current = resolveSidePanel(mode, state, recordsOn);
+  const side = (m) => {
+    const panel = resolveSidePanel(m, state, recordsOn);
+    return panel === current ? null : { mode: m, panel };
+  };
+  let prev = side(SIDE_PANEL_RING[(i + SIDE_PANEL_RING.length - 1) % SIDE_PANEL_RING.length]);
+  let next = side(SIDE_PANEL_RING[(i + 1) % SIDE_PANEL_RING.length]);
+  if (prev && next && prev.panel === next.panel) {
+    // Keep the side whose mode is that panel (e.g. "leaderboard", not a
+    // "records" mode that falls back to the scoreboard).
+    if (prev.mode === prev.panel) next = null;
+    else prev = null;
+  }
+  return { prev, next };
+}
+
 export function createGame({
   random = Math.random,
   log = console.log,
@@ -60,6 +88,7 @@ export function createGame({
     keyboardPlayers: false,
     leaderboard: false,
     hallOfFame: false,
+    displayButtons: false, // mouse cursor and side panel buttons on /display
     ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, false])),
   };
   let recordsView = records.top(); // cached: recomputed only when the records change
@@ -82,6 +111,8 @@ export function createGame({
 
   const recordsOn = () => settings.leaderboard || settings.hallOfFame;
 
+  const sideNav = (state) => (settings.displayButtons ? sidePanelNav(settings.sidePanel, state, recordsOn()) : null);
+
   function displayMessage(state) {
     return {
       t: 'state',
@@ -89,6 +120,8 @@ export function createGame({
       paused,
       sidePanel: resolveSidePanel(settings.sidePanel, state, recordsOn()),
       keyboardPlayers: settings.keyboardPlayers,
+      displayButtons: settings.displayButtons,
+      sideNav: sideNav(state),
       tickMs: config.tickMs, // for smooth movement between ticks
       effects: Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, settings[k]])),
       records: {
@@ -340,6 +373,18 @@ export function createGame({
         }
         return;
       }
+      case 'sidePanel': {
+        // Only to a mode the ← / → buttons currently offer.
+        if (client.role !== 'display') return badMessage(client);
+        const nav = sideNav(engine.getState());
+        if (!nav || typeof msg.mode !== 'string' || ![nav.prev?.mode, nav.next?.mode].includes(msg.mode)) {
+          return badMessage(client);
+        }
+        settings.sidePanel = msg.mode;
+        log(`[display] side panel -> ${msg.mode}`);
+        broadcast();
+        return;
+      }
       default:
         return badMessage(client);
     }
@@ -380,7 +425,7 @@ export function createGame({
             for (const [id, o] of [...owners]) if (o.source === 'keyboard') kick(id);
           }
         }
-        for (const key of [...RECORD_SETTINGS, ...EFFECT_SETTINGS]) {
+        for (const key of [...RECORD_SETTINGS, ...EFFECT_SETTINGS, 'displayButtons']) {
           if (!Object.hasOwn(msg, key)) continue;
           if (typeof msg[key] !== 'boolean') return badMessage(client);
           settings[key] = msg[key];

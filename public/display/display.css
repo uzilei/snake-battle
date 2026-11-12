@@ -209,6 +209,40 @@ figcaption strong { font-size: 3.6vh; }
   text-align: center;
 }
 
+/* ---- ← / → side panel buttons (admin toggle) ---- */
+
+/* The cursor is shown only with the buttons on, and hides when the mouse rests. */
+body.mouse { cursor: default; }
+body.mouse.idle, body.mouse.idle .nav-btn { cursor: none; }
+
+.side-nav {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 2vh;
+  margin-top: 2vh;
+}
+
+.nav-btn {
+  font: inherit;
+  font-size: 2.8vh;
+  font-weight: 800;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+  border: 0.25vh solid #2a3350;
+  border-radius: 1.2vh;
+  padding: 1vh 2.2vh;
+  cursor: pointer;
+}
+.nav-btn:hover { background: rgba(255, 255, 255, 0.14); }
+.nav-btn:active { transform: translateY(0.2vh); }
+#nav-next { margin-left: auto; }
+
+/* Make room for the buttons: tighter records rows, and never draw under them. */
+#side.with-nav .panel { overflow: hidden; }
+#side.with-nav #records { gap: 2vh; }
+#side.with-nav .records-list li { font-size: 2.6vh; padding: 0.35vh 1.6vh; }
+
 .hint { margin: 2vh 0 0; font-size: 2.4vh; color: var(--muted); text-align: center; }
 
 .connection {

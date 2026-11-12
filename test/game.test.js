@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, sanitizeName, resolveSidePanel } from '../src/server/game.js';
+import { createGame, sanitizeName, resolveSidePanel, sidePanelNav } from '../src/server/game.js';
 import { createWordList } from '../src/server/profanity.js';
 import { createRecords } from '../src/server/records.js';
 import { wifiPayload, detectLanIp } from '../src/server/network.js';
@@ -534,6 +534,80 @@ describe('side panel with records', () => {
   test('records mode falls back to the scoreboard when both are off', () => {
     assert.equal(resolveSidePanel('records', st(3, 'playing'), true), 'records');
     assert.equal(resolveSidePanel('records', st(3, 'playing'), false), 'leaderboard');
+  });
+});
+
+describe('side panel buttons on /display', () => {
+  const st = (n, phase) => ({ phase, players: Array.from({ length: n }, () => ({})) });
+  const nav = (mode, state, on) => {
+    const r = sidePanelNav(mode, state, on);
+    return r && { prev: r.prev?.panel ?? null, next: r.next?.panel ?? null };
+  };
+
+  test('none in auto mode', () => {
+    assert.equal(sidePanelNav('auto', st(3, 'playing'), true), null);
+  });
+
+  test('join during play: ← scoreboard, records →', () => {
+    assert.deepEqual(nav('join', st(3, 'playing'), true), { prev: 'leaderboard', next: 'records' });
+  });
+
+  test('with records off, records is not offered and one button remains', () => {
+    assert.deepEqual(nav('join', st(3, 'playing'), false), { prev: 'leaderboard', next: null });
+    assert.equal(sidePanelNav('join', st(3, 'playing'), false).prev.mode, 'leaderboard');
+    assert.deepEqual(nav('leaderboard', st(3, 'playing'), false), { prev: null, next: 'join' });
+  });
+
+  test('scoreboard mode between rounds already shows records: no dead button', () => {
+    // leaderboard mode shows records between rounds, so "records" wouldn't change anything.
+    assert.deepEqual(nav('leaderboard', st(3, 'intermission'), true), { prev: null, next: 'join' });
+    // From join, scoreboard and records modes both show records then: one button.
+    const r = sidePanelNav('join', st(3, 'intermission'), true);
+    assert.equal([r.prev, r.next].filter(Boolean).length, 1);
+    assert.equal((r.prev ?? r.next).panel, 'records');
+  });
+
+  test('the display can switch only to an offered mode, with the toggle on', () => {
+    const game = createGame({ log: quiet });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    game.settings.sidePanel = 'join';
+
+    display.send({ t: 'sidePanel', mode: 'leaderboard' }); // toggle off
+    assert.equal(display.last('error').code, 'badMessage');
+    assert.equal(game.settings.sidePanel, 'join');
+
+    game.settings.displayButtons = true;
+    for (const mode of ['auto', 'records', 'nope', 42, null]) display.send({ t: 'sidePanel', mode }); // records off
+    assert.equal(game.settings.sidePanel, 'join');
+
+    const phone = fakeClient(game);
+    phone.send({ t: 'hello', role: 'player' });
+    phone.send({ t: 'sidePanel', mode: 'leaderboard' });
+    assert.equal(phone.last('error').code, 'badMessage');
+    assert.equal(game.settings.sidePanel, 'join');
+
+    display.send({ t: 'sidePanel', mode: 'leaderboard' });
+    assert.equal(game.settings.sidePanel, 'leaderboard');
+    assert.equal(display.last('state').sideNav.next.mode, 'join');
+
+    game.settings.sidePanel = 'auto';
+    display.send({ t: 'sidePanel', mode: 'join' });
+    assert.equal(game.settings.sidePanel, 'auto');
+  });
+
+  test('the toggle is an admin setting, default off', () => {
+    const game = createGame({ log: quiet });
+    const admin = fakeClient(game, { admin: true, isAuthorized: () => true });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    assert.equal(game.settings.displayButtons, false);
+    assert.equal(display.last('state').sideNav, null);
+    admin.send({ t: 'settings', displayButtons: 'yes' });
+    assert.equal(admin.last('error').code, 'badMessage');
+    admin.send({ t: 'settings', displayButtons: true, sidePanel: 'join' });
+    assert.equal(display.last('state').displayButtons, true);
+    assert.ok(display.last('state').sideNav.prev);
   });
 });
 

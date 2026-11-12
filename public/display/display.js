@@ -107,8 +107,30 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// ← / → side panel buttons. The server checks the requested mode is one it
+// currently offers (and that the admin toggle is on).
+for (const [id, side] of [['nav-prev', 'prev'], ['nav-next', 'next']]) {
+  $(id).addEventListener('click', (e) => {
+    const target = latest?.sideNav?.[side];
+    if (target) send({ t: 'sidePanel', mode: target.mode });
+    e.currentTarget.blur(); // a stray Space/Enter from keyboard players must not click it again
+  });
+}
+
+// The cursor shows while the mouse moves and hides after a few idle seconds.
+const CURSOR_IDLE_MS = 3000;
+let cursorTimer = null;
+window.addEventListener('mousemove', () => {
+  document.body.classList.remove('idle');
+  clearTimeout(cursorTimer);
+  cursorTimer = setTimeout(() => document.body.classList.add('idle'), CURSOR_IDLE_MS);
+});
+document.body.classList.add('idle');
+
 // Double-click toggles fullscreen (handy when setting up the monitor).
-window.addEventListener('dblclick', () => {
+window.addEventListener('dblclick', (e) => {
+  if (e.target.closest?.('button')) return; // fast clicks on the buttons
+
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen?.().catch(() => {});
 });
@@ -618,6 +640,19 @@ let lastRecordsKey = '';
 
 let lastFrame = performance.now();
 
+function updateSideNav(msg) {
+  document.body.classList.toggle('mouse', Boolean(msg.displayButtons));
+  const nav = msg.sideNav;
+  const shown = Boolean(nav && (nav.prev || nav.next));
+  $('side-nav').classList.toggle('hidden', !shown);
+  $('side').classList.toggle('with-nav', shown);
+  for (const [id, side, template] of [['nav-prev', 'prev', T.panelPrev], ['nav-next', 'next', T.panelNext]]) {
+    const target = nav?.[side];
+    $(id).classList.toggle('hidden', !target);
+    if (target) $(id).textContent = fmt(template, { name: T.panelNames[target.panel] ?? target.panel });
+  }
+}
+
 function render(now) {
   requestAnimationFrame(render);
   const dt = clamp((now - lastFrame) / 1000, 0, 0.1);
@@ -643,6 +678,7 @@ function render(now) {
     }
   } else lastRecordsKey = '';
   $('keyboard-hint').classList.toggle('hidden', !latest.keyboardPlayers);
+  updateSideNav(latest);
   if (panel === 'leaderboard') {
     // Avoid rebuilding the list when nothing visible changed.
     const key = JSON.stringify([state.round, state.players]);

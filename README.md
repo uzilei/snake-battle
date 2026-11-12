@@ -31,6 +31,8 @@ The wins leaderboard and the hall of fame (longest snakes) are saved in `records
 
 The /display effects (particles when a snake dies, a ring when an apple is eaten, a screen shake on head-on collisions) are also /admin toggles, off by default. They are purely visual and apply immediately.
 
+With "Mouse e pulsanti ← →" enabled on /admin (off by default), /display shows the mouse cursor (it hides after a few seconds without movement) and, when the side column isn't on "Automatica", buttons in its bottom corners that switch to the previous or next panel. Any device that opens /display can press them while the toggle is on.
+
 At startup the server prints the URLs for `/display`, `/play`, `/admin` and `/admin/print`.
 
 ## Pages

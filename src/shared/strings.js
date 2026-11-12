@@ -30,6 +30,10 @@ export const STRINGS = Object.freeze({
     winsMany: '{n} vittorie',
     fameTitle: 'Serpenti più lunghi',
     noRecords: 'Ancora nessun record',
+    // ← / → buttons in the side column (labels name the panel they switch to)
+    panelNames: { leaderboard: 'Classifica', records: 'Record', join: 'Come giocare' },
+    panelPrev: '← {name}',
+    panelNext: '{name} →',
   },
 
   // ---- join panel (display side column and /admin/print) ------------------
@@ -118,6 +122,7 @@ export const STRINGS = Object.freeze({
     sidePanelRecordsOff:
       'I record sono spenti, quindi lo schermo mostra la classifica. Per vederli attiva la classifica delle vittorie o i serpenti più lunghi in «Regole».',
     keyboardPlayers: 'Giocatori da tastiera sullo schermo (WASD e frecce)',
+    displayButtons: 'Mouse e pulsanti ← → sullo schermo per cambiare la colonna (non in «Automatica»)',
     effects: 'Effetti grafici',
     effectsHint: 'Solo grafica, valgono subito.',
     deathParticles: 'Esplosione di particelle quando un serpente muore',
