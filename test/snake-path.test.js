@@ -142,3 +142,49 @@ describe('interpolation', () => {
     assert.deepEqual(pointAt(p.chains[0], p.front), { x: 4.25, y: 5 });
   });
 });
+
+describe('two cells per tick (golden)', () => {
+  const prev = snake([[3, 3], [2, 3], [1, 3]]);
+
+  test('the head slides two cells and the tail retracts two', () => {
+    const cur = snake([[5, 3], [4, 3], [3, 3]]);
+    for (const t of [0, 0.25, 0.5, 1]) {
+      const p = snakePath(cur, prev, t, N);
+      assertDrawable(p);
+      assert.deepEqual(pointAt(p.chains[0], p.front), { x: 3 + 2 * t, y: 3 });
+      assert.deepEqual(pointAt(p.chains[0], p.back), { x: 1 + 2 * t, y: 3 });
+    }
+  });
+
+  test('growing by one on the way: the tail moves one cell', () => {
+    const cur = snake([[5, 3], [4, 3], [3, 3], [2, 3]]);
+    const p = snakePath(cur, prev, 0.5, N);
+    assertDrawable(p);
+    assert.deepEqual(pointAt(p.chains[0], p.front), { x: 4, y: 3 });
+    assert.deepEqual(pointAt(p.chains[0], p.back), { x: 1.5, y: 3 });
+  });
+
+  test('growing by two: the tail stays put', () => {
+    const cur = snake([[5, 3], [4, 3], [3, 3], [2, 3], [1, 3]]);
+    const p = snakePath(cur, prev, 0.5, N);
+    assertDrawable(p);
+    assert.deepEqual(pointAt(p.chains[0], p.back), { x: 1, y: 3 });
+  });
+
+  test('through a wrapping edge', () => {
+    const cur = snake([[0, 3], [9, 3], [8, 3]]);
+    const p = snakePath(cur, snake([[8, 3], [7, 3], [6, 3]]), 0.5, N);
+    assertDrawable(p);
+    assert.equal(p.front, 1);
+  });
+
+  test('a portal jump on the way: nothing slides across it', () => {
+    // Head went (3,3) -> (4,3), then into a portal at (5,3) and out at (8,8).
+    const cur = snake([[8, 8], [4, 3], [3, 3]]);
+    const p = snakePath(cur, prev, 0.5, N);
+    assertDrawable(p);
+    assert.equal(p.front, 0);
+    assert.deepEqual(pointAt(p.chains[0], p.front), { x: 8, y: 8 });
+    assert.equal(p.chains.length, 2);
+  });
+});

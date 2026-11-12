@@ -6,6 +6,7 @@
 // head's cell). Between ticks, every segment slides from its previous cell to
 // its current one, so segment j sits at u = j + (1 - t): the head pokes out of
 // the neck towards its new cell and the tail retracts from the cell it left.
+// A golden snake moves two cells a tick, so its segments slide by 2 (1 - t).
 //
 // Wherever two consecutive cells aren't grid-adjacent the path is split into
 // separate chains, so no line is ever drawn across the board:
@@ -70,22 +71,36 @@ export function snakePath(cur, prev, t, gridSize) {
   const segs = cur.segments;
   const n = segs.length;
   const old = prev?.segments ?? [];
-  // Did it move one cell since `prev`? (A dead or frozen snake didn't.)
-  const moved =
-    old.length > 0 && n > 0 && (n > 1 ? sameCell(segs[1], old[0]) : !sameCell(segs[0], old[0]) && old.length === 1);
-  const grew = moved && n > old.length;
-  const cells = moved && !grew ? [...segs, old[old.length - 1]] : segs;
+  const k = cellsMoved(segs, old);
+  // The old tail cells it left behind (fewer when it grew), so the tail can
+  // retract out of them.
+  const dropped = Math.max(0, k - Math.max(0, n - old.length));
+  const cells = dropped ? [...segs, ...old.slice(old.length - dropped)] : segs;
   const chains = buildChains(cells, gridSize);
 
-  const slide = moved ? 1 - Math.min(1, Math.max(0, t)) : 0;
   const linked = (i) => adjacent(cells[i], cells[i + 1]) || Boolean(wrapStep(cells[i], cells[i + 1], gridSize));
   const segU = new Array(n);
   for (let j = 0; j < n; j++) {
-    // Segments that existed one tick ago slide; a segment added by growth
-    // appears in place, and nothing slides across a jump.
-    segU[j] = j < old.length && j + 1 < cells.length && linked(j) ? j + slide : j;
+    // Segments that existed one tick ago slide back along the k cells they
+    // came through. A segment added by growth slides only as far as the
+    // tail actually moved (in place after a one-cell move), and nothing
+    // slides across a jump.
+    const by = j < old.length ? k : dropped;
+    let slides = by > 0 && j + by < cells.length;
+    for (let i = j; slides && i < j + by; i++) slides = linked(i);
+    segU[j] = slides ? j + by * (1 - Math.min(1, Math.max(0, t))) : j;
   }
   return { chains, front: segU[0] ?? 0, back: segU[n - 1] ?? 0, segU };
+}
+
+// How many cells the snake moved since `old`: 0 (dead, frozen or no
+// previous state), 1, or 2 (golden).
+function cellsMoved(segs, old) {
+  const n = segs.length;
+  if (!old.length || !n) return 0;
+  if (n === 1) return !sameCell(segs[0], old[0]) && old.length === 1 ? 1 : 0;
+  for (const k of [1, 2]) if (n > k && sameCell(segs[k], old[0])) return k;
+  return 0;
 }
 
 // Point at position u on a chain (u must be within the chain's range).

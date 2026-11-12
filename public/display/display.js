@@ -4,6 +4,7 @@
 import { STRINGS, fmt } from '/shared/strings.js';
 import { playerColor } from '/shared/colors.js';
 import { snakePath, pointAt, subPath } from '/shared/snake-path.js';
+import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
 
 const T = STRINGS.display;
 const $ = (id) => document.getElementById(id);
@@ -31,7 +32,10 @@ function loadImage(src) {
   entry.img.src = src;
   return entry;
 }
-const ITEM_IMAGES = { apple: loadImage('/twemoji/1f34e.svg') }; // 🍎
+const ITEM_IMAGES = {
+  apple: loadImage('/twemoji/1f34e.svg'), // 🍎
+  ...Object.fromEntries(POWER_UPS.map((p) => [p.type, loadImage(`/twemoji/${p.twemoji}.svg`)])),
+};
 
 // ---- state ------------------------------------------------------------------------
 let latest = null; // last 'state' message
@@ -195,16 +199,16 @@ function background(size, n) {
 }
 
 // ---- items ----
-// Item type -> sprite rasterized once per cell size (redrawing the SVG every
-// frame is slow with hundreds of corpse apples). Only apples exist today;
-// other item types add an entry to ITEM_IMAGES and a type in boardItems().
+// Item type -> sprite rasterized once per size (redrawing the SVG every frame
+// is slow with hundreds of corpse apples). Power-ups pulse by scaling the
+// cached sprite when drawing, so the cache only holds a few sizes per type.
 const spriteCache = new Map(); // `${type}:${px}` -> canvas
 function sprite(type, px) {
   const entry = ITEM_IMAGES[type];
   if (!entry?.ready) return null;
   const key = `${type}:${px}`;
   if (!spriteCache.has(key)) {
-    if (spriteCache.size > 8) spriteCache.clear(); // old cell sizes
+    if (spriteCache.size > 64) spriteCache.clear(); // old cell sizes
     const c = document.createElement('canvas');
     c.width = c.height = px;
     c.getContext('2d').drawImage(entry.img, 0, 0, px, px);
@@ -213,34 +217,156 @@ function sprite(type, px) {
   return spriteCache.get(key);
 }
 
+// Time left on something the server counts down, as of now (the state is
+// one tick old by the end of the tick).
+const remainingNow = (ms, now) => Math.max(0, ms - (now - tickAt));
+
 function boardItems(state, now) {
   const items = state.apples.map((a) => ({ type: 'apple', x: a.x, y: a.y }));
-  // An eaten apple stays until the (interpolated) head has reached it.
-  for (const e of eaten) if (now < e.until) items.push({ type: 'apple', x: e.x, y: e.y });
+  for (const p of state.powerUps ?? []) items.push({ type: p.type, x: p.x, y: p.y, power: true });
+  for (const b of state.bombs ?? []) items.push({ type: 'bomb', x: b.x, y: b.y, power: true, remainingMs: remainingNow(b.remainingMs, now) });
+  // An eaten item stays until the (interpolated) head has reached it.
+  for (const e of eaten) if (now < e.until) items.push({ type: e.item ?? 'apple', x: e.x, y: e.y, power: Boolean(e.item) });
   return items;
 }
 
-function drawItems(items, cell) {
+function drawItems(items, cell, now) {
   const px = Math.max(1, Math.round(cell * 0.84));
-  const off = (cell - px) / 2;
   for (const it of items) {
-    const img = sprite(it.type, px);
-    if (img) ctx.drawImage(img, Math.round(it.x * cell + off), Math.round(it.y * cell + off));
-    else {
-      ctx.fillStyle = '#e53935';
-      ctx.beginPath();
-      ctx.arc((it.x + 0.5) * cell, (it.y + 0.5) * cell, cell * 0.38, 0, Math.PI * 2);
-      ctx.fill();
+    let scale = 1;
+    let alpha = 1;
+    if (it.power) {
+      // Power-ups pulse gently (each a little out of step) and sit on a soft
+      // glow, so they stand out from apples.
+      scale = 1 + 0.09 * Math.sin(now / 190 + it.x * 1.7 + it.y);
+      const cx = (it.x + 0.5) * cell;
+      const cy = (it.y + 0.5) * cell;
+      const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, cell * 0.8);
+      // The bomb emoji is nearly black: it gets a light disc and a red glow.
+      glow.addColorStop(0, it.type === 'bomb' ? 'rgba(255, 110, 80, 0.75)' : 'rgba(255, 240, 170, 0.32)');
+      glow.addColorStop(1, it.type === 'bomb' ? 'rgba(255, 80, 60, 0)' : 'rgba(255, 240, 170, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(cx - cell * 0.8, cy - cell * 0.8, cell * 1.6, cell * 1.6);
+      if (it.type === 'bomb') {
+        ctx.fillStyle = 'rgba(255, 235, 225, 0.55)';
+        disc(cx, cy, cell * 0.36);
+      }
     }
+    // A bomb blinks during its last seconds.
+    if (it.type === 'bomb' && it.remainingMs !== undefined && it.remainingMs < POWER_UP_RULES.bombBlinkMs) {
+      alpha = Math.floor(now / 140) % 2 === 0 ? 1 : 0.25;
+    }
+    const size = px * scale;
+    const x = (it.x + 0.5) * cell - size / 2;
+    const y = (it.y + 0.5) * cell - size / 2;
+    const img = sprite(it.type, px);
+    ctx.globalAlpha = alpha;
+    if (img) ctx.drawImage(img, x, y, size, size);
+    else {
+      ctx.fillStyle = it.type === 'apple' ? '#e53935' : '#ffd54a';
+      disc((it.x + 0.5) * cell, (it.y + 0.5) * cell, cell * 0.38 * scale);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ---- portals ----
+// Both ends drawn as swirling rings in a hue of their own, joined by a faint
+// dashed line so the pair reads as one; they fade out during their last
+// seconds.
+function drawPortals(portals, cell, now) {
+  for (const p of portals) {
+    const left = remainingNow(p.remainingMs, now);
+    const alpha = Math.min(1, left / POWER_UP_RULES.portalFadeMs);
+    if (alpha <= 0) continue;
+    const hue = (p.id * 137.5) % 360;
+    const color = (a) => `hsla(${hue}, 90%, 65%, ${a})`;
+    const ends = [p.entrance, p.exit].map((c) => ({ x: (c.x + 0.5) * cell, y: (c.y + 0.5) * cell }));
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.setLineDash([cell * 0.2, cell * 0.25]);
+    ctx.lineWidth = Math.max(1, cell * 0.05);
+    ctx.strokeStyle = color(0.22);
+    ctx.beginPath();
+    ctx.moveTo(ends[0].x, ends[0].y);
+    ctx.lineTo(ends[1].x, ends[1].y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ends.forEach((c, i) => {
+      // The entrance swirls one way, the exit the other.
+      const spin = (now / 400) * (i === 0 ? 1 : -1);
+      const glow = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, cell * 0.7);
+      glow.addColorStop(0, color(0.55));
+      glow.addColorStop(1, color(0));
+      ctx.fillStyle = glow;
+      ctx.fillRect(c.x - cell * 0.7, c.y - cell * 0.7, cell * 1.4, cell * 1.4);
+      ctx.lineWidth = Math.max(1.5, cell * 0.09);
+      for (let k = 0; k < 3; k++) {
+        ctx.strokeStyle = color(0.95 - k * 0.25);
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, cell * (0.44 - k * 0.12), spin + k * 2.1, spin + k * 2.1 + Math.PI * 1.25);
+        ctx.stroke();
+      }
+    });
+    ctx.restore();
+  }
+}
+
+// ---- projectiles ----
+// A bright bullet with a short fading trail, slid between ticks like the
+// snakes (2 cells per tick).
+function drawProjectiles(list, t, cell) {
+  for (const p of list) {
+    const d = DIR_VECTORS[p.dir] ?? [0, 0];
+    const prev = prevProjectiles.get(p.id);
+    // A new one starts where it was fired: two cells back along its path.
+    const from = prev ?? { x: p.x - d[0] * 2, y: p.y - d[1] * 2 };
+    const x = (from.x + (p.x - from.x) * t + 0.5) * cell;
+    const y = (from.y + (p.y - from.y) * t + 0.5) * cell;
+    const tail = { x: x - d[0] * cell * 1.3, y: y - d[1] * cell * 1.3 };
+    const trail = ctx.createLinearGradient(tail.x, tail.y, x, y);
+    trail.addColorStop(0, 'rgba(255, 220, 120, 0)');
+    trail.addColorStop(1, 'rgba(255, 240, 180, 0.85)');
+    ctx.strokeStyle = trail;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = cell * 0.18;
+    ctx.beginPath();
+    ctx.moveTo(tail.x, tail.y);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.save();
+    ctx.shadowColor = '#ffe082';
+    ctx.shadowBlur = cell * 0.6;
+    ctx.fillStyle = '#fffde7';
+    disc(x, y, cell * 0.16);
+    ctx.restore();
   }
 }
 
 // ---- snakes ----
-// Per-snake look. Hook for per-snake effects (power-ups, later): they adjust
-// these fields; drawSnake only reads them.
+// #rrggbb mixed toward another #rrggbb (for the frozen tint).
+const mixCache = new Map();
+function mix(hex, other, amount) {
+  const key = `${hex}${other}${amount}`;
+  if (!mixCache.has(key)) {
+    const ch = (h, i) => parseInt(h.slice(i, i + 2), 16);
+    const c = [1, 3, 5].map((i) => Math.round(ch(hex, i) * (1 - amount) + ch(other, i) * amount));
+    mixCache.set(key, `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`);
+  }
+  return mixCache.get(key);
+}
+
+// Per-snake look: power-up effects adjust these fields; drawSnake only
+// reads them.
 function snakeLook(s, now) {
-  const color = playerColor(s.colorIndex);
-  const look = { color, dark: darker(color), alpha: 1, width: 0.7, headScale: 1.22 };
+  let color = playerColor(s.colorIndex);
+  if (s.frozen) color = mix(color, '#9fe4ff', 0.55); // slowed by someone's freeze
+  const look = { color, dark: darker(color), alpha: 1, width: 0.7, headScale: 1.22, glow: null, ring: false, magnet: false };
+  const effect = s.alive ? s.effect?.type : null;
+  if (effect === 'ghost') look.alpha = 0.4;
+  if (effect === 'golden') look.glow = '#ffd54a';
+  if (effect === 'shield') look.ring = true;
+  if (effect === 'magnet') look.magnet = true;
   if (!s.alive) {
     const at = diedAt.get(s.id);
     look.alpha = at === undefined ? 0 : 1 - (now - at) / FADE_MS;
@@ -285,12 +411,39 @@ function drawSnake(s, prev, t, cell, n, now) {
   ctx.lineJoin = 'round';
   ctx.lineWidth = width;
 
+  // Magnet: a faint circle showing how far it pulls.
+  if (look.magnet) {
+    for (const p of pointsAt(chains, front)) {
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      const r = cell * (POWER_UP_RULES.magnetRadius + 0.5);
+      const g = ctx.createRadialGradient((p.x + 0.5) * cell, (p.y + 0.5) * cell, r * 0.3, (p.x + 0.5) * cell, (p.y + 0.5) * cell, r);
+      g.addColorStop(0, 'rgba(255, 82, 82, 0)');
+      g.addColorStop(1, 'rgba(255, 82, 82, 0.22)');
+      ctx.fillStyle = g;
+      disc((p.x + 0.5) * cell, (p.y + 0.5) * cell, r);
+      ctx.setLineDash([cell * 0.25, cell * 0.25]);
+      ctx.lineDashOffset = -now / 60; // the dashes flow inward
+      ctx.lineWidth = Math.max(1, cell * 0.05);
+      ctx.strokeStyle = 'rgba(255, 120, 120, 0.55)';
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Golden: glows.
+  if (look.glow) {
+    ctx.shadowColor = look.glow;
+    ctx.shadowBlur = cell * (0.8 + 0.25 * Math.sin(now / 120));
+  }
+
   // Body in the base color...
   ctx.lineCap = 'round';
   ctx.strokeStyle = look.color;
   ctx.beginPath();
   tracePath(chains, front, back, cell);
   ctx.stroke();
+  ctx.shadowBlur = 0;
 
   // ...then every other segment in the darker shade. Stripes belong to the
   // segments (counted from the head), so they travel with the body.
@@ -332,12 +485,42 @@ function drawSnake(s, prev, t, cell, n, now) {
       ctx.fillStyle = '#111111';
       disc(ex + d[0] * eyeR * 0.45, ey + d[1] * eyeR * 0.45, eyeR * 0.55);
     }
+    // Shield: a ring around the head.
+    if (look.ring) {
+      ctx.lineWidth = Math.max(1.5, cell * 0.08);
+      ctx.strokeStyle = `rgba(140, 220, 255, ${0.7 + 0.25 * Math.sin(now / 160)})`;
+      ctx.beginPath();
+      ctx.arc(hx, hy, headR * 1.55, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     // While wrapping, label the copy that's on the board.
     const onBoard = p.x >= -0.5 && p.y >= -0.5 && p.x <= n - 0.5 && p.y <= n - 0.5;
     if (!label || onBoard) label = { x: hx, y: hy, r: headR };
   }
   ctx.restore();
   return label;
+}
+
+// The active timed effect: its icon in a small dark badge by the head, with
+// a ring that empties as the time runs out.
+function drawEffectBadges(badges, cell, now) {
+  const r = Math.max(9 * dpr, cell * 0.38);
+  const px = Math.max(1, Math.round(r * 1.3));
+  for (const b of badges) {
+    const left = remainingNow(b.effect.remainingMs, now) / b.effect.durationMs;
+    const x = b.x + b.r * 1.15 + r * 0.6;
+    const y = b.y - b.r * 1.15 - r * 0.6;
+    ctx.fillStyle = 'rgba(4, 6, 12, 0.78)';
+    disc(x, y, r);
+    ctx.lineWidth = Math.max(2, r * 0.22);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = left < 0.25 ? '#ff8a80' : '#ffffff';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.86, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(left, 0, 1));
+    ctx.stroke();
+    const img = sprite(b.effect.type, px);
+    if (img) ctx.drawImage(img, x - px / 2, y - px / 2);
+  }
 }
 
 // ---- names ----
@@ -466,8 +649,18 @@ function applyShake(now) {
 let tickKey = '';
 let tickAt = 0; // when the latest tick arrived
 let prevSnakes = new Map(); // id -> snake one tick before the latest
+let prevProjectiles = new Map(); // id -> projectile one tick before the latest
 const diedAt = new Map(); // id -> when it died (for the fade)
-let eaten = []; // { x, y, color, until }
+let eaten = []; // { x, y, color, until, item? }
+
+// Small bright sparks, e.g. where a projectile ends.
+function sparks(x, y, now, count, colors) {
+  for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = 6 * (0.35 + Math.random() * 0.65);
+    particles.push({ x: x + 0.5, y: y + 0.5, vx: Math.cos(a) * v, vy: Math.sin(a) * v, born: now, life: 300 + Math.random() * 300, r: 0.05 + Math.random() * 0.07, color: colors[i % colors.length] });
+  }
+}
 
 function onState(msg) {
   const s = msg.state;
@@ -476,6 +669,7 @@ function onState(msg) {
     const now = performance.now();
     const sameRound = latest?.state.round === s.round;
     prevSnakes = sameRound ? new Map(latest.state.snakes.map((x) => [x.id, x])) : new Map();
+    prevProjectiles = sameRound ? new Map((latest.state.projectiles ?? []).map((x) => [x.id, x])) : new Map();
     if (!sameRound) {
       diedAt.clear();
       eaten = [];
@@ -483,10 +677,26 @@ function onState(msg) {
     tickKey = key;
     tickAt = now;
     const fx = msg.effects ?? {};
+    const colorOf = (id) => {
+      const snake = s.snakes.find((x) => x.id === id);
+      return snake ? playerColor(snake.colorIndex) : '#ffffff';
+    };
     for (const ev of s.events ?? []) {
       if (ev.type === 'eat') {
+        eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item });
+        if (ev.item === 'bomb') {
+          if (fx.screenShake) shakeStart = now;
+          if (fx.deathParticles) sparks(ev.x, ev.y, now, 24, ['#ff7043', '#ffca28', '#5d4037']);
+        }
+      } else if (ev.type === 'projectileEnd') {
+        if (fx.deathParticles) sparks(ev.x, ev.y, now, ev.hit ? 22 : 10, ['#fffde7', '#ffe082', '#ffb74d']);
+        if (ev.hit && fx.screenShake) shakeStart = now;
+      } else if (ev.type === 'shieldPop') {
         const snake = s.snakes.find((x) => x.id === ev.id);
-        eaten.push({ x: ev.x, y: ev.y, color: snake ? playerColor(snake.colorIndex) : '#ffffff', until: now + msg.tickMs * EAT_AT });
+        if (snake && fx.appleRings) rings.push({ x: snake.segments[0].x, y: snake.segments[0].y, color: '#8cdcff', start: now });
+        if (fx.screenShake) shakeStart = now;
+      } else if (ev.type === 'cut') {
+        if (fx.screenShake) shakeStart = now;
       } else if (ev.type === 'death') {
         diedAt.set(ev.id, now);
         const snake = s.snakes.find((x) => x.id === ev.id);
@@ -515,19 +725,24 @@ function drawBoard(msg, now, dt) {
     }
   }
   eaten = eaten.filter((e) => !e.done);
-  drawItems(boardItems(state, now), cell);
+  drawPortals(state.portals ?? [], cell, now);
+  drawItems(boardItems(state, now), cell, now);
 
   const t = msg.tickMs > 0 ? clamp((now - tickAt) / msg.tickMs, 0, 1) : 1;
   const names = new Map(state.players.map((p) => [p.id, p.name]));
   const labels = [];
+  const badges = [];
   // Fading dead snakes first, so the living are drawn on top.
   for (const s of state.snakes) if (!s.alive) drawSnake(s, null, 1, cell, n, now);
   for (const s of state.snakes) {
     if (!s.alive) continue;
     const head = drawSnake(s, prevSnakes.get(s.id), t, cell, n, now);
     if (head) labels.push({ ...head, name: names.get(s.id) ?? '' });
+    if (head && s.effect) badges.push({ ...head, effect: s.effect });
   }
+  drawProjectiles(state.projectiles ?? [], t, cell);
   drawEffects(cell, now, dt);
+  drawEffectBadges(badges, cell, now);
   drawNames(labels, cell, size);
   applyShake(now);
 }
