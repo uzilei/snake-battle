@@ -765,6 +765,9 @@ function onState(msg) {
 function drawBoard(msg, now, dt) {
   const { state } = msg;
   const size = canvas.width;
+  // A canvas with no size (e.g. mid-resize, or a hidden window) can't be
+  // drawn to: skip the frame.
+  if (size <= 0 || canvas.height <= 0) return;
   const n = state.gridSize;
   const cell = size / n;
   ctx.drawImage(background(size, n), 0, 0);
