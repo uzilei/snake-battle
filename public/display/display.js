@@ -570,7 +570,11 @@ function updateLeaderboard(state) {
     (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.length - a.length || a.name.localeCompare(b.name),
   );
   const list = $('lb-list');
-  list.classList.toggle('compact', players.length > 8);
+  // Past 8 players, two columns filled top to bottom (rank order reads down
+  // the left column, then the right one).
+  const twoCol = players.length > 8;
+  list.classList.toggle('two-col', twoCol);
+  list.style.setProperty('--rows', twoCol ? Math.ceil(players.length / 2) : players.length);
   list.replaceChildren(
     ...players.map((p) => {
       const li = document.createElement('li');

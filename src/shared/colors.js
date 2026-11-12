@@ -1,4 +1,4 @@
-// Player colors, indexed by the engine's colorIndex (max 12 players).
+// Player colors, indexed by the engine's colorIndex (max 24 players).
 // Chosen to stay distinguishable on a dark background from a few meters away.
 export const PLAYER_COLORS = Object.freeze([
   '#ff4d4d', // red
@@ -13,6 +13,20 @@ export const PLAYER_COLORS = Object.freeze([
   '#f5f5f5', // white
   '#b08968', // brown
   '#7b8cff', // indigo
+  // Second set, used past 12 players: lighter or deeper versions of the hues
+  // above, so each still differs from its neighbor in brightness.
+  '#ffb3a7', // peach
+  '#2563eb', // royal blue
+  '#fff3a0', // pale yellow
+  '#0f9d58', // deep green
+  '#e0aaff', // lavender
+  '#c2410c', // rust
+  '#14b8a6', // teal
+  '#be185d', // magenta
+  '#6b8e23', // olive
+  '#94a3b8', // slate
+  '#f4d0a4', // sand
+  '#9ad0ff', // sky
 ]);
 
 export function playerColor(colorIndex) {

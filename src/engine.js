@@ -28,7 +28,7 @@ export const CONFIG_LIMITS = Object.freeze({
   tickMs: { min: 80, max: 600, default: 150 }, // below ~80 ms phone swipes over wifi can't keep up
   appleCount: { min: 0, max: 30, default: 3 },
   growthPerApple: { min: 1, max: 10, default: 1 },
-  maxPlayers: { min: 1, max: 12, default: 12 },
+  maxPlayers: { min: 1, max: 24, default: 24 },
   gridSize: { min: 10, max: 80, default: 30 },
   intermissionMs: { min: 0, max: 30000, default: 4000 },
   countdownMs: { min: 0, max: 10000, default: 0 }, // 0 = no pre-round countdown

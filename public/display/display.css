@@ -132,10 +132,20 @@ h1 { margin: 0 0 3vh; font-size: 6vh; font-weight: 900; letter-spacing: 0.02em; 
 #lb-list .status { display: block; font-size: 2.4vh; color: var(--muted); font-weight: 600; }
 #lb-list .length { font-size: 5.2vh; font-weight: 900; font-variant-numeric: tabular-nums; }
 
-/* Shrink rows when many players are listed. */
-#lb-list.compact li { font-size: 3.4vh; padding: 0.6vh 1.6vh; }
-#lb-list.compact .length { font-size: 4vh; }
-#lb-list.compact .status { font-size: 2vh; }
+/* Many players: two columns of single-line rows. The status line is dropped;
+   dead and queued players are still dimmed, and queued ones show "–". */
+#lb-list.two-col {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rows), auto);
+  align-content: start;
+  gap: 1vh 1.4vh;
+}
+#lb-list.two-col li { font-size: 3.4vh; padding: 0.7vh 1.4vh; gap: 1.2vh; grid-template-columns: 2.2vh minmax(0, 1fr) auto; }
+#lb-list.two-col .swatch { width: 2.2vh; height: 2.2vh; }
+#lb-list.two-col .length { font-size: 3.8vh; }
+#lb-list.two-col .status { display: none; }
 
 .muted { color: var(--muted); font-size: 3.6vh; }
 .muted.small { font-size: 2.8vh; margin: 0; }

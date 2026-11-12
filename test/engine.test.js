@@ -307,7 +307,7 @@ describe('config', () => {
     e.updateConfig({ tickMs: 200 });
     assert.equal(config.tickMs, 200);
     assert.equal(config.growthPerApple, 1);
-    assert.equal(config.maxPlayers, 12);
+    assert.equal(config.maxPlayers, 24);
   });
 
   test('appleCount applies live', () => {
