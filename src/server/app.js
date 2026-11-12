@@ -15,6 +15,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const PUBLIC = path.join(ROOT, 'public');
 const ADMIN_PAGES = path.join(ROOT, 'admin');
 const LOGIN_TARGETS = new Set(['/admin', '/admin/print']);
+// About 2 s of full display state at 20 players; a healthy client is far below.
+const MAX_BUFFERED_BYTES = 1024 * 1024;
 
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -43,10 +45,13 @@ ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}
  * @param {object} [opts.wordList] banned-word list for names (see profanity.js)
  * @param {object} [opts.records] global leaderboard store (see records.js); in-memory by default
  * @param {number} [opts.heartbeatMs] how often sockets are pinged; dead ones are dropped
+ * @param {object} [opts.savedSettings] /admin settings and config from settings.json
+ * @param {Function} [opts.saveSettings] called after every settings or config change
+ * @param {number} [opts.maxBufferedBytes] a socket with more unsent data than this is dropped
  */
-export function createApp({ serverConfig, log = console.log, random, limiter: limiterOpts, wordList, records, heartbeatMs = 5000 } = {}) {
+export function createApp({ serverConfig, log = console.log, random, limiter: limiterOpts, wordList, records, savedSettings, saveSettings, heartbeatMs = 5000, maxBufferedBytes = MAX_BUFFERED_BYTES } = {}) {
   const joinInfo = { ssid: serverConfig.wifi.ssid, wifiPassword: serverConfig.wifi.password, playUrl: '' };
-  const game = createGame({ random, log, joinInfo, wordList, records });
+  const game = createGame({ random, log, joinInfo, wordList, records, savedSettings, saveSettings });
   const sessions = createSessionStore();
   const limiter = createLoginLimiter(limiterOpts);
   const lanIp = detectLanIp();
@@ -76,6 +81,19 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
     if (!qrCache.has(text)) qrCache.set(text, await qrSvg(text));
     res.type('image/svg+xml').set('Cache-Control', 'no-cache').send(qrCache.get(text));
   }
+  // Health check for whoever runs the expo laptop: no names, nothing private.
+  const startedAt = Date.now();
+  app.get('/health', (req, res) => {
+    const h = game.health();
+    // 'stalled': no tick for 5 intervals (or 2 s); 'degraded': a tick has failed.
+    const stalled = h.tick.sinceLastMs !== null && h.tick.sinceLastMs > Math.max(2000, 5 * h.tick.configuredMs);
+    const status = stalled ? 'stalled' : h.tick.errors > 0 ? 'degraded' : 'ok';
+    res
+      .status(stalled ? 503 : 200)
+      .set('Cache-Control', 'no-store')
+      .json({ status, uptimeSec: Math.round((Date.now() - startedAt) / 1000), ...h });
+  });
+
   app.get('/qr/wifi.svg', (req, res, next) => sendQr(res, wifiPayload(serverConfig.wifi)).catch(next));
   app.get('/qr/play.svg', (req, res, next) => sendQr(res, joinInfo.playUrl).catch(next));
 
@@ -213,7 +231,14 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
     const conn = game.connect(
       {
         send: (obj) => {
-          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
+          if (ws.readyState !== ws.OPEN) return;
+          // A client that stops reading (but still answers pings) would make
+          // the server queue every tick's state for it without limit.
+          if (ws.bufferedAmount > maxBufferedBytes) {
+            log(`[ws] dropping a client that stopped reading (${ws.bufferedAmount} bytes queued)`);
+            return ws.terminate();
+          }
+          ws.send(JSON.stringify(obj));
         },
         close: (code, reason) => ws.close(code, reason),
       },

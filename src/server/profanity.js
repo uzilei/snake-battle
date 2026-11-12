@@ -8,6 +8,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { readJsonFile, writeJsonAtomic } from './json-file.js';
 
 const SUBSTITUTIONS = { 0: 'o', 1: 'i', 3: 'e', 4: 'a', 5: 's' };
 const SHORT_WORD = 3;
@@ -82,29 +83,31 @@ export function createWordList(words = [], { save = () => {} } = {}) {
 
 /**
  * Loads the live word list from `filePath`, seeding it from `defaultsPath` the
- * first time. Changes are written back to `filePath`.
+ * first time, or when the file is empty or unreadable (the bad file is kept
+ * aside as `<file>.bad`, so the filter is never silently off). Changes are
+ * written back to `filePath` atomically.
  */
 export function loadWordList(filePath, defaultsPath, log = console.log) {
-  let words = [];
-  try {
-    if (!fs.existsSync(filePath)) {
-      fs.copyFileSync(defaultsPath, filePath);
-      log(`[words] created ${path.basename(filePath)} from the starter list`);
-    }
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    if (Array.isArray(parsed)) words = parsed;
-    else log(`[words] ${path.basename(filePath)} is not a JSON array, starting empty`);
-  } catch (err) {
-    log(`[words] could not read ${path.basename(filePath)}: ${err.message}`);
-  }
+  const base = path.basename(filePath);
+  const live = readJsonFile(filePath, { valid: Array.isArray, tag: 'words', log, fallback: 'using the starter list' });
+  let words = live.data ?? [];
   const save = (list) => {
     try {
-      const tmp = `${filePath}.tmp`;
-      fs.writeFileSync(tmp, `${JSON.stringify(list, null, 2)}\n`);
-      fs.renameSync(tmp, filePath);
+      writeJsonAtomic(filePath, list);
     } catch (err) {
-      log(`[words] could not save ${path.basename(filePath)}: ${err.message}`);
+      log(`[words] could not save ${base}: ${err.message}`);
     }
   };
+  if (live.status !== 'ok') {
+    try {
+      words = JSON.parse(fs.readFileSync(defaultsPath, 'utf8'));
+      if (!Array.isArray(words)) throw new Error('not a JSON array');
+      save(words);
+      if (live.status === 'missing') log(`[words] created ${base} from the starter list`);
+    } catch (err) {
+      log(`[words] could not read the starter list: ${err.message}`);
+      words = [];
+    }
+  }
   return createWordList(words, { save });
 }

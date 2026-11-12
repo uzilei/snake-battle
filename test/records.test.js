@@ -130,6 +130,38 @@ describe('records file', () => {
     assert.equal(logs.length, 1);
   });
 
+  test('an empty or wrong-shaped file is kept aside too', () => {
+    for (const contents of ['', '\n', '[1, 2]', 'null']) {
+      const file = tmpFile();
+      fs.writeFileSync(file, contents);
+      const r = loadRecords(file, { log: () => {} });
+      assert.deepEqual(r.counts(), { wins: 0, kills: 0, score: 0 });
+      assert.equal(fs.readFileSync(`${file}.bad`, 'utf8'), contents, JSON.stringify(contents));
+      assert.equal(fs.existsSync(file), false);
+    }
+  });
+
+  test('a write interrupted before the rename leaves the old file intact', () => {
+    const file = tmpFile();
+    const r = loadRecords(file, { log: () => {}, now: clock() });
+    r.recordRound({ winner: 'Anna' });
+    // What a kill mid-write leaves behind: a half-written temp file.
+    fs.writeFileSync(`${file}.tmp`, '{"version": 2, "wins": [{"na');
+    const again = loadRecords(file, { log: () => {}, now: clock() });
+    assert.deepEqual(again.top().wins, [{ name: 'Anna', value: 1 }]);
+    again.recordRound({ winner: 'Anna' }); // the next save replaces the stale temp file
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).wins[0].wins, 2);
+    assert.equal(fs.existsSync(`${file}.tmp`), false);
+  });
+
+  test('a file saved with a byte order mark (Windows Notepad) still loads', () => {
+    const file = tmpFile();
+    fs.writeFileSync(file, '﻿{"version":2,"wins":[{"name":"Anna","wins":3,"at":1}]}');
+    const r = loadRecords(file, { log: () => {} });
+    assert.deepEqual(r.top().wins, [{ name: 'Anna', value: 3 }]);
+    assert.equal(fs.existsSync(`${file}.bad`), false);
+  });
+
   test('invalid entries are dropped on load', () => {
     const r = createRecords({
       version: 2,

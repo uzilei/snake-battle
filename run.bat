@@ -18,7 +18,18 @@ if not exist node_modules (
   )
 )
 
+rem Restart the server whenever it exits (a crash, or a start-up error such as
+rem the port being busy), after a short delay. Each restart is also appended
+rem to server-restarts.log. Close this window or press Ctrl+C to stop.
+:run
 node src\server\index.js
+set EXITCODE=%errorlevel%
+echo.
+echo [%date% %time%] Server stopped (exit code %EXITCODE%), restarting in 3 seconds. Ctrl+C to stop.
+>>server-restarts.log echo [%date% %time%] Server stopped (exit code %EXITCODE%), restarting
+rem ping waits ~3 s even without an interactive console (timeout would not).
+ping -n 4 127.0.0.1 >nul
+goto run
 
 :end
 echo.

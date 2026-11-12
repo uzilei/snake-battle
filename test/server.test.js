@@ -75,6 +75,65 @@ describe('public pages', () => {
   });
 });
 
+describe('health', () => {
+  test('/health reports status, uptime, players and tick timing, and nothing private', async () => {
+    const res = await get('/health');
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    const body = await res.json();
+    assert.equal(body.status, 'ok');
+    assert.ok(Number.isInteger(body.uptimeSec));
+    assert.ok(Number.isInteger(body.players) && Number.isInteger(body.connections));
+    assert.equal(body.tick.configuredMs, app.game.config.tickMs);
+    assert.ok(body.tick.count >= 0);
+    assert.doesNotMatch(JSON.stringify(body), new RegExp(PASSWORD));
+  });
+});
+
+describe('backpressure', () => {
+  test('a client that stops reading is dropped; the others are not', async () => {
+    const logs = [];
+    const small = createApp({
+      serverConfig: normalizeServerConfig({ adminPassword: PASSWORD }),
+      log: (m) => logs.push(m),
+      maxBufferedBytes: 64 * 1024,
+    });
+    await small.listen(0, '127.0.0.1');
+    const url = `ws://127.0.0.1:${small.server.address().port}/ws`;
+    const connect = (role) =>
+      new Promise((resolve) => {
+        const ws = new WebSocket(url);
+        ws.once('open', () => {
+          ws.send(JSON.stringify({ t: 'hello', role }));
+          resolve(ws);
+        });
+      });
+    const dropped = () => logs.some((m) => m.includes('stopped reading'));
+    try {
+      const healthy = await connect('player'); // a phone that keeps reading
+      const stuck = await connect('display'); // the full state every tick
+      await new Promise((r) => setTimeout(r, 50));
+      assert.equal(small.game.health().connections, 2);
+      stuck._socket.pause(); // stops reading, like a frozen phone that still holds the connection
+      for (let i = 0; i < 20; i++) small.game.engine.addPlayer(`x${i}`, `Player${i}`); // bigger state messages
+      for (let i = 0; i < 5000 && !dropped(); i++) {
+        small.game.tickOnce();
+        if (i % 10 === 0) await new Promise((r) => setTimeout(r, 1)); // let the healthy client read
+      }
+      assert.ok(dropped(), 'the stuck client was not dropped');
+      // A paused client can't even read the close; the server side is what matters.
+      const deadline = Date.now() + 2000;
+      while (small.game.health().connections !== 1 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+      assert.equal(small.game.health().connections, 1);
+      assert.equal(healthy.readyState, WebSocket.OPEN);
+      healthy.close();
+      stuck.terminate();
+    } finally {
+      await small.close();
+    }
+  });
+});
+
 describe('admin protection', () => {
   test('admin pages redirect to the login page without a session', async () => {
     for (const path of ['/admin', '/admin/print']) {

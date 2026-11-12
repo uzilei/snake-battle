@@ -84,15 +84,35 @@ describe('banned word list editing', () => {
     }
   });
 
-  test('a corrupt file does not crash the server', () => {
+  test('a corrupt, empty or wrong-shaped file is kept aside and the starter list is used', () => {
+    const starter = JSON.parse(fs.readFileSync(DEFAULTS, 'utf8')).length;
+    for (const contents of ['{not json', '', '   \n', '{"words": []}']) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snake-words-'));
+      try {
+        const file = path.join(dir, 'banned-words.json');
+        fs.writeFileSync(file, contents);
+        const logs = [];
+        const list = loadWordList(file, DEFAULTS, (m) => logs.push(m));
+        assert.equal(list.words().length, starter, JSON.stringify(contents));
+        assert.equal(fs.readFileSync(`${file}.bad`, 'utf8'), contents);
+        assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).length, starter); // the live file is valid again
+        assert.equal(logs.length, 1);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('an earlier backup is never overwritten', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snake-words-'));
     try {
       const file = path.join(dir, 'banned-words.json');
-      fs.writeFileSync(file, '{not json');
-      const logs = [];
-      const list = loadWordList(file, DEFAULTS, (m) => logs.push(m));
-      assert.deepEqual(list.words(), []);
-      assert.equal(logs.length, 1);
+      fs.writeFileSync(`${file}.bad`, 'first');
+      fs.writeFileSync(file, 'second');
+      loadWordList(file, DEFAULTS, () => {});
+      assert.equal(fs.readFileSync(`${file}.bad`, 'utf8'), 'first');
+      const second = fs.readdirSync(dir).find((f) => f.startsWith('banned-words.json.bad-'));
+      assert.equal(fs.readFileSync(path.join(dir, second), 'utf8'), 'second');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

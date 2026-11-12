@@ -6,6 +6,7 @@ import { loadServerConfig } from './config.js';
 import { createApp } from './app.js';
 import { loadWordList } from './profanity.js';
 import { loadRecords } from './records.js';
+import { loadSettings } from './settings-store.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const configPath = path.join(ROOT, 'config.json');
@@ -15,7 +16,9 @@ const serverConfig = loadServerConfig(configPath);
 const wordList = loadWordList(path.join(ROOT, 'banned-words.json'), path.join(ROOT, 'src', 'server', 'banned-words.default.json'));
 // Global leaderboard (wins, kills, highest score), kept across restarts.
 const records = loadRecords(path.join(ROOT, 'records.json'));
-const { listen } = createApp({ serverConfig, wordList, records });
+// /admin settings and game config, kept across restarts.
+const settings = loadSettings(path.join(ROOT, 'settings.json'));
+const { listen } = createApp({ serverConfig, wordList, records, savedSettings: settings.initial, saveSettings: settings.save });
 
 // A single bad client must never take the server down.
 process.on('uncaughtException', (err) => console.error('[server] uncaught exception:', err));

@@ -10,6 +10,7 @@ import { createWordList } from './profanity.js';
 import { MAX_NAME_LENGTH } from '../shared/limits.js';
 import { nameKey } from './names.js';
 import { createRecords, RECORD_STATS } from './records.js';
+import { SETTINGS_VERSION } from './settings-store.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
 // (most wins, most kills, highest score), shown only when it is enabled.
@@ -48,6 +49,38 @@ export function resolveSidePanel(mode, state, recordsOn = false) {
   return 'leaderboard';
 }
 
+const isBoolean = (v) => typeof v === 'boolean';
+// Every /admin setting and what it accepts.
+const SETTING_RULES = Object.freeze({
+  sidePanel: (v) => SIDE_PANEL_MODES.includes(v),
+  keyboardPlayers: isBoolean,
+  leaderboard: isBoolean,
+  leaderboardStat: (v) => LEADERBOARD_STATS.includes(v),
+  displayButtons: isBoolean,
+  ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, isBoolean])),
+});
+
+// The known settings in `partial` (own keys only), or null if any is invalid.
+function validSettingsOrNull(partial) {
+  const out = {};
+  for (const [key, ok] of Object.entries(SETTING_RULES)) {
+    if (!Object.hasOwn(partial, key)) continue;
+    if (!ok(partial[key])) return null;
+    out[key] = partial[key];
+  }
+  return out;
+}
+
+// Like validSettingsOrNull, but skips invalid values (for a saved file).
+function pickValidSettings(partial) {
+  const out = {};
+  if (!partial || typeof partial !== 'object') return out;
+  for (const [key, ok] of Object.entries(SETTING_RULES)) {
+    if (Object.hasOwn(partial, key) && ok(partial[key])) out[key] = partial[key];
+  }
+  return out;
+}
+
 // Order of the manual modes when cycling them from /display (← and →).
 const SIDE_PANEL_RING = Object.freeze(['leaderboard', 'join', 'records']);
 
@@ -82,6 +115,8 @@ export function createGame({
   joinInfo = {},
   wordList = createWordList(),
   records = createRecords(),
+  savedSettings = null, // { config, settings } from settings.json, applied at startup
+  saveSettings = () => {}, // called with { version, config, settings } after every change
 } = {}) {
   const config = createDefaultConfig();
   const engine = createEngine({ config, random });
@@ -93,6 +128,29 @@ export function createGame({
     displayButtons: false, // mouse cursor and side panel buttons on /display
     ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, false])),
   };
+
+  // Restore what /admin set before the last restart. Every value goes through
+  // the same validation as an /admin message; anything invalid is skipped.
+  if (savedSettings) {
+    const accepted = engine.updateConfig(savedSettings.config);
+    const valid = pickValidSettings(savedSettings.settings);
+    Object.assign(settings, valid);
+    log(`[settings] restored ${Object.keys(accepted).length} config values and ${Object.keys(valid).length} settings`);
+  }
+  const settingsSnapshot = () => ({ version: SETTINGS_VERSION, config: { ...config }, settings: { ...settings } });
+  let lastSaved = JSON.stringify(settingsSnapshot());
+  // Saves only when something actually changed.
+  function persistSettings() {
+    const snapshot = settingsSnapshot();
+    const text = JSON.stringify(snapshot);
+    if (text === lastSaved) return;
+    lastSaved = text;
+    try {
+      saveSettings(snapshot);
+    } catch (err) {
+      log(`[settings] could not save: ${err.message}`);
+    }
+  }
   // Cached: recomputed only when the records change.
   let recordsView = records.top();
   let recordCounts = records.counts();
@@ -236,13 +294,52 @@ export function createGame({
     broadcast();
   }
 
+  // Tick timing for /health: intervals between the last TICK_WINDOW loop runs.
+  const TICK_WINDOW = 100;
+  const tickStats = { count: 0, last: null, intervals: [], errors: 0 };
+  function recordTick() {
+    const now = performance.now();
+    if (tickStats.last !== null) {
+      tickStats.intervals.push(now - tickStats.last);
+      if (tickStats.intervals.length > TICK_WINDOW) tickStats.intervals.shift();
+    }
+    tickStats.last = now;
+    tickStats.count++;
+  }
+
+  function health() {
+    const state = engine.getState();
+    const iv = tickStats.intervals;
+    const round1 = (n) => Math.round(n * 10) / 10;
+    const mean = iv.length ? iv.reduce((a, b) => a + b, 0) / iv.length : null;
+    return {
+      phase: state.phase,
+      round: state.round,
+      paused,
+      players: state.players.length,
+      alive: state.players.filter((p) => p.status === 'alive').length,
+      connections: clients.size,
+      tick: {
+        configuredMs: config.tickMs,
+        count: tickStats.count,
+        meanMs: mean === null ? null : round1(mean),
+        maxMs: iv.length ? round1(Math.max(...iv)) : null,
+        ticksPerSec: mean ? round1(1000 / mean) : null,
+        sinceLastMs: tickStats.last === null ? null : Math.round(performance.now() - tickStats.last),
+        errors: tickStats.errors,
+      },
+    };
+  }
+
   function start() {
     if (timer) return;
     let next = Date.now() + config.tickMs;
     const loop = () => {
+      recordTick();
       try {
         tickOnce();
       } catch (err) {
+        tickStats.errors++;
         log(`[game] tick failed: ${err.stack ?? err}`);
       }
       // config.tickMs is read every tick, so speed changes apply at once.
@@ -397,6 +494,7 @@ export function createGame({
         }
         settings.sidePanel = msg.mode;
         log(`[display] side panel -> ${msg.mode}`);
+        persistSettings();
         broadcast();
         return;
       }
@@ -429,25 +527,11 @@ export function createGame({
         if (typeof msg.id !== 'string' || !kick(msg.id)) return badMessage(client);
         break;
       case 'settings': {
-        if (Object.hasOwn(msg, 'sidePanel')) {
-          if (!SIDE_PANEL_MODES.includes(msg.sidePanel)) return badMessage(client);
-          settings.sidePanel = msg.sidePanel;
-        }
-        if (Object.hasOwn(msg, 'keyboardPlayers')) {
-          if (typeof msg.keyboardPlayers !== 'boolean') return badMessage(client);
-          settings.keyboardPlayers = msg.keyboardPlayers;
-          if (!msg.keyboardPlayers) {
-            for (const [id, o] of [...owners]) if (o.source === 'keyboard') kick(id);
-          }
-        }
-        if (Object.hasOwn(msg, 'leaderboardStat')) {
-          if (!LEADERBOARD_STATS.includes(msg.leaderboardStat)) return badMessage(client);
-          settings.leaderboardStat = msg.leaderboardStat;
-        }
-        for (const key of ['leaderboard', ...EFFECT_SETTINGS, 'displayButtons']) {
-          if (!Object.hasOwn(msg, key)) continue;
-          if (typeof msg[key] !== 'boolean') return badMessage(client);
-          settings[key] = msg[key];
+        const changes = validSettingsOrNull(msg); // all or nothing
+        if (!changes) return badMessage(client);
+        Object.assign(settings, changes);
+        if (changes.keyboardPlayers === false) {
+          for (const [id, o] of [...owners]) if (o.source === 'keyboard') kick(id);
         }
         break;
       }
@@ -469,6 +553,7 @@ export function createGame({
       default:
         return badMessage(client);
     }
+    persistSettings();
     broadcast();
   }
 
@@ -540,5 +625,5 @@ export function createGame({
     };
   }
 
-  return { engine, config, settings, wordList, records, connect, start, stop, tickOnce, isPaused: () => paused };
+  return { engine, config, settings, wordList, records, connect, start, stop, tickOnce, health, isPaused: () => paused };
 }

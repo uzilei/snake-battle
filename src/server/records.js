@@ -7,8 +7,8 @@
 //
 // createRecords() is in-memory; loadRecords() adds a JSON file behind it.
 
-import fs from 'node:fs';
 import path from 'node:path';
+import { readJsonFile, writeJsonAtomic } from './json-file.js';
 import { nameKey } from './names.js';
 import { MAX_NAME_LENGTH } from '../shared/limits.js';
 
@@ -139,31 +139,17 @@ export function createRecords(data = {}, { save = () => {}, now = Date.now } = {
 }
 
 /**
- * Records backed by `filePath`. A file that can't be parsed is kept aside as
- * `<file>.bad` instead of being overwritten, and the records start empty.
+ * Records backed by `filePath`. A file that is empty or can't be parsed is
+ * kept aside as `<file>.bad` instead of being overwritten, and the records
+ * start empty. Saves are atomic (see json-file.js).
  */
 export function loadRecords(filePath, { log = console.log, now } = {}) {
   const base = path.basename(filePath);
-  let data = {};
-  if (fs.existsSync(filePath)) {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) data = parsed;
-      else throw new Error('not a JSON object');
-    } catch (err) {
-      log(`[records] could not read ${base} (${err.message}), keeping it as ${base}.bad and starting empty`);
-      try {
-        fs.renameSync(filePath, `${filePath}.bad`);
-      } catch {
-        /* nothing else to do */
-      }
-    }
-  }
+  const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const { data = {} } = readJsonFile(filePath, { valid: isObject, tag: 'records', log, fallback: 'starting empty' });
   const save = (snapshot) => {
     try {
-      const tmp = `${filePath}.tmp`;
-      fs.writeFileSync(tmp, `${JSON.stringify(snapshot, null, 2)}\n`);
-      fs.renameSync(tmp, filePath);
+      writeJsonAtomic(filePath, snapshot);
     } catch (err) {
       log(`[records] could not save ${base}: ${err.message}`);
     }

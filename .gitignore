@@ -4,4 +4,9 @@ banned-words.json
 banned-words.json.tmp
 records.json
 records.json.tmp
-records.json.bad
+records.json.bad*
+banned-words.json.bad*
+settings.json
+settings.json.tmp
+settings.json.bad*
+server-restarts.log
