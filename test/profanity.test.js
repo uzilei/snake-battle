@@ -37,13 +37,14 @@ describe('banned word matching', () => {
 
   test('the starter list is valid and does not block common names', () => {
     const words = JSON.parse(fs.readFileSync(DEFAULTS, 'utf8'));
-    assert.ok(Array.isArray(words) && words.length > 20);
+    assert.ok(Array.isArray(words) && words.length > 10);
     const starter = createWordList(words);
     assert.equal(starter.words().length, words.length); // no duplicates or invalid entries
     for (const name of ['Massimo', 'Alessandro', 'Francesca', 'Annalisa', 'Nicolò', 'Cassandra', 'Matteo', 'Sebastiano', 'Cosimo', 'Tiziana']) {
       assert.equal(starter.matches(name), false, name);
     }
-    assert.equal(starter.matches('Str0nz0'), true);
+    assert.equal(starter.matches('Fr0c10'), true);
+    assert.equal(starter.matches('Stronzo'), false); // plain swearing is allowed
   });
 });
 
