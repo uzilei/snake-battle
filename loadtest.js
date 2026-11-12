@@ -67,6 +67,7 @@ async function main() {
   let server = await startServer(dir, logLines);
   const base = `http://127.0.0.1:${server.port}`;
   const wsBase = `ws://127.0.0.1:${server.port}`;
+  console.log(`Watch on http://127.0.0.1:${server.port}`)
 
   // Admin: every gameplay toggle on, plus the global leaderboard. A shorter
   // time limit, lower target and more apples than the defaults, so that every
