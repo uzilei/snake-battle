@@ -206,6 +206,26 @@ describe('admin protection', () => {
     ws.close();
   });
 
+  test('resetting all settings keeps the admin session', async () => {
+    const cookie = await sessionCookie();
+    const ws = await openWs('/ws/admin', { cookie });
+    await nextMessage(ws, 'admin');
+    ws.send(JSON.stringify({ t: 'config', values: { appleCount: 12 } }));
+    let msg;
+    do msg = await nextMessage(ws, 'admin');
+    while (msg.config.appleCount !== 12);
+    ws.send(JSON.stringify({ t: 'resetSettings' }));
+    do msg = await nextMessage(ws, 'admin');
+    while (msg.config.appleCount !== 3);
+    // Same socket still accepted, same cookie still opens /admin.
+    ws.send(JSON.stringify({ t: 'pause' }));
+    do msg = await nextMessage(ws, 'admin');
+    while (!msg.paused);
+    ws.send(JSON.stringify({ t: 'resume' }));
+    assert.equal((await get('/admin', { cookie })).status, 200);
+    ws.close();
+  });
+
   // Runs last in this suite: it locks 127.0.0.1 out of further logins.
   test('login attempts are rate limited', async () => {
     const statuses = [];

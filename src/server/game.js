@@ -109,6 +109,16 @@ export function sidePanelNav(mode, state, recordsOn = false) {
   return { prev, next };
 }
 
+// The /admin settings that aren't engine config, as they are on a fresh start.
+const defaultSettings = () => ({
+  sidePanel: 'auto',
+  keyboardPlayers: false,
+  leaderboard: false, // global leaderboard: recorded and shown on /display
+  leaderboardStat: 'auto', // applies immediately, like sidePanel
+  displayButtons: false, // mouse cursor and side panel buttons on /display
+  ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, false])),
+});
+
 export function createGame({
   random = Math.random,
   log = console.log,
@@ -120,14 +130,7 @@ export function createGame({
 } = {}) {
   const config = createDefaultConfig();
   const engine = createEngine({ config, random });
-  const settings = {
-    sidePanel: 'auto',
-    keyboardPlayers: false,
-    leaderboard: false, // global leaderboard: recorded and shown on /display
-    leaderboardStat: 'auto', // applies immediately, like sidePanel
-    displayButtons: false, // mouse cursor and side panel buttons on /display
-    ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, false])),
-  };
+  const settings = defaultSettings();
 
   // Restore what /admin set before the last restart. Every value goes through
   // the same validation as an /admin message; anything invalid is skipped.
@@ -530,11 +533,19 @@ export function createGame({
         const changes = validSettingsOrNull(msg); // all or nothing
         if (!changes) return badMessage(client);
         Object.assign(settings, changes);
-        if (changes.keyboardPlayers === false) {
-          for (const [id, o] of [...owners]) if (o.source === 'keyboard') kick(id);
-        }
+        if (changes.keyboardPlayers === false) kickKeyboardPlayers();
         break;
       }
+      // Every config value and setting back to its default, applied like any
+      // other /admin change: live values at once, round rules (and the grid
+      // size) from the next round. Records, banned words, the server config
+      // and sessions are not settings, so they're left alone.
+      case 'resetSettings':
+        engine.updateConfig(createDefaultConfig());
+        Object.assign(settings, defaultSettings());
+        kickKeyboardPlayers(); // keyboard players are off by default
+        log('[admin] all settings reset to defaults');
+        break;
       case 'resetRecords':
         if (!RESET_TARGETS.includes(msg.stat) || !records.reset(msg.stat)) return badMessage(client);
         refreshRecords();
@@ -555,6 +566,10 @@ export function createGame({
     }
     persistSettings();
     broadcast();
+  }
+
+  function kickKeyboardPlayers() {
+    for (const [id, o] of [...owners]) if (o.source === 'keyboard') kick(id);
   }
 
   function badMessage(client) {

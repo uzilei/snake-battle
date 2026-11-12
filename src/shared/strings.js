@@ -112,6 +112,9 @@ export const STRINGS = Object.freeze({
     resume: 'Riprendi',
     restartRound: 'Ricomincia round',
     confirmRestart: 'Ricominciare il round in corso?',
+    resetSettings: 'Ripristina impostazioni predefinite',
+    confirmResetSettings:
+      'Riportare tutte le impostazioni ai valori predefiniti? Cursori, regole, condizioni di vittoria, power-up, colonna laterale, classifica globale (attivazione) ed effetti tornano come al primo avvio. Le regole del round cambiano dal prossimo round. I dati della classifica globale, le parole vietate e la password non vengono toccati.',
     settings: 'Impostazioni',
     tickMs: 'Velocità (ms per passo, meno = più veloce)',
     appleCount: 'Numero di mele',

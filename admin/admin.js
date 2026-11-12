@@ -38,6 +38,7 @@ $('title').textContent = `${STRINGS.appName} – ${A.title}`;
 $('logout').textContent = A.logout;
 $('h-game').textContent = A.game;
 $('btn-restart').textContent = A.restartRound;
+$('btn-reset-settings').textContent = A.resetSettings;
 $('h-settings').textContent = A.settings;
 $('h-display').textContent = A.display;
 $('l-side').textContent = A.sidePanel;
@@ -152,6 +153,9 @@ function send(obj) {
 $('btn-pause').addEventListener('click', () => send({ t: latest?.paused ? 'resume' : 'pause' }));
 $('btn-restart').addEventListener('click', () => {
   if (confirm(A.confirmRestart)) send({ t: 'restart' });
+});
+$('btn-reset-settings').addEventListener('click', () => {
+  if (confirm(A.confirmResetSettings)) send({ t: 'resetSettings' });
 });
 $('side-panel').addEventListener('change', (e) => {
   send({ t: 'settings', sidePanel: e.target.value });
