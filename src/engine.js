@@ -112,13 +112,27 @@ export function createEngine({ config, random = Math.random } = {}) {
 
   // ---- spawning -----------------------------------------------------------
 
-  function trySpawn(occupied, clearance) {
-    const dirs = Object.keys(DIRECTIONS);
+  // Directions from (x, y) towards the center, along the axis the cell is
+  // furthest off-center on: away from the nearest edge, so a new snake always
+  // has at least half the board ahead of it. Ties give several options.
+  function inwardDirs(x, y) {
+    const mid = (gridSize - 1) / 2;
+    const dx = mid - x;
+    const dy = mid - y;
+    const out = [];
+    if (Math.abs(dx) >= Math.abs(dy) && dx !== 0) out.push(dx > 0 ? 'right' : 'left');
+    if (Math.abs(dy) >= Math.abs(dx) && dy !== 0) out.push(dy > 0 ? 'down' : 'up');
+    return out.length ? out : Object.keys(DIRECTIONS); // the exact center
+  }
+
+  // inward: face towards the center (see inwardDirs); otherwise any direction.
+  function trySpawn(occupied, clearance, inward = true) {
     for (let attempt = 0; attempt < 400; attempt++) {
-      const dir = dirs[randInt(dirs.length)];
-      const d = DIRECTIONS[dir];
       const hx = randInt(gridSize);
       const hy = randInt(gridSize);
+      const dirs = inward ? inwardDirs(hx, hy) : Object.keys(DIRECTIONS);
+      const dir = dirs[randInt(dirs.length)];
+      const d = DIRECTIONS[dir];
       const segments = [];
       let ok = true;
       for (let i = -clearance; i < START_LENGTH && ok; i++) {
@@ -134,7 +148,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   function spawnSnake(occupied) {
-    const placed = trySpawn(occupied, SPAWN_CLEARANCE) ?? trySpawn(occupied, 0);
+    // Last resort on a crowded board: any free spot, any direction.
+    const placed = trySpawn(occupied, SPAWN_CLEARANCE) ?? trySpawn(occupied, 0) ?? trySpawn(occupied, 0, false);
     if (!placed) return null;
     for (const c of placed.segments) occupied.add(cellKey(c.x, c.y));
     return { segments: placed.segments, dir: placed.dir, dirQueue: [], pendingGrowth: 0 };

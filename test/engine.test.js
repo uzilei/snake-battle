@@ -776,3 +776,25 @@ describe('tick events', () => {
     assert.deepEqual(events(e), []);
   });
 });
+
+describe('spawn direction', () => {
+  // Cells between the head and the edge it faces.
+  const ahead = (x, y, dir, n) => ({ right: n - 1 - x, left: x, down: n - 1 - y, up: y })[dir];
+
+  test('new snakes face away from the nearest edge (towards the center)', () => {
+    for (const gridSize of [10, 11, 20, 30]) {
+      for (let seed = 1; seed <= 25; seed++) {
+        const e = createEngine({ config: { gridSize, appleCount: 3, maxPlayers: 6 }, random: seeded(seed) });
+        for (let i = 0; i < 6; i++) e.addPlayer(`p${i}`, `P${i}`);
+        e.tick(); // spawns and moves once
+        for (const s of e.getState().snakes) {
+          // Undo the first move to get the spawn cell.
+          const { x, y } = s.segments[1];
+          const best = Math.max(...['up', 'down', 'left', 'right'].map((d) => ahead(x, y, d, gridSize)));
+          assert.equal(ahead(x, y, s.dir, gridSize), best, `grid ${gridSize} seed ${seed}: (${x},${y}) facing ${s.dir}`);
+          assert.ok(best >= (gridSize - 1) / 2);
+        }
+      }
+    }
+  });
+});
