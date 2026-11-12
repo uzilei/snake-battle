@@ -10,25 +10,24 @@ function clock(start = 1000) {
   return () => t++;
 }
 
-describe('leaderboard', () => {
+const names = (list) => list.map((e) => [e.name, e.value]);
+
+describe('wins', () => {
   test('wins add up per name; a different case is a different player', () => {
     const r = createRecords({}, { now: clock() });
     r.recordRound({ winner: 'Marco' });
     r.recordRound({ winner: 'Marco' });
     r.recordRound({ winner: 'marco' });
-    assert.deepEqual(r.top().leaderboard, [
-      { name: 'Marco', wins: 2 },
-      { name: 'marco', wins: 1 },
-    ]);
+    assert.deepEqual(names(r.top().wins), [['Marco', 2], ['marco', 1]]);
   });
 
   test('top 10 only, ties broken by who got there first', () => {
     const r = createRecords({}, { now: clock() });
     for (let i = 0; i < 12; i++) r.recordRound({ winner: `P${i}` });
     r.recordRound({ winner: 'P11' });
-    const top = r.top().leaderboard;
-    assert.equal(top.length, RECORD_LIMITS.leaderboardShown);
-    assert.deepEqual(top[0], { name: 'P11', wins: 2 });
+    const top = r.top().wins;
+    assert.equal(top.length, RECORD_LIMITS.shown);
+    assert.deepEqual(top[0], { name: 'P11', value: 2 });
     assert.equal(top[1].name, 'P0');
     assert.equal(top[9].name, 'P8');
   });
@@ -37,54 +36,72 @@ describe('leaderboard', () => {
     const r = createRecords({}, { now: clock() });
     r.recordRound({ winner: '__proto__' });
     r.recordRound({ winner: 'constructor' });
-    assert.deepEqual(r.top().leaderboard.map((e) => e.name), ['__proto__', 'constructor']);
+    assert.deepEqual(r.top().wins.map((e) => e.name), ['__proto__', 'constructor']);
   });
 
-  test('no winner (a draw or a solo round) changes nothing', () => {
+  test('a round with nothing to record changes nothing', () => {
     let saves = 0;
     const r = createRecords({}, { save: () => saves++ });
-    assert.equal(r.recordRound({ winner: null }), false);
+    assert.equal(r.recordRound({ winner: null, kills: [{ name: 'A', kills: 0 }] }), false);
     assert.equal(saves, 0);
   });
 });
 
-describe('hall of fame', () => {
-  test('top 5 by length, older record first on a tie', () => {
+describe('kills', () => {
+  test('kills add up across rounds; zero-kill rounds are ignored', () => {
     const r = createRecords({}, { now: clock() });
-    r.recordRound({ lengths: [{ name: 'A', length: 10 }, { name: 'B', length: 7 }] });
-    r.recordRound({ lengths: [{ name: 'C', length: 12 }, { name: 'D', length: 7 }] });
-    r.recordRound({ lengths: [{ name: 'E', length: 3 }, { name: 'F', length: 4 }, { name: 'G', length: 2 }] });
-    assert.deepEqual(r.top().hallOfFame.map((e) => [e.name, e.length]), [
-      ['C', 12],
-      ['A', 10],
-      ['B', 7],
-      ['D', 7],
-      ['F', 4],
-    ]);
+    r.recordRound({ kills: [{ name: 'Anna', kills: 2 }, { name: 'Luca', kills: 1 }, { name: 'Bea', kills: 0 }] });
+    r.recordRound({ kills: [{ name: 'Luca', kills: 3 }] });
+    assert.deepEqual(names(r.top().kills), [['Luca', 4], ['Anna', 2]]);
   });
 
-  test('each name keeps only its best result', () => {
+  test('invalid counts are skipped', () => {
     const r = createRecords({}, { now: clock() });
-    r.recordRound({ lengths: [{ name: 'Anna', length: 9 }] });
+    r.recordRound({ kills: [{ name: 'A', kills: -1 }, { name: 'B', kills: 1.5 }, { name: '', kills: 2 }] });
+    assert.deepEqual(r.top().kills, []);
+  });
+});
+
+describe('highest score', () => {
+  test('one entry per name: its best length ever', () => {
+    const r = createRecords({}, { now: clock() });
+    r.recordRound({ lengths: [{ name: 'Anna', length: 9 }, { name: 'Luca', length: 12 }] });
     r.recordRound({ lengths: [{ name: 'Anna', length: 5 }] }); // worse: ignored
-    for (let i = 0; i < 4; i++) r.recordRound({ lengths: [{ name: 'Anna', length: 20 + i }] });
-    r.recordRound({ lengths: [{ name: 'anna', length: 4 }] }); // another player
-    const fame = r.top().hallOfFame;
-    assert.deepEqual(fame.map((e) => [e.name, e.length]), [['Anna', 23], ['anna', 4]]);
+    r.recordRound({ lengths: [{ name: 'Anna', length: 20 }, { name: 'anna', length: 4 }] });
+    assert.deepEqual(names(r.top().score), [['Anna', 20], ['Luca', 12], ['anna', 4]]);
   });
 
-  test('the time of the record is stored', () => {
-    const r = createRecords({}, { now: () => 1_700_000_000_000 });
-    r.recordRound({ lengths: [{ name: 'Anna', length: 9 }] });
-    assert.equal(r.top().hallOfFame[0].at, 1_700_000_000_000);
-  });
-
-  test('reset empties it and leaves the leaderboard alone', () => {
+  test('top 10 of every name, older record first on a tie', () => {
     const r = createRecords({}, { now: clock() });
-    r.recordRound({ winner: 'Anna', lengths: [{ name: 'Anna', length: 9 }] });
-    r.resetHallOfFame();
-    assert.deepEqual(r.top().hallOfFame, []);
-    assert.equal(r.top().leaderboard.length, 1);
+    for (let i = 0; i < 15; i++) r.recordRound({ lengths: [{ name: `P${i}`, length: 3 + (i % 5) }] });
+    const top = r.top().score;
+    assert.equal(top.length, 10);
+    assert.deepEqual(top.slice(0, 3), [{ name: 'P4', value: 7 }, { name: 'P9', value: 7 }, { name: 'P14', value: 7 }]);
+    assert.equal(r.counts().score, 15); // every name is kept, not only the top
+  });
+});
+
+describe('resets', () => {
+  function filled() {
+    const r = createRecords({}, { now: clock() });
+    r.recordRound({ winner: 'Anna', kills: [{ name: 'Anna', kills: 1 }], lengths: [{ name: 'Anna', length: 9 }] });
+    return r;
+  }
+
+  test('each stat resets on its own', () => {
+    for (const stat of ['wins', 'kills', 'score']) {
+      const r = filled();
+      assert.equal(r.reset(stat), true);
+      for (const other of ['wins', 'kills', 'score']) assert.equal(r.counts()[other], other === stat ? 0 : 1, `${stat}/${other}`);
+    }
+  });
+
+  test('"all" empties everything; unknown stats are refused', () => {
+    const r = filled();
+    assert.equal(r.reset('hallOfFame'), false);
+    assert.deepEqual(r.counts(), { wins: 1, kills: 1, score: 1 });
+    assert.equal(r.reset('all'), true);
+    assert.deepEqual(r.counts(), { wins: 0, kills: 0, score: 0 });
   });
 });
 
@@ -94,10 +111,13 @@ describe('records file', () => {
   test('survives a restart', () => {
     const file = tmpFile();
     const r = loadRecords(file, { log: () => {}, now: clock() });
-    r.recordRound({ winner: 'Anna', lengths: [{ name: 'Anna', length: 9 }] });
+    r.recordRound({ winner: 'Anna', kills: [{ name: 'Anna', kills: 2 }], lengths: [{ name: 'Anna', length: 9 }] });
     const again = loadRecords(file, { log: () => {} });
-    assert.deepEqual(again.top().leaderboard, [{ name: 'Anna', wins: 1 }]);
-    assert.equal(again.top().hallOfFame[0].length, 9);
+    assert.deepEqual(again.top(), {
+      wins: [{ name: 'Anna', value: 1 }],
+      kills: [{ name: 'Anna', value: 2 }],
+      score: [{ name: 'Anna', value: 9 }],
+    });
   });
 
   test('a corrupt file is kept aside, not overwritten', () => {
@@ -105,18 +125,21 @@ describe('records file', () => {
     fs.writeFileSync(file, '{ not json');
     const logs = [];
     const r = loadRecords(file, { log: (m) => logs.push(m) });
-    assert.deepEqual(r.top(), { leaderboard: [], hallOfFame: [] });
+    assert.deepEqual(r.top(), { wins: [], kills: [], score: [] });
     assert.equal(fs.readFileSync(`${file}.bad`, 'utf8'), '{ not json');
     assert.equal(logs.length, 1);
   });
 
   test('invalid entries are dropped on load', () => {
     const r = createRecords({
-      leaderboard: [{ name: 'Ok', wins: 2, at: 1 }, { name: '', wins: 1, at: 1 }, { name: 'Bad', wins: -1, at: 1 }, null],
-      hallOfFame: [{ name: 'Ok', length: 4, at: 1 }, { name: 'X'.repeat(40), length: 9, at: 1 }, { name: 'Y', length: 'long', at: 1 }],
+      version: 2,
+      wins: [{ name: 'Ok', wins: 2, at: 1 }, { name: '', wins: 1, at: 1 }, { name: 'Bad', wins: -1, at: 1 }, null],
+      kills: [{ name: 'K', kills: 'many', at: 1 }],
+      score: [{ name: 'Ok', length: 4, at: 1 }, { name: 'X'.repeat(40), length: 9, at: 1 }, { name: 'Y', length: 'long', at: 1 }],
     });
-    assert.deepEqual(r.top().leaderboard, [{ name: 'Ok', wins: 2 }]);
-    assert.deepEqual(r.top().hallOfFame.map((e) => e.name), ['Ok']);
+    assert.deepEqual(names(r.top().wins), [['Ok', 2]]);
+    assert.deepEqual(r.top().kills, []);
+    assert.deepEqual(names(r.top().score), [['Ok', 4]]);
   });
 
   test('a failing save does not throw', () => {

@@ -27,7 +27,16 @@ The first start creates `config.json` with a random admin password, which is pri
 
 Player names are checked against `banned-words.json`. It is created from the starter list in `src/server/banned-words.default.json` on the first start, and can be edited live from /admin.
 
-The wins leaderboard and the hall of fame (longest snakes) are saved in `records.json`, created on the first recorded round. Both are off by default and are switched on from /admin, along with the game rules (dead snakes become apples, wrap-around walls). All four apply from the next round. If `records.json` is ever unreadable, it is renamed to `records.json.bad` and the records start empty.
+The game rules (dead snakes become apples, wrap-around walls) are /admin toggles, off by default, applied from the next round. So are two extra win conditions on top of "last snake alive", which always applies; when several are on, whichever triggers first ends the round:
+
+- **Time limit** (`roundTimeLimitSec`): when it runs out, the longest living snake wins, or the one with the most kills this round (ties broken by length), as chosen on /admin. A full tie is a draw. /display shows the remaining time and flashes it in the last 10 seconds.
+- **Target length** (`targetLength`): the first snake to reach it wins at once. If several reach it on the same tick the longest wins; a full tie is a draw.
+
+In a solo round these can end the round, but nobody wins.
+
+A snake earns a kill when another snake runs into its body or loses a head-on against it (walls and running into yourself give no kill). Kills of the current round are shown in the /display scoreboard and in /admin's player list.
+
+The global leaderboard tracks three stats per player name: most wins, most kills and highest score (the best length each name ever reached). It is off by default; once enabled on /admin it records from the next round and /display shows one stat at a time as a top 10, either a fixed one or rotating every 10 seconds (that choice applies immediately). Each stat can be reset from /admin. The data is saved in `records.json`, created on the first recorded round. If `records.json` is ever unreadable, it is renamed to `records.json.bad` and the records start empty.
 
 The /display effects (particles when a snake dies, a ring when an apple is eaten, a screen shake on head-on collisions) are also /admin toggles, off by default. They are purely visual and apply immediately.
 

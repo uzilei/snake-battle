@@ -13,7 +13,7 @@ const configPath = path.join(ROOT, 'config.json');
 const serverConfig = loadServerConfig(configPath);
 // The live list is edited from /admin; it is seeded from the starter list on first run.
 const wordList = loadWordList(path.join(ROOT, 'banned-words.json'), path.join(ROOT, 'src', 'server', 'banned-words.default.json'));
-// Leaderboard and hall of fame, kept across restarts.
+// Global leaderboard (wins, kills, highest score), kept across restarts.
 const records = loadRecords(path.join(ROOT, 'records.json'));
 const { listen } = createApp({ serverConfig, wordList, records });
 

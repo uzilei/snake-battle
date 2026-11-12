@@ -19,10 +19,8 @@ $('join-step2-title').textContent = STRINGS.join.step2Title;
 $('join-step2-text').textContent = STRINGS.join.step2Text;
 $('join-step3').replaceChildren(STRINGS.join.step3, document.createElement('br'), STRINGS.join.browser);
 $('keyboard-hint').textContent = T.keyboardHint;
-$('wins-title').textContent = T.winsTitle;
-$('fame-title').textContent = T.fameTitle;
-$('wins-empty').textContent = T.noRecords;
-$('fame-empty').textContent = T.noRecords;
+$('rec-kicker').textContent = T.recordsTitle;
+$('rec-empty').textContent = T.noRecords;
 $('connection').textContent = T.disconnected;
 
 // ---- assets -------------------------------------------------------------------
@@ -555,7 +553,10 @@ function updateOverlay(msg) {
   }
   if (s.phase === 'intermission') {
     const winner = s.players.find((p) => p.id === s.winnerId);
-    const sub = fmt(T.nextRound, { s: Math.max(1, Math.ceil(s.intermissionRemainingMs / 1000)) });
+    const next = fmt(T.nextRound, { s: Math.max(1, Math.ceil(s.intermissionRemainingMs / 1000)) });
+    // Say why the round ended when it wasn't the last snake standing.
+    const reason = s.endReason === 'time' ? T.timeUp : s.endReason === 'target' ? fmt(T.targetReached, { n: s.win.targetLength }) : '';
+    const sub = reason ? `${reason} ${next}` : next;
     if (winner) return setOverlay({ title: fmt(T.winner, { name: winner.name }), sub, banner: playerColor(winner.colorIndex), dim: true });
     return setOverlay({ title: T.draw, sub, dim: true });
   }
@@ -570,11 +571,6 @@ function updateLeaderboard(state) {
     (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.length - a.length || a.name.localeCompare(b.name),
   );
   const list = $('lb-list');
-  // Past 8 players, two columns filled top to bottom (rank order reads down
-  // the left column, then the right one).
-  const twoCol = players.length > 8;
-  list.classList.toggle('two-col', twoCol);
-  list.style.setProperty('--rows', twoCol ? Math.ceil(players.length / 2) : players.length);
   list.replaceChildren(
     ...players.map((p) => {
       const li = document.createElement('li');
@@ -589,17 +585,35 @@ function updateLeaderboard(state) {
       status.className = 'status';
       status.textContent = T[p.status] ?? '';
       name.append(status);
+      const kills = document.createElement('span');
+      kills.className = 'kills';
+      kills.textContent = p.status === 'queued' ? '' : fmt(T.killsShort, { n: p.kills ?? 0 });
       const length = document.createElement('span');
       length.className = 'length';
       length.textContent = p.status === 'queued' ? '–' : String(p.length);
-      li.append(swatch, name, length);
+      li.append(swatch, name, kills, length);
       return li;
     }),
   );
   $('lb-empty').classList.toggle('hidden', players.length > 0);
+  fitLeaderboard(list, players.length);
 }
 
-function recordRow(rank, name, extra, value) {
+// The first layout whose rows all fit: one column, then two columns filled
+// top to bottom (rank order reads down the left column, then the right one),
+// then two tighter columns. The room left depends on the player count, the
+// time / target strip and the ← / → buttons, so it is measured.
+const LIST_LAYOUTS = [[], ['two-col'], ['two-col', 'tight']];
+function fitLeaderboard(list, count) {
+  for (const layout of LIST_LAYOUTS) {
+    list.classList.remove('two-col', 'tight');
+    list.classList.add(...layout);
+    list.style.setProperty('--rows', layout.length ? Math.ceil(count / 2) : count);
+    if (list.scrollHeight <= list.clientHeight + 1) return;
+  }
+}
+
+function recordRow(rank, name, value) {
   const li = document.createElement('li');
   const r = document.createElement('span');
   r.className = 'rank';
@@ -607,40 +621,88 @@ function recordRow(rank, name, extra, value) {
   const n = document.createElement('span');
   n.className = 'name';
   n.textContent = name; // textContent: names come from clients
-  li.append(r, n);
-  if (extra !== null) {
-    const e = document.createElement('span');
-    e.className = 'when';
-    e.textContent = extra;
-    li.append(e);
-  }
   const v = document.createElement('span');
   v.className = 'value';
   v.textContent = value;
-  li.append(v);
+  li.append(r, n, v);
   return li;
 }
 
-const fameTime = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+// ---- global leaderboard: one stat at a time ----
+const STATS = ['wins', 'kills', 'score'];
+const STAT_PAGE_MS = 10000; // auto mode: each stat stays this long
+const statValue = {
+  wins: (n) => (n === 1 ? T.winsOne : fmt(T.winsMany, { n })),
+  kills: (n) => (n === 1 ? T.killsOne : fmt(T.killsMany, { n })),
+  score: (n) => fmt(T.scoreValue, { n }),
+};
+// Auto rotation: the next stat every STAT_PAGE_MS while the panel is up, and
+// also each time it comes back (between rounds it may show only a few
+// seconds, so every intermission moves on to the next stat).
+let autoIndex = -1;
+let pageStart = 0;
+function advanceAuto(now, appearing) {
+  if (autoIndex < 0 || appearing || now - pageStart >= STAT_PAGE_MS) {
+    autoIndex = (autoIndex + 1) % STATS.length;
+    pageStart = now;
+  }
+}
 
-function updateRecords(records) {
-  const { leaderboard, hallOfFame } = records ?? {};
-  $('wins-block').classList.toggle('hidden', !leaderboard);
-  $('fame-block').classList.toggle('hidden', !hallOfFame);
-  if (leaderboard) {
-    $('wins-list').replaceChildren(
-      ...leaderboard.map((e, i) => recordRow(i + 1, e.name, null, e.wins === 1 ? T.winsOne : fmt(T.winsMany, { n: e.wins }))),
-    );
-    $('wins-empty').classList.toggle('hidden', leaderboard.length > 0);
+// The stat on screen: the admin's choice, or the auto rotation.
+function currentStat(msg) {
+  return STATS.includes(msg.leaderboardStat) ? msg.leaderboardStat : STATS[autoIndex];
+}
+
+function updateRecords(records, stat, auto, animate) {
+  const list = records?.[stat] ?? [];
+  $('rec-title').textContent = T.stats[stat];
+  $('rec-list').replaceChildren(...list.map((e, i) => recordRow(i + 1, e.name, statValue[stat](e.value))));
+  $('rec-empty').classList.toggle('hidden', list.length > 0);
+  // Page indicator, only while rotating.
+  $('rec-dots').classList.toggle('hidden', !auto);
+  $('rec-dots').replaceChildren(
+    ...STATS.map((s) => {
+      const dot = document.createElement('span');
+      dot.className = s === stat ? 'dot on' : 'dot';
+      return dot;
+    }),
+  );
+  if (animate) {
+    // Restart the fade-in on the new page.
+    for (const id of ['rec-body', 'rec-title']) {
+      const el = $(id);
+      el.classList.remove('enter');
+      void el.offsetWidth;
+      el.classList.add('enter');
+    }
   }
-  if (hallOfFame) {
-    $('fame-list').replaceChildren(...hallOfFame.map((e, i) => recordRow(i + 1, e.name, fameTime.format(e.at), String(e.length))));
-    $('fame-empty').classList.toggle('hidden', hallOfFame.length > 0);
+}
+
+// Time limit and target length, above whichever panel is showing.
+function formatTime(ms) {
+  const total = Math.ceil(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function updateRoundInfo(state) {
+  const running = state.phase === 'playing' || state.phase === 'countdown';
+  const timed = running && state.rules?.timeLimitWin && state.timeRemainingMs !== null;
+  const target = running && state.rules?.targetLengthWin;
+  $('round-info').classList.toggle('hidden', !timed && !target);
+  $('side').classList.toggle('with-info', timed || target);
+  $('ri-time').classList.toggle('hidden', !timed);
+  $('ri-target').classList.toggle('hidden', !target);
+  if (timed) {
+    $('ri-time').textContent = fmt(T.timeLeft, { t: formatTime(state.timeRemainingMs) });
+    // Flash during the last 10 seconds.
+    $('ri-time').classList.toggle('urgent', state.phase === 'playing' && state.timeRemainingMs <= 10000);
   }
+  if (target) $('ri-target').textContent = fmt(T.target, { n: state.win.targetLength });
 }
 
 let lastSideKey = '';
 let lastRecordsKey = '';
+let lastStat = null;
 
 let lastFrame = performance.now();
 
@@ -665,27 +727,36 @@ function render(now) {
   // The board is redrawn every frame (movement and effects are animated);
   // the HTML side column only when a new message arrived.
   drawBoard(latest, now, dt);
+  // The records page also turns on its own (auto mode), not only on messages.
+  if (latest.sidePanel === 'records') {
+    if (latest.leaderboardStat === 'auto') advanceAuto(now, !lastRecordsKey);
+    const stat = currentStat(latest);
+    const key = JSON.stringify([latest.records, stat, latest.leaderboardStat]);
+    if (key !== lastRecordsKey) {
+      updateRecords(latest.records, stat, latest.leaderboardStat === 'auto', lastStat !== null && stat !== lastStat);
+      lastRecordsKey = key;
+      lastStat = stat;
+    }
+  } else {
+    lastRecordsKey = '';
+    lastStat = null;
+  }
   if (!dirty) return;
   dirty = false;
   const { state } = latest;
   updateOverlay(latest);
+  updateRoundInfo(state);
   const panel = latest.sidePanel;
   const showJoin = panel === 'join';
   $('join').classList.toggle('hidden', !showJoin);
   $('records').classList.toggle('hidden', panel !== 'records');
   $('leaderboard').classList.toggle('hidden', panel !== 'leaderboard');
-  if (panel === 'records') {
-    const key = JSON.stringify(latest.records);
-    if (key !== lastRecordsKey) {
-      lastRecordsKey = key;
-      updateRecords(latest.records);
-    }
-  } else lastRecordsKey = '';
   $('keyboard-hint').classList.toggle('hidden', !latest.keyboardPlayers);
   updateSideNav(latest);
   if (panel === 'leaderboard') {
-    // Avoid rebuilding the list when nothing visible changed.
-    const key = JSON.stringify([state.round, state.players]);
+    // Avoid rebuilding the list when nothing visible changed. The side
+    // column's classes and the window size change the room it has.
+    const key = JSON.stringify([state.round, state.players, $('side').className, latest.keyboardPlayers, innerHeight]);
     if (key !== lastSideKey) {
       lastSideKey = key;
       updateLeaderboard(state);

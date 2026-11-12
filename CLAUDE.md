@@ -14,7 +14,7 @@ Multiplayer snake for a school expo. One laptop runs the server and the admin pa
 
 ## Pages
 
-- `/display`: fullscreen, read-only, for the big monitor. Square game area left, side column right. The side column shows either the scoreboard / leaderboard / hall of fame or a backup join panel (QR codes and instructions), switchable from /admin. QR codes are also printed.
+- `/display`: fullscreen, read-only, for the big monitor. Square game area left, side column right. The side column shows either the round scoreboard / global leaderboard or a backup join panel (QR codes and instructions), switchable from /admin. QR codes are also printed.
 - `/play`: phone controller. Name prompt, then a full-screen swipe pad in the player's color.
 - `/admin`: control panel on the laptop screen. Live settings and player management. Password-protected, not linked anywhere.
 - `/admin/print`: printable page with the wifi QR and game QR. Same password protection as /admin.

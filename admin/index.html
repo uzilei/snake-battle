@@ -51,18 +51,40 @@
       <p class="muted" id="rules-hint"></p>
       <label class="check"><input type="checkbox" id="t-corpseApples"><span id="l-corpseApples"></span></label>
       <label class="check"><input type="checkbox" id="t-wrapWalls"><span id="l-wrapWalls"></span></label>
-      <label class="check"><input type="checkbox" id="t-leaderboard"><span id="l-leaderboard"></span></label>
-      <label class="check"><input type="checkbox" id="t-hallOfFame"><span id="l-hallOfFame"></span></label>
+      <h3 id="h-win"></h3>
+      <p class="muted" id="win-hint"></p>
+      <label class="check"><input type="checkbox" id="t-timeLimitWin"><span id="l-timeLimitWin"></span></label>
+      <div class="sub-settings">
+        <div id="sliders-time"></div>
+        <label class="field"><span id="l-timeLimitWinner"></span>
+          <select id="c-timeLimitWinner"></select>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="t-targetLengthWin"><span id="l-targetLengthWin"></span></label>
+      <div class="sub-settings">
+        <div id="sliders-target"></div>
+      </div>
       <p class="muted" id="rules-active"></p>
-      <div class="controls">
-        <button id="btn-reset-fame" class="danger"></button>
+    </section>
+
+    <section class="card">
+      <h2 id="h-global"></h2>
+      <label class="check"><input type="checkbox" id="t-leaderboard"><span id="l-leaderboard"></span></label>
+      <label class="field"><span id="l-leaderboardStat"></span>
+        <select id="leaderboard-stat"></select>
+      </label>
+      <div class="controls reset-buttons">
+        <button id="btn-reset-wins" class="danger"></button>
+        <button id="btn-reset-kills" class="danger"></button>
+        <button id="btn-reset-score" class="danger"></button>
+        <button id="btn-reset-all" class="danger"></button>
       </div>
     </section>
 
     <section class="card" style="grid-column: 1 / -1">
       <h2 id="h-players"></h2>
       <table>
-        <thead><tr><th id="c-name"></th><th id="c-status"></th><th id="c-length"></th><th id="c-source"></th><th></th></tr></thead>
+        <thead><tr><th id="c-name"></th><th id="c-status"></th><th id="c-length"></th><th id="c-kills"></th><th id="c-source"></th><th></th></tr></thead>
         <tbody id="players"></tbody>
       </table>
       <p class="muted" id="no-players"></p>

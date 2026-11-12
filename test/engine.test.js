@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEngine, sanitizeConfig } from '../src/engine.js';
+import { createEngine, sanitizeConfig, SPAWN_DISTANCE } from '../src/engine.js';
 
 // Deterministic RNG (mulberry32).
 function seeded(seed) {
@@ -719,7 +719,7 @@ describe('config toggles', () => {
     const e = createEngine();
     assert.equal(e.config.wrapWalls, false);
     assert.equal(e.config.corpseApples, false);
-    assert.deepEqual(e.getState().rules, { corpseApples: false, wrapWalls: false });
+    assert.deepEqual(e.getState().rules, { corpseApples: false, wrapWalls: false, timeLimitWin: false, targetLengthWin: false });
   });
 });
 
@@ -737,7 +737,7 @@ describe('tick events', () => {
   test('a wall death is a death event only', () => {
     const e = setup({ a: [[[19, 5], [18, 5], [17, 5]], 'right'], c: bystander });
     e.tick();
-    assert.deepEqual(events(e), [{ type: 'death', id: 'a' }]);
+    assert.deepEqual(events(e), [{ type: 'death', id: 'a', killerId: null }]);
   });
 
   test('head-on into the same cell reports the collision and the deaths', () => {
@@ -796,5 +796,323 @@ describe('spawn direction', () => {
         }
       }
     }
+  });
+});
+
+describe('spawn distance', () => {
+  const manhattan = (a, b, n, wrap) => {
+    let dx = Math.abs(a.x - b.x);
+    let dy = Math.abs(a.y - b.y);
+    if (wrap) {
+      dx = Math.min(dx, n - dx);
+      dy = Math.min(dy, n - dy);
+    }
+    return dx + dy;
+  };
+  // Spawn positions: a countdown keeps every snake where it spawned.
+  function spawned(gridSize, count, seed, extra = {}) {
+    const e = createEngine({
+      config: { gridSize, appleCount: 3, maxPlayers: 24, countdownMs: 5000, ...extra },
+      random: seeded(seed),
+    });
+    for (let i = 0; i < count; i++) e.addPlayer(`p${i}`, `P${i}`);
+    e.tick();
+    return e;
+  }
+  // Every head is far enough from every cell of every other snake.
+  function assertSpread(snakes, n, wrap, label) {
+    for (const s of snakes) {
+      for (const o of snakes) {
+        if (o === s) continue;
+        for (const c of o.segments) {
+          assert.ok(manhattan(s.segments[0], c, n, wrap) >= SPAWN_DISTANCE, `${label}: ${s.id} too close to ${o.id}`);
+        }
+      }
+    }
+  }
+
+  test(`heads spawn at least ${SPAWN_DISTANCE} cells from every other snake`, () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const e = spawned(30, 12, seed);
+      const { snakes, phase } = e.getState();
+      assert.equal(phase, 'countdown');
+      assert.equal(snakes.length, 12);
+      assertSpread(snakes, 30, false, `seed ${seed}`);
+    }
+  });
+
+  test('with wrap-around walls the distance is measured across the edges', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const e = spawned(14, 3, seed, { wrapWalls: true });
+      assertSpread(e.getState().snakes, 14, true, `seed ${seed}`);
+    }
+  });
+
+  test('a crowded board relaxes the distance instead of leaving players out', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      const e = spawned(10, 12, seed);
+      const { snakes, players } = e.getState();
+      assert.ok(players.every((p) => p.status === 'alive'), `seed ${seed}`);
+      const cells = snakes.flatMap((s) => s.segments.map((c) => `${c.x},${c.y}`));
+      assert.equal(new Set(cells).size, cells.length, 'no overlapping snakes');
+      for (const c of snakes.flatMap((s) => s.segments)) assert.ok(c.x >= 0 && c.y >= 0 && c.x < 10 && c.y < 10);
+    }
+  });
+
+  test('a player joining during the countdown keeps the distance too', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      const e = spawned(30, 6, seed);
+      e.addPlayer('late', 'Late');
+      assert.equal(player(e, 'late').status, 'alive');
+      assertSpread(e.getState().snakes, 30, false, `seed ${seed}`);
+    }
+  });
+});
+
+describe('kills', () => {
+  const kills = (e, id) => player(e, id).kills;
+  const deathOf = (e, id) => e.getState().events.find((x) => x.type === 'death' && x.id === id);
+  const bystander = [[[15, 15], [14, 15], [13, 15]], 'right'];
+
+  test('running into another snake gives that snake the kill', () => {
+    const e = setup({
+      a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+      b: [[[5, 7], [5, 6], [5, 5], [5, 4]], 'down'],
+      c: bystander,
+    });
+    e.tick(); // a hits b's body at (5, 5)
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.equal(kills(e, 'b'), 1);
+    assert.equal(deathOf(e, 'a').killerId, 'b');
+  });
+
+  test('walls and self-collisions give no kill', () => {
+    const e = setup({
+      a: [[[19, 5], [18, 5], [17, 5]], 'right'],
+      s: [[[5, 10], [5, 11], [6, 11], [6, 10], [7, 10], [8, 10]], 'right'],
+      c: bystander,
+    });
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.equal(player(e, 's').status, 'dead');
+    assert.ok(e.getState().players.every((p) => p.kills === 0));
+    assert.equal(deathOf(e, 's').killerId, null);
+  });
+
+  test('the snake that survives a head-on gets the kill; a tie gives none', () => {
+    const e = setup({
+      a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+      b: [[[6, 5], [7, 5], [8, 5], [9, 5]], 'left'],
+      c: bystander,
+    });
+    e.tick(); // a (shorter) survives
+    assert.equal(kills(e, 'a'), 1);
+    assert.equal(deathOf(e, 'b').killerId, 'a');
+
+    const tie = setup({
+      a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+      b: [[[6, 5], [7, 5], [8, 5]], 'left'],
+      c: bystander,
+    });
+    tie.tick();
+    assert.ok(tie.getState().players.every((p) => p.kills === 0));
+  });
+
+  test('heads passing through each other: the survivor gets the kill', () => {
+    const e = setup({
+      a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+      b: [[[5, 5], [6, 5], [7, 5], [8, 5]], 'left'],
+      c: bystander,
+    });
+    e.tick();
+    assert.equal(kills(e, 'a'), 1);
+  });
+
+  test('a body hit wins over a head-on in the same cell', () => {
+    // a and b meet at (5, 5), which is also c's body: c gets both kills.
+    const e = setup({
+      a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+      b: [[[6, 5], [7, 5], [8, 5], [9, 5]], 'left'],
+      c: [[[5, 7], [5, 6], [5, 5], [5, 4]], 'down'],
+      d: bystander,
+    });
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.equal(player(e, 'b').status, 'dead');
+    assert.equal(kills(e, 'c'), 2);
+    assert.equal(kills(e, 'a'), 0);
+  });
+
+  test('a killer that dies on the same tick still gets the kill', () => {
+    // a runs into b's body at (5, 5) while b's head leaves the board.
+    const e = setup({
+      a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+      b: [[[0, 6], [0, 5], [0, 4], [1, 4], [2, 4], [3, 4], [4, 4], [5, 4], [5, 5], [5, 6]], 'left'],
+      c: bystander,
+    });
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.equal(player(e, 'b').status, 'dead');
+    assert.equal(kills(e, 'b'), 1);
+  });
+
+  test('kills reset at the start of every round', () => {
+    const e = setup({
+      a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+      b: [[[5, 7], [5, 6], [5, 5], [5, 4]], 'down'],
+      c: bystander,
+    });
+    e.tick();
+    assert.equal(kills(e, 'b'), 1);
+    e.restartRound();
+    assert.ok(e.getState().players.every((p) => p.kills === 0));
+  });
+});
+
+describe('win conditions', () => {
+  // A 40-wide board and slow ticks: snakes heading right live for 30+ ticks.
+  const LONG = { gridSize: 40, tickMs: 600 };
+  // A straight snake of `length` heading right, tail at x.
+  const row = (y, length, x = 3) => [Array.from({ length }, (_, i) => [x + length - 1 - i, y]), 'right'];
+  const state = (e) => e.getState();
+  const runUntilEnd = (e, max = 200) => {
+    for (let i = 0; i < max && state(e).phase === 'playing'; i++) e.tick();
+    return state(e);
+  };
+
+  test('choices and new limits are validated', () => {
+    assert.deepEqual(sanitizeConfig({ timeLimitWinner: 'kills' }), { timeLimitWinner: 'kills' });
+    assert.deepEqual(sanitizeConfig({ timeLimitWinner: 'apples' }), {});
+    assert.deepEqual(sanitizeConfig({ targetLength: 1 }), { targetLength: 4 }); // above the start length
+    assert.deepEqual(sanitizeConfig({ timeLimitWin: 'yes', targetLengthWin: true }), { targetLengthWin: true });
+    const e = createEngine();
+    assert.equal(e.config.timeLimitWin, false);
+    assert.equal(e.config.targetLengthWin, false);
+    assert.equal(e.config.timeLimitWinner, 'longest');
+  });
+
+  test('time limit off: no timer', () => {
+    const e = setup({ a: row(5, 3), b: row(10, 3) }, LONG);
+    assert.equal(state(e).timeRemainingMs, null);
+  });
+
+  test('time limit: the longest living snake wins', () => {
+    const e = setup({ a: row(5, 5), b: row(10, 3), c: row(15, 4) }, { ...LONG, timeLimitWin: true, roundTimeLimitSec: 15 });
+    assert.equal(state(e).timeRemainingMs, 15000);
+    e.tick();
+    assert.equal(state(e).timeRemainingMs, 14400);
+    const end = runUntilEnd(e);
+    assert.equal(end.phase, 'intermission');
+    assert.equal(end.endReason, 'time');
+    assert.equal(end.winnerId, 'a');
+    assert.equal(end.tick, 1 + 25); // the setup tick, then 15 s at 600 ms per tick
+  });
+
+  test('time limit: a full tie is a draw', () => {
+    const e = setup({ a: row(5, 4), b: row(10, 4) }, { ...LONG, timeLimitWin: true, roundTimeLimitSec: 15 });
+    const end = runUntilEnd(e);
+    assert.equal(end.endReason, 'time');
+    assert.equal(end.winnerId, null);
+  });
+
+  test('time limit by kills: most kills wins, ties broken by length', () => {
+    const cfg = { ...LONG, timeLimitWin: true, roundTimeLimitSec: 15, timeLimitWinner: 'kills' };
+    // d runs into b's body on the first tick: b has 1 kill, a is longer.
+    const e = setup(
+      {
+        a: row(5, 6),
+        b: [[[6, 12], [5, 12], [4, 12], [3, 12]], 'right'],
+        c: row(20, 3),
+        d: [[[4, 11], [4, 10], [4, 9]], 'down'],
+      },
+      cfg,
+    );
+    const end = runUntilEnd(e);
+    assert.equal(player(e, 'b').kills, 1);
+    assert.equal(end.endReason, 'time');
+    assert.equal(end.winnerId, 'b');
+
+    const noKills = setup({ a: row(5, 6), b: row(10, 4) }, cfg); // nobody has kills: longest
+    assert.equal(runUntilEnd(noKills).winnerId, 'a');
+  });
+
+  test('the timer only runs while playing, not in the countdown', () => {
+    const e = createEngine({
+      config: { ...LONG, timeLimitWin: true, roundTimeLimitSec: 15, countdownMs: 1800, appleCount: 0 },
+      random: seeded(3),
+    });
+    e.addPlayer('a', 'A');
+    e.addPlayer('b', 'B');
+    e.tick(); // round starts in the countdown
+    e.tick();
+    assert.equal(state(e).phase, 'countdown');
+    assert.equal(state(e).timeRemainingMs, 15000);
+  });
+
+  test('target length: the first snake to reach it wins at once', () => {
+    const e = setup({ a: row(5, 4), b: row(10, 3) }, { ...LONG, targetLengthWin: true, targetLength: 5 });
+    e._debug.setApples([[7, 5]]);
+    e.tick(); // eats: length 4 plus 1 pending growth, which doesn't count yet
+    assert.equal(state(e).phase, 'playing');
+    e.tick(); // grows to 5
+    const s = state(e);
+    assert.equal(s.phase, 'intermission');
+    assert.equal(s.endReason, 'target');
+    assert.equal(s.winnerId, 'a');
+  });
+
+  test('target length: on the same tick the longest wins, a full tie is a draw', () => {
+    const cfg = { ...LONG, targetLengthWin: true, targetLength: 5 };
+    const e = setup({ a: row(5, 6), b: row(10, 5), c: row(15, 3) }, cfg);
+    e.tick();
+    assert.equal(state(e).endReason, 'target');
+    assert.equal(state(e).winnerId, 'a');
+    const tie = setup({ a: row(5, 5), b: row(10, 5), c: row(15, 3) }, cfg);
+    tie.tick();
+    assert.equal(state(tie).endReason, 'target');
+    assert.equal(state(tie).winnerId, null);
+  });
+
+  test('same tick: last snake alive comes first, then target, then time', () => {
+    // b dies on the wall while a reaches the target: last snake alive.
+    const a = setup({ a: row(5, 6), b: [[[39, 10], [38, 10], [37, 10]], 'right'] }, { ...LONG, targetLengthWin: true, targetLength: 5 });
+    a.tick();
+    assert.equal(state(a).endReason, 'lastAlive');
+    assert.equal(state(a).winnerId, 'a');
+    // The target is reached on the very tick the time runs out: target.
+    const t = setup(
+      { a: row(5, 4), b: row(10, 6) },
+      { ...LONG, targetLengthWin: true, targetLength: 7, timeLimitWin: true, roundTimeLimitSec: 15 },
+    );
+    for (let i = 0; i < 24; i++) t.tick();
+    assert.equal(state(t).phase, 'playing');
+    t._debug.setSnake('a', [[30, 5], [29, 5], [28, 5], [27, 5], [26, 5], [25, 5], [24, 5]], 'right');
+    t.tick();
+    assert.equal(state(t).timeRemainingMs, 0);
+    assert.equal(state(t).endReason, 'target');
+    assert.equal(state(t).winnerId, 'a');
+  });
+
+  test('win settings are locked when the round starts', () => {
+    const e = setup({ a: row(5, 4), b: row(10, 3) }, { ...LONG, targetLengthWin: true, targetLength: 5 });
+    e.updateConfig({ targetLength: 4, timeLimitWin: true });
+    assert.equal(state(e).win.targetLength, 5);
+    assert.equal(state(e).timeRemainingMs, null);
+    e.tick();
+    assert.equal(state(e).phase, 'playing');
+    e.restartRound();
+    assert.equal(state(e).win.targetLength, 4);
+    assert.equal(state(e).rules.timeLimitWin, true);
+  });
+
+  test('a solo round can end on time or target, but nobody wins', () => {
+    const e = setup({ a: row(5, 4) }, { ...LONG, targetLengthWin: true, targetLength: 4 });
+    e.tick();
+    assert.equal(state(e).endReason, 'target');
+    assert.equal(state(e).winnerId, null);
+    const t = setup({ a: row(5, 4) }, { ...LONG, timeLimitWin: true, roundTimeLimitSec: 15 });
+    const end = runUntilEnd(t);
+    assert.equal(end.endReason, 'time');
+    assert.equal(end.winnerId, null);
   });
 });

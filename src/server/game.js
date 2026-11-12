@@ -4,17 +4,19 @@
 // Transport-agnostic: a client is { send(obj), close(code, reason) } plus a
 // role. The WebSocket wiring lives in app.js.
 
-import { createEngine, createDefaultConfig, CONFIG_LIMITS, CONFIG_TOGGLES, PHASES } from '../engine.js';
+import { createEngine, createDefaultConfig, CONFIG_LIMITS, CONFIG_TOGGLES, CONFIG_CHOICES, PHASES } from '../engine.js';
 import { STRINGS } from '../shared/strings.js';
 import { createWordList } from './profanity.js';
 import { MAX_NAME_LENGTH } from '../shared/limits.js';
 import { nameKey } from './names.js';
-import { createRecords } from './records.js';
+import { createRecords, RECORD_STATS } from './records.js';
 
-// 'leaderboard' is the live scoreboard; 'records' is the wins leaderboard and
-// hall of fame (shown only when at least one of them is enabled).
+// 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
+// (most wins, most kills, highest score), shown only when it is enabled.
 export const SIDE_PANEL_MODES = Object.freeze(['auto', 'leaderboard', 'records', 'join']);
-const RECORD_SETTINGS = Object.freeze(['leaderboard', 'hallOfFame']);
+// Which global leaderboard stat /display shows; 'auto' cycles through them.
+export const LEADERBOARD_STATS = Object.freeze(['auto', ...RECORD_STATS]);
+const RESET_TARGETS = Object.freeze([...RECORD_STATS, 'all']);
 // Cosmetic /display effects: applied live, no effect on the game itself.
 export const EFFECT_SETTINGS = Object.freeze(['deathParticles', 'appleRings', 'screenShake']);
 export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
@@ -34,7 +36,7 @@ export function sanitizeName(raw) {
 }
 
 // Which side column panel /display shows. The records panel only exists when
-// the leaderboard or the hall of fame is enabled; it replaces the scoreboard
+// the global leaderboard is enabled; it replaces the scoreboard
 // (or, in auto mode, the join panel) between rounds, when nobody is playing.
 export function resolveSidePanel(mode, state, recordsOn = false) {
   const betweenRounds = state.phase === PHASES.INTERMISSION || state.phase === PHASES.WAITING;
@@ -86,12 +88,18 @@ export function createGame({
   const settings = {
     sidePanel: 'auto',
     keyboardPlayers: false,
-    leaderboard: false,
-    hallOfFame: false,
+    leaderboard: false, // global leaderboard: recorded and shown on /display
+    leaderboardStat: 'auto', // applies immediately, like sidePanel
     displayButtons: false, // mouse cursor and side panel buttons on /display
     ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, false])),
   };
-  let recordsView = records.top(); // cached: recomputed only when the records change
+  // Cached: recomputed only when the records change.
+  let recordsView = records.top();
+  let recordCounts = records.counts();
+  const refreshRecords = () => {
+    recordsView = records.top();
+    recordCounts = records.counts();
+  };
   let paused = false;
   let nextPlayerNumber = 1;
   let timer = null;
@@ -109,7 +117,7 @@ export function createGame({
     }
   }
 
-  const recordsOn = () => settings.leaderboard || settings.hallOfFame;
+  const recordsOn = () => settings.leaderboard;
 
   const sideNav = (state) => (settings.displayButtons ? sidePanelNav(settings.sidePanel, state, recordsOn()) : null);
 
@@ -124,10 +132,8 @@ export function createGame({
       sideNav: sideNav(state),
       tickMs: config.tickMs, // for smooth movement between ticks
       effects: Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, settings[k]])),
-      records: {
-        leaderboard: settings.leaderboard ? recordsView.leaderboard : null,
-        hallOfFame: settings.hallOfFame ? recordsView.hallOfFame : null,
-      },
+      records: settings.leaderboard ? recordsView : null, // { wins, kills, score }: top 10 each
+      leaderboardStat: settings.leaderboardStat,
       localPlayers: null, // filled per client
     };
   }
@@ -141,9 +147,11 @@ export function createGame({
       config: { ...config },
       limits: CONFIG_LIMITS,
       toggles: Object.keys(CONFIG_TOGGLES),
+      choices: CONFIG_CHOICES,
       rules: state.rules, // the rules of the round in progress
+      win: state.win, // and the numbers behind its win conditions
       settings: { ...settings },
-      hallOfFameSize: recordsView.hallOfFame.length,
+      recordCounts, // entries per stat, for the reset buttons
       players: state.players.map((p) => ({ ...p, source: owners.get(p.id)?.source ?? 'unknown' })),
       joinInfo,
     };
@@ -174,19 +182,22 @@ export function createGame({
   // ---- tick loop -------------------------------------------------------------
 
   // ---- records ------------------------------------------------------------------
-  // Whether a round counts for the leaderboard / hall of fame is decided when
-  // it starts, so toggling them mid-round applies from the next round.
-  let track = { round: 0, counting: { leaderboard: false, hallOfFame: false }, best: new Map(), done: true };
+  // Whether a round counts for the global leaderboard is decided when it
+  // starts, so toggling it mid-round applies from the next round.
+  let track = { round: 0, counting: false, best: new Map(), done: true };
 
   function commitRound(winnerId) {
     if (track.done) return;
     track.done = true;
-    const { leaderboard, hallOfFame } = track.counting;
-    if (!leaderboard && !hallOfFame) return;
+    if (!track.counting) return;
     try {
-      const winner = leaderboard && winnerId ? (track.best.get(winnerId)?.name ?? null) : null;
-      const changed = records.recordRound({ winner, lengths: hallOfFame ? [...track.best.values()] : [] });
-      if (changed) recordsView = records.top();
+      const played = [...track.best.values()];
+      const changed = records.recordRound({
+        winner: winnerId ? (track.best.get(winnerId)?.name ?? null) : null,
+        kills: played.map(({ name, kills }) => ({ name, kills })),
+        lengths: played.map(({ name, length }) => ({ name, length })),
+      });
+      if (changed) refreshRecords();
     } catch (err) {
       log(`[records] could not record round ${track.round}: ${err.message}`);
     }
@@ -196,11 +207,11 @@ export function createGame({
   function observeRound() {
     const state = engine.getState();
     if (state.round !== track.round) {
-      commitRound(null); // a round abandoned by a restart: lengths count, no win
+      commitRound(null); // a round abandoned by a restart: lengths and kills count, no win
       track = {
         round: state.round,
-        counting: { leaderboard: settings.leaderboard, hallOfFame: settings.hallOfFame },
-        best: new Map(), // playerId -> { name, length }, kept for players who leave mid-round
+        counting: settings.leaderboard,
+        best: new Map(), // playerId -> { name, length, kills }, kept for players who leave mid-round
         done: false,
       };
     }
@@ -208,7 +219,11 @@ export function createGame({
     for (const p of state.players) {
       if (p.status === 'queued') continue;
       const best = track.best.get(p.id);
-      if (!best || p.length > best.length) track.best.set(p.id, { name: p.name, length: p.length });
+      track.best.set(p.id, {
+        name: p.name,
+        length: Math.max(best?.length ?? 0, p.length),
+        kills: Math.max(best?.kills ?? 0, p.kills), // kills only grow during a round
+      });
     }
     if (state.phase === PHASES.INTERMISSION || state.phase === PHASES.WAITING) commitRound(state.winnerId);
   }
@@ -425,17 +440,21 @@ export function createGame({
             for (const [id, o] of [...owners]) if (o.source === 'keyboard') kick(id);
           }
         }
-        for (const key of [...RECORD_SETTINGS, ...EFFECT_SETTINGS, 'displayButtons']) {
+        if (Object.hasOwn(msg, 'leaderboardStat')) {
+          if (!LEADERBOARD_STATS.includes(msg.leaderboardStat)) return badMessage(client);
+          settings.leaderboardStat = msg.leaderboardStat;
+        }
+        for (const key of ['leaderboard', ...EFFECT_SETTINGS, 'displayButtons']) {
           if (!Object.hasOwn(msg, key)) continue;
           if (typeof msg[key] !== 'boolean') return badMessage(client);
           settings[key] = msg[key];
         }
         break;
       }
-      case 'resetHallOfFame':
-        records.resetHallOfFame();
-        recordsView = records.top();
-        log('[admin] hall of fame reset');
+      case 'resetRecords':
+        if (!RESET_TARGETS.includes(msg.stat) || !records.reset(msg.stat)) return badMessage(client);
+        refreshRecords();
+        log(`[admin] records reset: ${msg.stat}`);
         break;
       case 'addWord': {
         const result = wordList.add(msg.word);

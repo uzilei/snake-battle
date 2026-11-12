@@ -386,7 +386,7 @@ describe('auth helpers', () => {
   });
 });
 
-describe('records toggles', () => {
+describe('global leaderboard', () => {
   // Two phones; the round starts on the first tick. p1 is then steered into
   // the wall and p2 (6 segments long) wins.
   function twoPlayers(settings = {}) {
@@ -413,41 +413,48 @@ describe('records toggles', () => {
     game.tickOnce(); // p1 hits the wall: p2 wins
     assert.equal(game.engine.getState().phase, 'intermission');
   }
+  const empty = { wins: [], kills: [], score: [] };
 
-  test('both are off by default and nothing is recorded', () => {
+  test('off by default: nothing is recorded or shown', () => {
     const { game, records } = twoPlayers();
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
     playRound(game);
-    assert.deepEqual(records.top(), { leaderboard: [], hallOfFame: [] });
+    assert.deepEqual(records.top(), empty);
+    assert.equal(display.last('state').records, null);
   });
 
-  test('leaderboard alone counts the win, not the lengths', () => {
+  test('on: wins, kills and best lengths are all recorded', () => {
     const { game, records } = twoPlayers({ leaderboard: true });
     playRound(game);
     playRound(game);
-    assert.deepEqual(records.top().leaderboard, [{ name: 'Luca', wins: 2 }]);
-    assert.deepEqual(records.top().hallOfFame, []);
+    assert.deepEqual(records.top(), {
+      wins: [{ name: 'Luca', value: 2 }],
+      kills: [],
+      score: [{ name: 'Luca', value: 6 }, { name: 'Anna', value: 3 }],
+    });
   });
 
-  test('hall of fame alone records the lengths, not the win', () => {
-    const { game, records } = twoPlayers({ hallOfFame: true });
-    playRound(game);
-    assert.deepEqual(records.top().leaderboard, []);
-    assert.deepEqual(records.top().hallOfFame, [
-      { name: 'Luca', length: 6, at: 5000 },
-      { name: 'Anna', length: 3, at: 5000 },
-    ]);
+  test('kills count: p1 runs into p2', () => {
+    const { game, records } = twoPlayers({ leaderboard: true });
+    game.tickOnce();
+    game.engine._debug.setSnake('p1', [[4, 14], [4, 13], [4, 12]], 'down'); // into p2's body at (4, 15)
+    game.engine._debug.setSnake('p2', [[8, 15], [7, 15], [6, 15], [5, 15], [4, 15], [3, 15]], 'right');
+    game.tickOnce();
+    assert.deepEqual(records.top().kills, [{ name: 'Luca', value: 1 }]);
+    assert.deepEqual(records.top().wins, [{ name: 'Luca', value: 1 }]);
   });
 
-  test('enabling them mid-round applies from the next round', () => {
+  test('enabling it mid-round applies from the next round', () => {
     const { game, records, admin } = twoPlayers();
-    game.tickOnce(); // round 1 starts with both off
-    admin.send({ t: 'settings', leaderboard: true, hallOfFame: true });
+    game.tickOnce(); // round 1 starts with it off
+    admin.send({ t: 'settings', leaderboard: true });
     place(game);
     game.tickOnce();
-    assert.deepEqual(records.top(), { leaderboard: [], hallOfFame: [] });
+    assert.deepEqual(records.top(), empty);
     playRound(game); // round 2 counts
-    assert.deepEqual(records.top().leaderboard, [{ name: 'Luca', wins: 1 }]);
-    assert.equal(records.top().hallOfFame.length, 2);
+    assert.deepEqual(records.top().wins, [{ name: 'Luca', value: 1 }]);
+    assert.equal(records.top().score.length, 2);
   });
 
   test('disabling mid-round still records the round that started enabled', () => {
@@ -456,20 +463,42 @@ describe('records toggles', () => {
     admin.send({ t: 'settings', leaderboard: false });
     place(game);
     game.tickOnce();
-    assert.deepEqual(records.top().leaderboard.map((e) => e.name), ['Luca']);
+    assert.deepEqual(records.top().wins.map((e) => e.name), ['Luca']);
   });
 
-  test('a restarted round keeps the lengths but gives no win', () => {
-    const { game, records, admin } = twoPlayers({ leaderboard: true, hallOfFame: true });
+  test('a restarted round keeps the lengths and kills but gives no win', () => {
+    const { game, records, admin } = twoPlayers({ leaderboard: true });
     game.tickOnce();
     game.engine._debug.setSnake('p2', [[8, 15], [7, 15], [6, 15], [5, 15], [4, 15], [3, 15], [2, 15], [1, 15]], 'right');
     admin.send({ t: 'restart' });
-    assert.deepEqual(records.top().leaderboard, []);
-    assert.deepEqual(records.top().hallOfFame[0], { name: 'Luca', length: 8, at: 5000 });
+    assert.deepEqual(records.top().wins, []);
+    assert.deepEqual(records.top().score[0], { name: 'Luca', value: 8 });
+  });
+
+  test('kills from a restarted round, and from a player who then leaves, still count', () => {
+    const { game, records, admin } = twoPlayers({ leaderboard: true });
+    const third = fakeClient(game);
+    third.send({ t: 'hello', role: 'player' });
+    third.send({ t: 'join', name: 'Marta', session: 'session-x-abcdefghijklmnop' });
+    game.tickOnce();
+    // Marta (p3) runs into Luca (p2); Anna and Luca play on.
+    game.engine._debug.setSnake('p1', [[8, 25], [7, 25], [6, 25]], 'right');
+    game.engine._debug.setSnake('p2', [[8, 15], [7, 15], [6, 15], [5, 15], [4, 15], [3, 15]], 'right');
+    game.engine._debug.setSnake('p3', [[4, 14], [4, 13], [4, 12]], 'down');
+    game.tickOnce();
+    assert.equal(game.engine.getState().phase, 'playing');
+    // Luca's player leaves, then the round is restarted: the kill is kept.
+    game.engine._debug.setSnake('p2', [[9, 15], [8, 15], [7, 15], [6, 15], [5, 15], [4, 15]], 'right');
+    const luca = game.engine.getState().players.find((p) => p.name === 'Luca');
+    assert.equal(luca.kills, 1);
+    admin.send({ t: 'kick', id: luca.id });
+    admin.send({ t: 'restart' });
+    assert.deepEqual(records.top().kills, [{ name: 'Luca', value: 1 }]);
+    assert.deepEqual(records.top().wins, []);
   });
 
   test('a player who leaves mid-round still gets their length recorded', () => {
-    const { game, records } = twoPlayers({ hallOfFame: true });
+    const { game, records } = twoPlayers({ leaderboard: true });
     const third = fakeClient(game);
     third.send({ t: 'hello', role: 'player' });
     third.send({ t: 'join', name: 'Marta', session: 'session-x-abcdefghijklmnop' });
@@ -481,40 +510,66 @@ describe('records toggles', () => {
     third.conn.disconnect();
     place(game);
     game.tickOnce();
-    assert.equal(records.top().hallOfFame[0].name, 'Marta');
-    assert.equal(records.top().hallOfFame[0].length, 9);
+    assert.deepEqual(records.top().score[0], { name: 'Marta', value: 9 });
   });
 
-  test('admin can reset the hall of fame; bad values are rejected', () => {
-    const { game, records, admin } = twoPlayers({ hallOfFame: true });
+  test('admin resets one stat or all of them; bad values are rejected', () => {
+    const { game, records, admin } = twoPlayers({ leaderboard: true });
     playRound(game);
-    assert.ok(records.top().hallOfFame.length > 0);
-    assert.ok(admin.last('admin').hallOfFameSize > 0);
-    admin.send({ t: 'resetHallOfFame' });
-    assert.deepEqual(records.top().hallOfFame, []);
-    assert.equal(admin.last('admin').hallOfFameSize, 0);
-    admin.send({ t: 'settings', leaderboard: 'yes' });
+    assert.deepEqual(admin.last('admin').recordCounts, { wins: 1, kills: 0, score: 2 });
+    admin.send({ t: 'resetRecords', stat: 'score' });
+    assert.deepEqual(admin.last('admin').recordCounts, { wins: 1, kills: 0, score: 0 });
+    admin.send({ t: 'resetRecords', stat: 'hallOfFame' });
     assert.equal(admin.last('error').code, 'badMessage');
-    assert.equal(game.settings.leaderboard, false);
+    admin.send({ t: 'resetRecords', stat: 'all' });
+    assert.deepEqual(records.counts(), { wins: 0, kills: 0, score: 0 });
+    admin.send({ t: 'settings', leaderboard: 'yes' });
+    assert.equal(game.settings.leaderboard, true);
   });
 
-  test('the display gets only the enabled lists', () => {
-    const { game } = twoPlayers({ hallOfFame: true });
+  test('the stat shown on /display is an admin setting, applied at once', () => {
+    const { game, admin } = twoPlayers({ leaderboard: true });
     const display = fakeClient(game);
     display.send({ t: 'hello', role: 'display' });
     playRound(game);
-    const msg = display.last('state');
-    assert.equal(msg.records.leaderboard, null);
-    assert.equal(msg.records.hallOfFame.length, 2);
+    let msg = display.last('state');
+    assert.equal(msg.leaderboardStat, 'auto');
+    assert.deepEqual(Object.keys(msg.records), ['wins', 'kills', 'score']);
     assert.equal(msg.sidePanel, 'records'); // auto mode, intermission
+    admin.send({ t: 'settings', leaderboardStat: 'kills' });
+    msg = display.last('state');
+    assert.equal(msg.leaderboardStat, 'kills');
+    admin.send({ t: 'settings', leaderboardStat: 'apples' });
+    assert.equal(admin.last('error').code, 'badMessage');
+    assert.equal(game.settings.leaderboardStat, 'kills');
   });
 
-  test('engine rules are toggled through config', () => {
+  test('engine rules and win conditions are set through config', () => {
     const { game, admin } = twoPlayers();
     admin.send({ t: 'config', values: { wrapWalls: true, corpseApples: 'on' } });
     assert.equal(game.config.wrapWalls, true);
     assert.equal(game.config.corpseApples, false);
-    assert.deepEqual(admin.last('admin').toggles, ['corpseApples', 'wrapWalls']);
+    admin.send({ t: 'config', values: { timeLimitWin: true, roundTimeLimitSec: 60, timeLimitWinner: 'kills', targetLength: 2 } });
+    assert.equal(game.config.timeLimitWin, true);
+    assert.equal(game.config.roundTimeLimitSec, 60);
+    assert.equal(game.config.timeLimitWinner, 'kills');
+    assert.equal(game.config.targetLength, 4); // clamped above the start length
+    const msg = admin.last('admin');
+    assert.deepEqual(msg.toggles, ['corpseApples', 'wrapWalls', 'timeLimitWin', 'targetLengthWin']);
+    assert.deepEqual(msg.choices.timeLimitWinner, ['longest', 'kills']);
+  });
+
+  test('kills of the current round reach /display and /admin', () => {
+    const { game, admin } = twoPlayers();
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    game.tickOnce();
+    game.engine._debug.setSnake('p1', [[4, 14], [4, 13], [4, 12]], 'down');
+    game.engine._debug.setSnake('p2', [[8, 15], [7, 15], [6, 15], [5, 15], [4, 15], [3, 15]], 'right');
+    game.tickOnce();
+    const luca = (players) => players.find((p) => p.name === 'Luca');
+    assert.equal(luca(display.last('state').state.players).kills, 1);
+    assert.equal(luca(admin.last('admin').players).kills, 1);
   });
 });
 
@@ -531,7 +586,7 @@ describe('side panel with records', () => {
     assert.equal(resolveSidePanel('leaderboard', st(0, 'waiting'), true), 'records');
     assert.equal(resolveSidePanel('leaderboard', st(3, 'playing'), true), 'leaderboard');
   });
-  test('records mode falls back to the scoreboard when both are off', () => {
+  test('records mode falls back to the scoreboard when the leaderboard is off', () => {
     assert.equal(resolveSidePanel('records', st(3, 'playing'), true), 'records');
     assert.equal(resolveSidePanel('records', st(3, 'playing'), false), 'leaderboard');
   });

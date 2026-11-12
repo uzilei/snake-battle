@@ -16,6 +16,11 @@
   </main>
 
   <aside id="side">
+    <div id="round-info" class="round-info hidden">
+      <span id="ri-time" class="ri-time"></span>
+      <span id="ri-target" class="ri-target"></span>
+    </div>
+
     <section id="leaderboard" class="panel">
       <header>
         <h1 id="lb-title"></h1>
@@ -26,15 +31,16 @@
     </section>
 
     <section id="records" class="panel hidden">
-      <div id="wins-block" class="records-block">
-        <h2 id="wins-title"></h2>
-        <ol id="wins-list" class="records-list"></ol>
-        <p id="wins-empty" class="muted small"></p>
-      </div>
-      <div id="fame-block" class="records-block">
-        <h2 id="fame-title"></h2>
-        <ol id="fame-list" class="records-list fame"></ol>
-        <p id="fame-empty" class="muted small"></p>
+      <header class="records-head">
+        <div>
+          <div id="rec-kicker" class="kicker"></div>
+          <h1 id="rec-title"></h1>
+        </div>
+        <div id="rec-dots" class="dots"></div>
+      </header>
+      <div id="rec-body" class="rec-body">
+        <ol id="rec-list" class="records-list"></ol>
+        <p id="rec-empty" class="muted small"></p>
       </div>
     </section>
 

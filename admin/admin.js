@@ -7,6 +7,7 @@ import { playerColor } from '/shared/colors.js';
 const A = STRINGS.admin;
 const $ = (id) => document.getElementById(id);
 
+// parent: the element the slider goes in (default: the Settings card).
 const SLIDERS = [
   { key: 'tickMs', step: 10 },
   { key: 'appleCount', step: 1 },
@@ -15,7 +16,10 @@ const SLIDERS = [
   { key: 'gridSize', step: 1 },
   { key: 'countdownMs', step: 500 },
   { key: 'intermissionMs', step: 500 },
+  { key: 'roundTimeLimitSec', step: 15, parent: 'sliders-time' },
+  { key: 'targetLength', step: 1, parent: 'sliders-target' },
 ];
+const RESET_STATS = ['wins', 'kills', 'score', 'all'];
 
 // ---- static text ----------------------------------------------------------------
 document.title = `${STRINGS.appName} – ${A.title}`;
@@ -31,7 +35,12 @@ $('side-records-off').textContent = A.sidePanelRecordsOff;
 $('l-keyboard').textContent = A.keyboardPlayers;
 $('h-rules').textContent = A.rules;
 $('rules-hint').textContent = A.rulesHint;
-$('btn-reset-fame').textContent = A.resetHallOfFame;
+$('h-win').textContent = A.winConditions;
+$('win-hint').textContent = A.winHint;
+$('l-timeLimitWinner').textContent = A.timeLimitWinner;
+$('h-global').textContent = A.globalLeaderboard;
+$('l-leaderboardStat').textContent = A.leaderboardStat;
+for (const stat of RESET_STATS) $(`btn-reset-${stat}`).textContent = A.reset[stat];
 $('h-effects').textContent = A.effects;
 $('effects-hint').textContent = A.effectsHint;
 
@@ -40,8 +49,9 @@ const RULE_TOGGLES = {
   corpseApples: 'config',
   displayButtons: 'settings',
   wrapWalls: 'config',
+  timeLimitWin: 'config',
+  targetLengthWin: 'config',
   leaderboard: 'settings',
-  hallOfFame: 'settings',
   deathParticles: 'settings',
   appleRings: 'settings',
   screenShake: 'settings',
@@ -57,6 +67,7 @@ $('h-players').textContent = A.players;
 $('c-name').textContent = A.colName;
 $('c-status').textContent = A.colStatus;
 $('c-length').textContent = A.colLength;
+$('c-kills').textContent = A.colKills;
 $('c-source').textContent = A.colSource;
 $('no-players').textContent = A.noPlayers;
 $('h-links').textContent = A.links;
@@ -66,12 +77,17 @@ $('word-input').placeholder = A.wordPlaceholder;
 $('word-add').textContent = A.addWord;
 $('credits').textContent = A.credits;
 
-for (const [value, label] of Object.entries(A.sidePanelOptions)) {
-  const opt = document.createElement('option');
-  opt.value = value;
-  opt.textContent = label;
-  $('side-panel').append(opt);
+function fillSelect(select, options) {
+  for (const [value, label] of Object.entries(options)) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = label;
+    select.append(opt);
+  }
 }
+fillSelect($('side-panel'), A.sidePanelOptions);
+fillSelect($('leaderboard-stat'), A.leaderboardStatOptions);
+fillSelect($('c-timeLimitWinner'), A.timeLimitWinnerOptions);
 
 // ---- connection -----------------------------------------------------------------
 let ws = null;
@@ -126,16 +142,25 @@ $('side-panel').addEventListener('change', (e) => {
   e.target.blur(); // so changes made from /display show up here too
 });
 $('keyboard').addEventListener('change', (e) => send({ t: 'settings', keyboardPlayers: e.target.checked }));
-$('btn-reset-fame').addEventListener('click', () => {
-  if (confirm(A.confirmResetHallOfFame)) send({ t: 'resetHallOfFame' });
+$('leaderboard-stat').addEventListener('change', (e) => {
+  send({ t: 'settings', leaderboardStat: e.target.value });
+  e.target.blur();
 });
+$('c-timeLimitWinner').addEventListener('change', (e) => {
+  send({ t: 'config', values: { timeLimitWinner: e.target.value } });
+  e.target.blur();
+});
+for (const stat of RESET_STATS) {
+  $(`btn-reset-${stat}`).addEventListener('click', () => {
+    if (confirm(A.confirmReset[stat])) send({ t: 'resetRecords', stat });
+  });
+}
 
 const sliderEls = {};
 let slidersBuilt = false;
 
 function buildSliders(limits) {
-  const root = $('sliders');
-  for (const { key, step } of SLIDERS) {
+  for (const { key, step, parent = 'sliders' } of SLIDERS) {
     const lim = limits[key];
     if (!lim) continue;
     const wrap = document.createElement('div');
@@ -160,7 +185,7 @@ function buildSliders(limits) {
       timer = setTimeout(() => send({ t: 'config', values: { [key]: Number(input.value) } }), 80);
     });
     wrap.append(label, input, output, range);
-    root.append(wrap);
+    $(parent).append(wrap);
     sliderEls[key] = { input, output };
   }
   slidersBuilt = true;
@@ -186,14 +211,27 @@ function update(msg) {
   if (document.activeElement !== $('side-panel')) $('side-panel').value = msg.settings.sidePanel;
   $('keyboard').checked = msg.settings.keyboardPlayers;
   // "Record" with both records toggles off falls back to the scoreboard: say why.
-  $('side-records-off').hidden =
-    !(msg.settings.sidePanel === 'records' && !msg.settings.leaderboard && !msg.settings.hallOfFame);
+  $('side-records-off').hidden = !(msg.settings.sidePanel === 'records' && !msg.settings.leaderboard);
+  if (document.activeElement !== $('leaderboard-stat')) $('leaderboard-stat').value = msg.settings.leaderboardStat;
+  if (document.activeElement !== $('c-timeLimitWinner')) $('c-timeLimitWinner').value = msg.config.timeLimitWinner;
+  // The settings of a win condition only matter while it is on.
+  $('sliders-time').parentElement.classList.toggle('off', !msg.config.timeLimitWin);
+  $('sliders-target').parentElement.classList.toggle('off', !msg.config.targetLengthWin);
   for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
     $(`t-${key}`).checked = Boolean(kind === 'config' ? msg.config[key] : msg.settings[key]);
   }
-  const active = Object.keys(msg.rules ?? {}).filter((k) => msg.rules[k]).map((k) => A[k]);
+  const win = msg.win ?? {};
+  const activeLabel = {
+    timeLimitWin: () => `${A.timeLimitWin} (${win.timeLimitSec} s, ${A.timeLimitWinnerOptions[win.timeLimitWinner]})`,
+    targetLengthWin: () => `${A.targetLength} ${win.targetLength}`,
+  };
+  const active = Object.keys(msg.rules ?? {})
+    .filter((k) => msg.rules[k])
+    .map((k) => (activeLabel[k] ? activeLabel[k]() : A[k]));
   $('rules-active').textContent = msg.round > 0 ? fmt(A.activeThisRound, { list: active.length ? active.join(', ') : A.noneActive }) : '';
-  $('btn-reset-fame').disabled = !msg.hallOfFameSize;
+  const counts = msg.recordCounts ?? {};
+  for (const stat of ['wins', 'kills', 'score']) $(`btn-reset-${stat}`).disabled = !counts[stat];
+  $('btn-reset-all').disabled = !counts.wins && !counts.kills && !counts.score;
 
   const key = JSON.stringify(msg.players);
   if (key !== lastPlayersKey) {
@@ -216,6 +254,8 @@ function renderPlayers(players) {
       status.textContent = A.playerStatus[p.status] ?? p.status;
       const length = document.createElement('td');
       length.textContent = p.status === 'queued' ? '–' : String(p.length);
+      const kills = document.createElement('td');
+      kills.textContent = p.status === 'queued' ? '–' : String(p.kills ?? 0);
       const source = document.createElement('td');
       source.textContent = p.source === 'keyboard' ? A.sourceKeyboard : A.sourcePhone;
       const actions = document.createElement('td');
@@ -226,7 +266,7 @@ function renderPlayers(players) {
         if (confirm(fmt(A.confirmKick, { name: p.name }))) send({ t: 'kick', id: p.id });
       });
       actions.append(kick);
-      tr.append(name, status, length, source, actions);
+      tr.append(name, status, length, kills, source, actions);
       return tr;
     }),
   );

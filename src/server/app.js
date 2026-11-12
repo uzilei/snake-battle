@@ -41,7 +41,7 @@ ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}
  * @param {Function} [opts.random] RNG for the engine
  * @param {object} [opts.limiter] options for the login limiter
  * @param {object} [opts.wordList] banned-word list for names (see profanity.js)
- * @param {object} [opts.records] leaderboard / hall of fame store (see records.js); in-memory by default
+ * @param {object} [opts.records] global leaderboard store (see records.js); in-memory by default
  * @param {number} [opts.heartbeatMs] how often sockets are pinged; dead ones are dropped
  */
 export function createApp({ serverConfig, log = console.log, random, limiter: limiterOpts, wordList, records, heartbeatMs = 5000 } = {}) {
