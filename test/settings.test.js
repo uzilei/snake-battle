@@ -22,7 +22,7 @@ function gameOn(file, log = quiet) {
 }
 
 const CHANGES = {
-  config: { tickMs: 120, gridSize: 40, appleCount: 7, wrapWalls: true, corpseApples: true, timeLimitWin: true, roundTimeLimitSec: 90, timeLimitWinner: 'kills', targetLengthWin: true, targetLength: 25 },
+  config: { tickMs: 120, gridSize: 40, appleCount: 7, wrapWalls: true, corpseApples: true, timeLimitWin: true, roundTimeLimitSec: 90, timeLimitWinner: 'kills', targetLengthWin: true, targetLength: 25, powerUps: true, powerUpChance: 60, bombsPerMinute: 9, weightGolden: 0, weightGun: 7, weightShield: 10 },
   settings: { sidePanel: 'records', keyboardPlayers: true, leaderboard: true, leaderboardStat: 'kills', displayButtons: true, deathParticles: true, appleRings: true, screenShake: true },
 };
 
@@ -43,6 +43,7 @@ describe('settings persistence', () => {
     const state = restarted.engine.getState();
     assert.equal(state.gridSize, 40);
     assert.equal(state.rules.wrapWalls, true);
+    assert.equal(state.rules.powerUps, true);
     assert.deepEqual(state.win, { timeLimitSec: 90, timeLimitWinner: 'kills', targetLength: 25 });
   });
 

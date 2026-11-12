@@ -4,6 +4,8 @@
 // built-ins. Runs unchanged in Node and in the browser. All input arrives via
 // setDirection(id, dir); time advances only via tick().
 
+import { WEIGHTED_POWER_UPS, POWER_UP_TYPES, POWER_UP_RULES, weightKey } from './shared/powerups.js';
+
 export const DIRECTIONS = Object.freeze({
   up: Object.freeze({ x: 0, y: -1 }),
   down: Object.freeze({ x: 0, y: 1 }),
@@ -37,6 +39,12 @@ export const CONFIG_LIMITS = Object.freeze({
   countdownMs: { min: 0, max: 10000, default: 0 }, // 0 = no pre-round countdown
   roundTimeLimitSec: { min: 15, max: 900, default: 120 }, // used when timeLimitWin is on
   targetLength: { min: START_LENGTH + 1, max: 300, default: 30 }, // used when targetLengthWin is on
+  // Power-ups (used when powerUps is on; read live). Integers only, since
+  // every number setting is rounded.
+  powerUpChance: { min: 0, max: 100, default: 25 }, // % of new apples that are a power-up instead
+  bombsPerMinute: { min: 0, max: 20, default: 4 }, // bombs spawn on their own, on top of appleCount
+  // weightGolden, weightGhost, ...: relative odds of each power-up (0 = never).
+  ...Object.fromEntries(WEIGHTED_POWER_UPS.map((p) => [weightKey(p.type), { min: 0, max: 10, default: p.defaultWeight }])),
 });
 
 // Settings with a fixed set of string values (first = default).
@@ -55,6 +63,7 @@ export const CONFIG_TOGGLES = Object.freeze({
   // whichever triggers first ends the round.
   timeLimitWin: false, // the round ends after roundTimeLimitSec
   targetLengthWin: false, // the first snake to reach targetLength wins
+  powerUps: false, // power-ups spawn in place of some apples, plus bombs
 });
 
 export function createDefaultConfig() {
@@ -107,7 +116,14 @@ export function createEngine({ config, random = Math.random } = {}) {
   let win = lockWin(); // the numbers behind rules.timeLimitWin / targetLengthWin
   let playingElapsed = 0; // ms of PLAYING ticks this round, for the time limit
   let endReason = null; // why the last round ended: 'lastAlive' | 'time' | 'target'
-  let apples = []; // [{ x, y, corpse? }]; corpse apples come on top of cfg.appleCount
+  // Board items. Apples and power-ups ({ x, y, type }) share one list in
+  // spawn order. Regular ones count toward cfg.appleCount; extras (corpse:
+  // dead or cut snakes, feast: the feast power-up) come on top of it.
+  let apples = [];
+  let bombs = []; // { x, y, remainingMs, since }: on top of appleCount, despawn
+  let projectiles = []; // { id, x, y, dir, ownerId }
+  let portals = []; // { id, entrance: {x,y}, exit: {x,y}, remainingMs, since }
+  let nextObjectId = 1; // ids for projectiles and portals (for /display)
   let winnerId = null;
   let participants = 0; // snakes spawned at round start
   let intermissionElapsed = 0;
@@ -135,11 +151,27 @@ export function createEngine({ config, random = Math.random } = {}) {
     return list;
   }
 
+  const isExtra = (a) => Boolean(a.corpse || a.feast);
+
+  // Cells no new item may go to: snakes, items, bombs and both ends of portals.
   function occupiedCells() {
     const set = new Set();
     for (const s of aliveSnakes()) for (const c of s.segments) set.add(cellKey(c.x, c.y));
     for (const a of apples) set.add(cellKey(a.x, a.y));
+    for (const b of bombs) set.add(cellKey(b.x, b.y));
+    for (const p of portals) {
+      set.add(cellKey(p.entrance.x, p.entrance.y));
+      set.add(cellKey(p.exit.x, p.exit.y));
+    }
     return set;
+  }
+
+  // Clears everything a round leaves on the board.
+  function clearBoard() {
+    apples = [];
+    bombs = [];
+    projectiles = [];
+    portals = [];
   }
 
   function snakeCells() {
@@ -256,13 +288,14 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // Keeps the apple count in line with cfg.appleCount (applies live).
-  // Corpse apples count towards the total, so no new apple spawns while the
-  // board already holds appleCount or more. Lowering appleCount trims regular
-  // apples down to it; corpse apples are never removed.
+  // Power-ups take an apple's place and count toward it. Extra apples count
+  // towards the total too, so no new apple spawns while the board already
+  // holds appleCount or more. Lowering appleCount trims the newest regular
+  // items (apples or power-ups) down to it; extras are never removed.
   function syncApples() {
-    let excess = apples.filter((a) => !a.corpse).length - cfg.appleCount;
+    let excess = apples.filter((a) => !isExtra(a)).length - cfg.appleCount;
     for (let i = apples.length - 1; i >= 0 && excess > 0; i--) {
-      if (!apples[i].corpse) {
+      if (!isExtra(apples[i])) {
         apples.splice(i, 1);
         excess--;
       }
@@ -272,9 +305,53 @@ export function createEngine({ config, random = Math.random } = {}) {
     while (apples.length < cfg.appleCount) {
       const apple = spawnApple(occupied);
       if (!apple) break;
-      apples.push(apple);
+      const type = rollPowerUp();
+      apples.push(type ? { ...apple, type } : apple);
       occupied.add(cellKey(apple.x, apple.y));
     }
+  }
+
+  // Whether a spawning apple becomes a power-up, and which one: null, or a
+  // type picked by weight. With power-ups off it draws no random numbers,
+  // so games without them play out exactly as before.
+  function rollPowerUp() {
+    if (!rules.powerUps || random() * 100 >= cfg.powerUpChance) return null;
+    const weights = WEIGHTED_POWER_UPS.map((p) => cfg[weightKey(p.type)]);
+    const total = weights.reduce((a, b) => a + b, 0);
+    if (total <= 0) return null;
+    let r = random() * total;
+    for (let i = 0; i < weights.length; i++) {
+      r -= weights[i];
+      if (r < 0 && weights[i] > 0) return WEIGHTED_POWER_UPS[i].type;
+    }
+    return null;
+  }
+
+  // Bombs: each tick one may spawn, at bombsPerMinute on average, on a free
+  // cell away from the heads where possible (so it never lands right in
+  // front of someone).
+  function spawnBombs() {
+    if (!rules.powerUps || cfg.bombsPerMinute <= 0 || bombs.length >= POWER_UP_RULES.maxBombs) return;
+    if (random() >= (cfg.bombsPerMinute * cfg.tickMs) / 60000) return;
+    const occupied = occupiedCells();
+    const heads = aliveSnakes().map((s) => s.segments[0]);
+    const near = new Set(occupied);
+    for (const h of heads) {
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (Math.abs(dx) + Math.abs(dy) > 2) continue;
+          let x = h.x + dx;
+          let y = h.y + dy;
+          if (rules.wrapWalls) {
+            x = (x + gridSize) % gridSize;
+            y = (y + gridSize) % gridSize;
+          }
+          if (inBounds(x, y)) near.add(cellKey(x, y));
+        }
+      }
+    }
+    const cell = spawnApple(near) ?? spawnApple(occupied);
+    if (cell) bombs.push({ x: cell.x, y: cell.y, remainingMs: POWER_UP_RULES.bombLifetimeMs, since: tickCount });
   }
 
   // ---- round lifecycle ----------------------------------------------------
@@ -284,7 +361,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     gridSize = cfg.gridSize;
     rules = lockRules();
     win = lockWin();
-    apples = [];
+    clearBoard();
     winnerId = null;
     endReason = null;
     intermissionElapsed = 0;
@@ -379,6 +456,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     substep(first);
     substep(second.filter((p) => p.status === 'alive'));
     countDown();
+    spawnBombs();
   }
 
   // Timers run on game time (tickMs per playing tick), so a speed change
@@ -391,6 +469,15 @@ export function createEngine({ config, random = Math.random } = {}) {
       e.remainingMs -= cfg.tickMs;
       if (e.remainingMs <= 0) p.snake.effect = null;
     }
+    const tick = (list) =>
+      list.filter((o) => {
+        if (o.since !== tickCount) o.remainingMs -= cfg.tickMs;
+        return o.remainingMs > 0;
+      });
+    const before = bombs.length;
+    bombs = tick(bombs);
+    if (bombs.length < before) events.push({ type: 'bombExpired' });
+    portals = tick(portals);
   }
 
   // cell -> [{ p, index }]: every segment that is still there after this
@@ -421,6 +508,18 @@ export function createEngine({ config, random = Math.random } = {}) {
     const credited = by && by !== p && players.get(by.id) === by ? by : null;
     if (credited) credited.kills++;
     events.push({ type: 'death', id: p.id, killerId: credited ? credited.id : null });
+  }
+
+  // What each power-up does when eaten. Timed ones only need to become the
+  // snake's effect: the movement and collision code asks "is X active".
+  const EFFECTS = {};
+  for (const p of Object.values(POWER_UP_TYPES)) {
+    if (p.durationMs) EFFECTS[p.type] = (player) => setEffect(player, p.type, p.durationMs);
+  }
+
+  function pickUp(player, type) {
+    events.push({ type: 'pickup', id: player.id, item: type });
+    EFFECTS[type]?.(player);
   }
 
   function substep(movers) {
@@ -509,14 +608,23 @@ export function createEngine({ config, random = Math.random } = {}) {
       else m.snake.segments.pop();
     }
 
-    // Apples: eaten by surviving heads.
+    // Items: eaten by surviving heads. A power-up grows the snake like an
+    // apple, then takes effect. A bomb doesn't grow it.
     for (const m of moves) {
-      if (dead.has(m)) continue;
-      const i = apples.findIndex((a) => a.x === m.newHead.x && a.y === m.newHead.y);
+      if (dead.has(m) || m.player.status !== 'alive') continue;
+      const { x, y } = m.newHead;
+      const i = apples.findIndex((a) => a.x === x && a.y === y);
       if (i !== -1) {
-        apples.splice(i, 1);
+        const [item] = apples.splice(i, 1);
         m.snake.pendingGrowth += cfg.growthPerApple;
-        events.push({ type: 'eat', id: m.player.id, x: m.newHead.x, y: m.newHead.y });
+        events.push(item.type ? { type: 'eat', id: m.player.id, x, y, item: item.type } : { type: 'eat', id: m.player.id, x, y });
+        if (item.type) pickUp(m.player, item.type);
+      }
+      const b = bombs.findIndex((o) => o.x === x && o.y === y);
+      if (b !== -1) {
+        bombs.splice(b, 1);
+        events.push({ type: 'eat', id: m.player.id, x, y, item: 'bomb' });
+        pickUp(m.player, 'bomb');
       }
     }
 
@@ -527,9 +635,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   // a living snake now covers (e.g. a head that moved into a dead snake's tail
   // the same tick) and cells that already hold an apple.
   function dropCorpses(corpses) {
-    const blocked = new Set();
-    for (const s of aliveSnakes()) for (const c of s.segments) blocked.add(cellKey(c.x, c.y));
-    for (const a of apples) blocked.add(cellKey(a.x, a.y));
+    const blocked = occupiedCells();
     for (const s of corpses) {
       for (const c of s.segments) {
         const k = cellKey(c.x, c.y);
@@ -598,7 +704,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         if (players.size > 0) startRound();
         else {
           phase = PHASES.WAITING;
-          apples = [];
+          clearBoard();
           winnerId = null;
         }
       }
@@ -632,7 +738,18 @@ export function createEngine({ config, random = Math.random } = {}) {
       intermissionRemainingMs:
         phase === PHASES.INTERMISSION ? Math.max(0, cfg.intermissionMs - intermissionElapsed) : 0,
       countdownRemainingMs: phase === PHASES.COUNTDOWN ? Math.max(0, cfg.countdownMs - countdownElapsed) : 0,
-      apples: apples.map((a) => (a.corpse ? { x: a.x, y: a.y, corpse: true } : { x: a.x, y: a.y })),
+      apples: apples
+        .filter((a) => !a.type)
+        .map((a) => (a.corpse ? { x: a.x, y: a.y, corpse: true } : a.feast ? { x: a.x, y: a.y, feast: true } : { x: a.x, y: a.y })),
+      powerUps: apples.filter((a) => a.type).map((a) => ({ x: a.x, y: a.y, type: a.type })),
+      bombs: bombs.map((b) => ({ x: b.x, y: b.y, remainingMs: b.remainingMs })),
+      projectiles: projectiles.map((p) => ({ id: p.id, x: p.x, y: p.y, dir: p.dir, ownerId: p.ownerId })),
+      portals: portals.map((p) => ({
+        id: p.id,
+        entrance: { ...p.entrance },
+        exit: { ...p.exit },
+        remainingMs: p.remainingMs,
+      })),
       players: [...players.values()].map((p) => ({
         id: p.id,
         name: p.name,
@@ -667,7 +784,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     if (players.size > 0) startRound();
     else {
       phase = PHASES.WAITING;
-      apples = [];
+      clearBoard();
       winnerId = null;
     }
   }
@@ -692,6 +809,19 @@ export function createEngine({ config, random = Math.random } = {}) {
     },
     setApples(list) {
       apples = list.map(([x, y]) => ({ x, y }));
+    },
+    // Adds power-ups ([x, y, type]) after the apples already there.
+    addPowerUps(list) {
+      for (const [x, y, type] of list) apples.push({ x, y, type });
+    },
+    addPortal([ex, ey], [xx, xy], remainingMs = POWER_UP_RULES.portalLifetimeMs) {
+      portals.push({ id: nextObjectId++, entrance: { x: ex, y: ey }, exit: { x: xx, y: xy }, remainingMs, since: tickCount });
+    },
+    addProjectile([x, y], dir, ownerId) {
+      projectiles.push({ id: nextObjectId++, x, y, dir, ownerId });
+    },
+    setBombs(list) {
+      bombs = list.map(([x, y, remainingMs = POWER_UP_RULES.bombLifetimeMs]) => ({ x, y, remainingMs, since: tickCount }));
     },
   };
 

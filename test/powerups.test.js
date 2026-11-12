@@ -274,3 +274,231 @@ describe('ghost', () => {
     assert.equal(e.getState().apples.filter((a) => a.corpse).length, 3);
   });
 });
+
+// Power-ups on, no random bombs unless a test asks for them.
+const PU = { powerUps: true, bombsPerMinute: 0 };
+const onlyWeight = (type) => ({
+  weightGolden: 0,
+  weightGhost: 0,
+  weightGun: 0,
+  weightMagnet: 0,
+  weightFreeze: 0,
+  weightScissors: 0,
+  weightPortal: 0,
+  weightFeast: 0,
+  weightShield: 0,
+  [`weight${type[0].toUpperCase()}${type.slice(1)}`]: 5,
+});
+// Two snakes looping forever on a wrapping board, out of each other's way.
+const loopers = {
+  a: [[[2, 3], [1, 3], [0, 3]], 'right'],
+  b: [[[2, 12], [1, 12], [0, 12]], 'right'],
+};
+
+describe('spawning', () => {
+  test('power-ups take the place of an apple and count toward appleCount', () => {
+    const e = setup(loopers, { ...PU, wrapWalls: true, appleCount: 5, powerUpChance: 100, ...onlyWeight('ghost') });
+    e.tick();
+    const s = e.getState();
+    assert.equal(s.powerUps.length, 5);
+    assert.equal(s.apples.length, 0);
+    assert.ok(s.powerUps.every((p) => p.type === 'ghost'));
+  });
+
+  test('chance 0 or all weights 0: apples only', () => {
+    for (const config of [{ powerUpChance: 0 }, { powerUpChance: 100, ...onlyWeight('ghost'), weightGhost: 0 }]) {
+      const e = setup(loopers, { ...PU, wrapWalls: true, appleCount: 10, ...config });
+      e.tick();
+      assert.equal(e.getState().powerUps.length, 0, JSON.stringify(config));
+      assert.equal(e.getState().apples.length, 10);
+    }
+  });
+
+  test('a power-up with weight 0 never spawns', () => {
+    const e = setup(loopers, { ...PU, wrapWalls: true, appleCount: 30, powerUpChance: 100, weightGun: 0 });
+    const seen = new Set();
+    for (let i = 0; i < 40; i++) {
+      e.restartRound();
+      for (const p of e.getState().powerUps) seen.add(p.type);
+    }
+    assert.equal(seen.has('gun'), false);
+    assert.ok(seen.size >= 6, [...seen].join()); // the others all show up
+  });
+
+  test('with power-ups off the game is exactly what it was (same random numbers)', () => {
+    const run = (config) => {
+      const e = createEngine({ config: { gridSize: 20, appleCount: 4, intermissionMs: 0, corpseApples: true, ...config }, random: seeded(7) });
+      for (const id of ['a', 'b', 'c']) e.addPlayer(id, id);
+      const dirs = ['up', 'right', 'down', 'left'];
+      const out = [];
+      for (let i = 0; i < 300; i++) {
+        e.setDirection(['a', 'b', 'c'][i % 3], dirs[(i * 7) % 4]);
+        e.tick();
+        const s = e.getState();
+        out.push(JSON.stringify([s.round, s.apples, s.snakes.map((x) => x.segments)]));
+      }
+      return out;
+    };
+    // Power-up settings without the toggle change nothing.
+    assert.deepEqual(run({ powerUpChance: 100, bombsPerMinute: 20 }), run({}));
+  });
+
+  test('lowering appleCount trims the newest apples and power-ups, never bombs or extras', () => {
+    const e = setup({ ...loopers, c: [[[2, 16], [1, 16], [0, 16]], 'right'] }, { ...PU, wrapWalls: true, appleCount: 3, corpseApples: true });
+    e._debug.setApples([[5, 7], [6, 7]]);
+    e._debug.addPowerUps([[7, 7, 'ghost']]);
+    e._debug.setBombs([[8, 7]]);
+    e.tick();
+    assert.equal(e.getState().apples.length + e.getState().powerUps.length, 3); // full: nothing new
+    // c turns into its own body: 6 corpse apples, on top of appleCount.
+    e._debug.setSnake('c', [[10, 16], [10, 17], [11, 17], [11, 16], [11, 15], [10, 15]], 'right');
+    e.updateConfig({ appleCount: 1 });
+    e.tick();
+    const s = e.getState();
+    assert.equal(s.apples.filter((a) => a.corpse).length, 6);
+    assert.deepEqual(s.apples.filter((a) => !a.corpse), [{ x: 5, y: 7 }]);
+    assert.deepEqual(s.powerUps, []);
+    assert.equal(s.bombs.length, 1);
+  });
+
+  test('bombs do not count toward appleCount', () => {
+    const e = setup(loopers, { ...PU, wrapWalls: true, appleCount: 2, powerUpChance: 0 });
+    e._debug.setBombs([[5, 7], [6, 7], [7, 7]]);
+    e.tick();
+    assert.equal(e.getState().apples.length, 2);
+    assert.equal(e.getState().bombs.length, 3);
+  });
+
+  test('no item spawns on a portal, a bomb or a snake', () => {
+    const e = setup(loopers, { ...PU, gridSize: 10, wrapWalls: true, appleCount: 30, powerUpChance: 50 });
+    e._debug.setBombs([[5, 5]]);
+    e._debug.addPortal([4, 4], [6, 6]);
+    e.tick();
+    const s = e.getState();
+    const taken = new Set(['5,5', '4,4', '6,6', ...s.snakes.flatMap((x) => x.segments.map((c) => `${c.x},${c.y}`))]);
+    for (const it of [...s.apples, ...s.powerUps]) assert.equal(taken.has(`${it.x},${it.y}`), false, `${it.x},${it.y}`);
+  });
+});
+
+describe('bombs', () => {
+  test('an uneaten bomb disappears after 10 seconds', () => {
+    const e = setup(loopers, { ...PU, wrapWalls: true, tickMs: 100 });
+    e._debug.setBombs([[5, 7]]);
+    for (let i = 0; i < 99; i++) e.tick();
+    assert.deepEqual(e.getState().bombs, [{ x: 5, y: 7, remainingMs: 100 }]);
+    e.tick();
+    assert.deepEqual(e.getState().bombs, []);
+    assert.ok(e.getState().events.some((ev) => ev.type === 'bombExpired'));
+  });
+
+  test('they spawn at bombsPerMinute, never more than 5 at once, away from heads', () => {
+    const e = setup(loopers, { ...PU, wrapWalls: true, tickMs: 600, bombsPerMinute: 20 });
+    let spawned = 0;
+    let before = 0;
+    for (let i = 0; i < 300; i++) {
+      e.tick();
+      const s = e.getState();
+      assert.ok(s.bombs.length <= 5);
+      if (s.bombs.length > before) {
+        spawned++;
+        const fresh = s.bombs[s.bombs.length - 1];
+        for (const sn of s.snakes) {
+          const h = sn.segments[0];
+          const dx = Math.min(Math.abs(h.x - fresh.x), 20 - Math.abs(h.x - fresh.x));
+          const dy = Math.min(Math.abs(h.y - fresh.y), 20 - Math.abs(h.y - fresh.y));
+          assert.ok(dx + dy > 2, 'bomb next to a head');
+        }
+      }
+      before = s.bombs.length;
+    }
+    assert.ok(spawned >= 10, `only ${spawned} bombs`);
+  });
+
+  test('no bombs while power-ups are off', () => {
+    const e = setup(loopers, { wrapWalls: true, tickMs: 600, bombsPerMinute: 20 });
+    for (let i = 0; i < 100; i++) e.tick();
+    assert.deepEqual(e.getState().bombs, []);
+  });
+});
+
+describe('picking up', () => {
+  test('a power-up grows the snake like an apple, then takes effect', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'], ...far }, { ...PU, growthPerApple: 2 });
+    e._debug.addPowerUps([[6, 5, 'ghost']]);
+    e.tick();
+    assert.equal(snake(e, 'a').pendingGrowth, 2);
+    assert.equal(snake(e, 'a').effect.type, 'ghost');
+    assert.deepEqual(e.getState().powerUps, []);
+    const ev = e.getState().events;
+    assert.ok(ev.some((x) => x.type === 'eat' && x.item === 'ghost' && x.x === 6));
+    assert.ok(ev.some((x) => x.type === 'pickup' && x.item === 'ghost' && x.id === 'a'));
+  });
+
+  test('an effect picked up mid-tick applies from the next tick', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'], ...far }, PU);
+    e._debug.addPowerUps([[6, 5, 'golden']]);
+    e.tick();
+    assert.deepEqual(head(e, 'a'), [6, 5]); // one cell: it wasn't golden when the tick began
+    e.tick();
+    assert.deepEqual(head(e, 'a'), [8, 5]);
+  });
+
+  test('the eaten power-up is replaced under the same rules', () => {
+    const e = setup(loopers, { ...PU, wrapWalls: true, appleCount: 1, powerUpChance: 100, ...onlyWeight('feast') });
+    e._debug.setApples([]);
+    e._debug.addPowerUps([[3, 3, 'ghost']]);
+    e.tick();
+    assert.equal(e.getState().powerUps.length, 1);
+    assert.equal(e.getState().powerUps[0].type, 'feast');
+  });
+});
+
+describe('rounds and state', () => {
+  test('the toggle applies from the next round; a new round clears everything', () => {
+    const e = setup(loopers, { wrapWalls: true, appleCount: 5, powerUpChance: 100 });
+    e.updateConfig({ powerUps: true });
+    e.tick();
+    assert.equal(e.getState().powerUps.length, 0); // still the round that started without them
+    e.restartRound();
+    assert.equal(e.getState().powerUps.length, 5);
+    e._debug.setBombs([[5, 7]]);
+    e._debug.addPortal([4, 4], [6, 6]);
+    e._debug.addProjectile([9, 9], 'up', 'a');
+    e._debug.setEffect('a', 'ghost', 3000);
+    e.updateConfig({ powerUps: false });
+    e.restartRound();
+    const s = e.getState();
+    assert.deepEqual([s.powerUps, s.bombs, s.portals, s.projectiles], [[], [], [], []]);
+    assert.ok(s.snakes.every((x) => x.effect === null));
+    assert.equal(s.rules.powerUps, false);
+  });
+
+  test('getState returns copies of the new fields', () => {
+    const e = setup(loopers, { ...PU, wrapWalls: true });
+    e._debug.addPowerUps([[5, 7, 'ghost']]);
+    e._debug.setBombs([[6, 7]]);
+    e._debug.addPortal([4, 4], [6, 6]);
+    e._debug.setEffect('a', 'golden', 3000);
+    const s = e.getState();
+    s.powerUps[0].type = 'x';
+    s.bombs[0].x = 0;
+    s.portals[0].entrance.x = 0;
+    s.snakes[0].effect.type = 'x';
+    const again = e.getState();
+    assert.equal(again.powerUps[0].type, 'ghost');
+    assert.equal(again.bombs[0].x, 6);
+    assert.equal(again.portals[0].entrance.x, 4);
+    assert.equal(again.snakes.find((x) => x.id === 'a').effect.type, 'golden');
+  });
+
+  test('corpse apples never land on power-ups or bombs', () => {
+    const e = setup({ a: [[[19, 5], [18, 5], [17, 5]], 'right'], ...far }, { ...PU, corpseApples: true, appleCount: 1 });
+    e._debug.addPowerUps([[18, 5, 'ghost']]);
+    e._debug.setBombs([[17, 5]]);
+    e.tick();
+    const s = e.getState();
+    assert.deepEqual(s.apples, [{ x: 19, y: 5, corpse: true }]);
+    assert.equal(s.powerUps.length, 1);
+    assert.equal(s.bombs.length, 1);
+  });
+});
