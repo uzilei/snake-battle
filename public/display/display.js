@@ -281,7 +281,7 @@ function drawPortals(portals, cell, now) {
     if (alpha <= 0) continue;
     const hue = (p.id * 137.5) % 360;
     const color = (a) => `hsla(${hue}, 90%, 65%, ${a})`;
-    const ends = [p.entrance, p.exit].map((c) => ({ x: (c.x + 0.5) * cell, y: (c.y + 0.5) * cell }));
+    const ends = p.ends.map((c) => ({ x: (c.x + 0.5) * cell, y: (c.y + 0.5) * cell }));
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.setLineDash([cell * 0.2, cell * 0.25]);
@@ -292,9 +292,9 @@ function drawPortals(portals, cell, now) {
     ctx.lineTo(ends[1].x, ends[1].y);
     ctx.stroke();
     ctx.setLineDash([]);
-    ends.forEach((c, i) => {
-      // The entrance swirls one way, the exit the other.
-      const spin = (now / 400) * (i === 0 ? 1 : -1);
+    for (const c of ends) {
+      // Two-way: both ends look the same.
+      const spin = now / 400;
       const glow = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, cell * 0.7);
       glow.addColorStop(0, color(0.55));
       glow.addColorStop(1, color(0));
@@ -307,7 +307,7 @@ function drawPortals(portals, cell, now) {
         ctx.arc(c.x, c.y, cell * (0.44 - k * 0.12), spin + k * 2.1, spin + k * 2.1 + Math.PI * 1.25);
         ctx.stroke();
       }
-    });
+    }
     ctx.restore();
   }
 }

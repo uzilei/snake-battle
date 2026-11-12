@@ -122,7 +122,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   let apples = [];
   let bombs = []; // { x, y, remainingMs, since }: on top of appleCount, despawn
   let projectiles = []; // { id, x, y, dir, ownerId }
-  let portals = []; // { id, entrance: {x,y}, exit: {x,y}, remainingMs, since }
+  let portals = []; // { id, ends: [{x,y}, {x,y}], remainingMs, since }: two-way, both ends alike
   let nextObjectId = 1; // ids for projectiles and portals (for /display)
   let winnerId = null;
   let participants = 0; // snakes spawned at round start
@@ -159,10 +159,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     for (const s of aliveSnakes()) for (const c of s.segments) set.add(cellKey(c.x, c.y));
     for (const a of apples) set.add(cellKey(a.x, a.y));
     for (const b of bombs) set.add(cellKey(b.x, b.y));
-    for (const p of portals) {
-      set.add(cellKey(p.entrance.x, p.entrance.y));
-      set.add(cellKey(p.exit.x, p.exit.y));
-    }
+    for (const p of portals) for (const c of p.ends) set.add(cellKey(c.x, c.y));
     return set;
   }
 
@@ -484,8 +481,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // The cell one step from `from` in `dir`: wrapped when walls wrap, possibly
-  // off the board otherwise. A head stepping onto a portal's entrance comes
-  // out of its exit instead (projectiles don't use portals).
+  // off the board otherwise. A head stepping onto either end of a portal
+  // comes out of the other end instead (projectiles don't use portals).
   function nextCell(from, dir) {
     const d = DIRECTIONS[dir];
     let x = from.x + d.x;
@@ -497,8 +494,11 @@ export function createEngine({ config, random = Math.random } = {}) {
     return { x, y };
   }
   function throughPortal(cell) {
-    const portal = portals.find((p) => p.entrance.x === cell.x && p.entrance.y === cell.y);
-    return portal ? { cell: { ...portal.exit }, portal } : { cell, portal: null };
+    for (const portal of portals) {
+      const i = portal.ends.findIndex((c) => c.x === cell.x && c.y === cell.y);
+      if (i !== -1) return { cell: { ...portal.ends[1 - i] }, portal };
+    }
+    return { cell, portal: null };
   }
 
   // cell -> [{ p, index }]: every segment that is still there after this
@@ -595,17 +595,23 @@ export function createEngine({ config, random = Math.random } = {}) {
       }
       projectiles.push({ id: nextObjectId++, x, y, dir: s.dir, ownerId: p.id });
     },
+    // One end where it was eaten, the other somewhere safe with room ahead.
+    // The head goes through at once, keeping its direction; the body
+    // follows as the snake moves on.
     portal(p) {
-      const exit = findSafeCell();
-      if (!exit) return;
-      const head = p.snake.segments[0];
-      portals.push({
+      const s = p.snake;
+      const other = findSafeCell(s.dir);
+      if (!other) return;
+      const head = s.segments[0];
+      const portal = {
         id: nextObjectId++,
-        entrance: { x: head.x, y: head.y },
-        exit,
+        ends: [{ x: head.x, y: head.y }, other],
         remainingMs: POWER_UP_RULES.portalLifetimeMs,
         since: tickCount,
-      });
+      };
+      portals.push(portal);
+      s.segments[0] = { ...other };
+      events.push({ type: 'teleport', id: p.id, portalId: portal.id });
     },
     feast(p) {
       for (const c of nearestFreeCells(p.snake.segments[0], POWER_UP_RULES.feastApples)) apples.push({ x: c.x, y: c.y, feast: true });
@@ -658,19 +664,33 @@ export function createEngine({ config, random = Math.random } = {}) {
     return dist;
   }
 
-  // A free cell for a portal exit, by the same rule as spawning: as far as
-  // SPAWN_DISTANCE from every snake, relaxed one step at a time down to any
-  // free cell. null when the board is full.
-  function findSafeCell() {
+  // A free cell for a portal exit, by the same rules as spawning: with
+  // SPAWN_CLEARANCE free cells ahead in `dir`, and as far as SPAWN_DISTANCE
+  // from every snake. On a crowded board the distance is relaxed one step at
+  // a time, then the room ahead, down to any free cell. null when the board
+  // is full.
+  function findSafeCell(dir) {
     const occupied = occupiedCells();
     const dist = distanceFromSnakes();
     const free = [];
     for (let y = 0; y < gridSize; y++) {
       for (let x = 0; x < gridSize; x++) if (!occupied.has(cellKey(x, y))) free.push({ x, y });
     }
-    for (let d = SPAWN_DISTANCE; d >= 0; d--) {
-      const ok = free.filter((c) => dist[cellKey(c.x, c.y)] >= d);
-      if (ok.length) return ok[randInt(ok.length)];
+    // Free cells straight ahead of c, up to `max`.
+    const room = (c, max) => {
+      let n = 0;
+      for (let at = c; n < max; n++) {
+        at = nextCell(at, dir);
+        if (!inBounds(at.x, at.y) || occupied.has(cellKey(at.x, at.y))) break;
+      }
+      return n;
+    };
+    const ahead = new Map(free.map((c) => [c, room(c, SPAWN_CLEARANCE)]));
+    for (let clearance = SPAWN_CLEARANCE; clearance >= 0; clearance--) {
+      for (let d = SPAWN_DISTANCE; d >= 0; d--) {
+        const ok = free.filter((c) => ahead.get(c) >= clearance && dist[cellKey(c.x, c.y)] >= d);
+        if (ok.length) return ok[randInt(ok.length)];
+      }
     }
     return null;
   }
@@ -1062,12 +1082,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       powerUps: apples.filter((a) => a.type).map((a) => ({ x: a.x, y: a.y, type: a.type })),
       bombs: bombs.map((b) => ({ x: b.x, y: b.y, remainingMs: b.remainingMs })),
       projectiles: projectiles.map((p) => ({ id: p.id, x: p.x, y: p.y, dir: p.dir, ownerId: p.ownerId })),
-      portals: portals.map((p) => ({
-        id: p.id,
-        entrance: { ...p.entrance },
-        exit: { ...p.exit },
-        remainingMs: p.remainingMs,
-      })),
+      portals: portals.map((p) => ({ id: p.id, ends: p.ends.map((c) => ({ x: c.x, y: c.y })), remainingMs: p.remainingMs })),
       players: [...players.values()].map((p) => ({
         id: p.id,
         name: p.name,
@@ -1132,8 +1147,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     addPowerUps(list) {
       for (const [x, y, type] of list) apples.push({ x, y, type });
     },
-    addPortal([ex, ey], [xx, xy], remainingMs = POWER_UP_RULES.portalLifetimeMs) {
-      portals.push({ id: nextObjectId++, entrance: { x: ex, y: ey }, exit: { x: xx, y: xy }, remainingMs, since: tickCount });
+    addPortal([ax, ay], [bx, by], remainingMs = POWER_UP_RULES.portalLifetimeMs) {
+      portals.push({ id: nextObjectId++, ends: [{ x: ax, y: ay }, { x: bx, y: by }], remainingMs, since: tickCount });
     },
     addProjectile([x, y], dir, ownerId) {
       projectiles.push({ id: nextObjectId++, x, y, dir, ownerId });

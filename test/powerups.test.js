@@ -486,12 +486,12 @@ describe('rounds and state', () => {
     const s = e.getState();
     s.powerUps[0].type = 'x';
     s.bombs[0].x = 0;
-    s.portals[0].entrance.x = 0;
+    s.portals[0].ends[0].x = 0;
     s.snakes[0].effect.type = 'x';
     const again = e.getState();
     assert.equal(again.powerUps[0].type, 'ghost');
     assert.equal(again.bombs[0].x, 6);
-    assert.equal(again.portals[0].entrance.x, 4);
+    assert.equal(again.portals[0].ends[0].x, 4);
     assert.equal(again.snakes.find((x) => x.id === 'a').effect.type, 'golden');
   });
 
@@ -799,19 +799,49 @@ describe('bomb', () => {
 });
 
 describe('portal', () => {
-  test('picking one up puts the entrance at the head and the exit somewhere safe', () => {
+  test('picking one up sends the head through at once, keeping its direction; the other end is somewhere safe', () => {
     const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'], ...far }, PU);
     e._debug.addPowerUps([[6, 5, 'portal']]);
     e.tick();
     const [portal] = e.getState().portals;
-    assert.deepEqual(portal.entrance, { x: 6, y: 5 });
     assert.equal(portal.remainingMs, 8000);
-    for (const s of e.getState().snakes) {
-      for (const c of s.segments) assert.ok(Math.abs(c.x - portal.exit.x) + Math.abs(c.y - portal.exit.y) >= 5);
-    }
+    assert.deepEqual(portal.ends[0], { x: 6, y: 5 }); // where it was eaten
+    const other = portal.ends[1];
+    // Same tick: the head is already at the other end; the body is still behind.
+    assert.deepEqual(cells(e, 'a'), [[other.x, other.y], [5, 5], [4, 5]]);
+    assert.equal(snake(e, 'a').dir, 'right');
+    assert.equal(events(e, 'teleport')[0].id, 'a');
+    // Far from every other snake cell, with room ahead.
+    const rest = e.getState().snakes.flatMap((s) => (s.id === 'a' ? s.segments.slice(1) : s.segments));
+    for (const c of rest) assert.ok(Math.abs(c.x - other.x) + Math.abs(c.y - other.y) >= 5);
+    assert.ok(other.x + 3 <= 19);
+    // The body follows segment by segment.
+    e.tick();
+    e.tick();
+    // (It grew from the power-up, so the old body is still there behind.)
+    assert.deepEqual(cells(e, 'a').slice(0, 4), [[other.x + 2, other.y], [other.x + 1, other.y], [other.x, other.y], [5, 5]]);
   });
 
-  test('a head entering the entrance comes out of the exit, same direction; the body follows', () => {
+  test('the other end has 3 free cells ahead, in the direction of travel', () => {
+    // Everything is full except (9,5), facing the wall, and (2,8)-(5,8):
+    // only (2,8) has 3 free cells to its right.
+    const free = [[9, 5], [2, 8], [3, 8], [4, 8], [5, 8]];
+    const list = [];
+    for (let y = 0; y < 10; y++) {
+      for (let x = 0; x < 10; x++) {
+        if (y === 1 && x <= 2) continue;
+        if (!free.some(([fx, fy]) => fx === x && fy === y)) list.push([x, y]);
+      }
+    }
+    const e = setup({ a: [[[1, 1], [0, 1], [0, 2]], 'right'] }, { ...PU, gridSize: 10 });
+    e._debug.setApples(list);
+    e._debug.addPowerUps([[2, 1, 'portal']]);
+    e.tick();
+    assert.deepEqual(e.getState().portals[0].ends[1], { x: 2, y: 8 });
+    assert.deepEqual(head(e, 'a'), [2, 8]);
+  });
+
+  test('two-way: a head entering either end comes out of the other, same direction; the body follows', () => {
     const e = setup({ a: [[[7, 5], [6, 5], [5, 5]], 'right'], ...far });
     e._debug.addPortal([8, 5], [12, 12]);
     e.tick();
@@ -820,6 +850,14 @@ describe('portal', () => {
     e.tick();
     e.tick();
     assert.deepEqual(cells(e, 'a'), [[14, 12], [13, 12], [12, 12]]);
+
+    const back = setup({ a: [[[12, 9], [12, 8], [12, 7]], 'down'], ...far });
+    back._debug.addPortal([8, 5], [12, 10]);
+    back.tick();
+    assert.deepEqual(cells(back, 'a'), [[8, 5], [12, 9], [12, 8]]);
+    assert.equal(snake(back, 'a').dir, 'down');
+    back.tick();
+    assert.deepEqual(head(back, 'a'), [8, 6]);
   });
 
   test('any snake can use it, and it works across a wrapping edge', () => {
@@ -867,7 +905,10 @@ describe('portal', () => {
       e.tick();
       const portals = e.getState().portals;
       assert.equal(portals.length, expected);
-      if (expected) assert.deepEqual(portals[0].exit, { x: 9, y: 9 });
+      if (expected) {
+        assert.deepEqual(portals[0].ends[1], { x: 9, y: 9 });
+        assert.deepEqual(head(e, 'a'), [9, 9]);
+      } else assert.deepEqual(head(e, 'a'), [2, 1]);
     }
   });
 });
