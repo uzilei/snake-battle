@@ -79,6 +79,10 @@ async function main() {
     roundTimeLimitSec: 30,
     targetLength: 12,
     appleCount: 10,
+    // Power-ups: frequent, every type (default weights, all above 0), plus bombs.
+    powerUps: true,
+    powerUpChance: 60,
+    bombsPerMinute: 10,
   };
   const admin = await openAdmin(base, wsBase);
   admin.ws.send(JSON.stringify({ t: 'config', values: wanted }));
@@ -89,6 +93,8 @@ async function main() {
   // Display: counts rounds by how they ended, and shares the board with the
   // bots so they can avoid dying instantly (they still steer randomly).
   const rounds = { lastAlive: 0, time: 0, target: 0, draws: 0 };
+  const pickups = {}; // power-up type -> times picked up
+  let lastTickKey = '';
   const board = { state: null };
   let lastPhase = null;
   const display = new WebSocket(`${wsBase}/ws`);
@@ -103,6 +109,12 @@ async function main() {
       if (!winnerId) rounds.draws++;
     }
     lastPhase = phase;
+    // The same tick can arrive twice (admin actions broadcast too): count it once.
+    const tickKey = `${msg.state.round}:${msg.state.tick}`;
+    if (tickKey !== lastTickKey) {
+      lastTickKey = tickKey;
+      for (const ev of msg.state.events ?? []) if (ev.type === 'pickup') pickups[ev.item] = (pickups[ev.item] ?? 0) + 1;
+    }
   });
 
   // Bots.
@@ -169,6 +181,7 @@ async function main() {
     wanted,
     configUnchanged: configAfterSetup === configAtEnd,
     rounds,
+    pickups,
     stats,
     health,
     memory,
@@ -499,6 +512,7 @@ function report(r) {
   for (const l of unexpected.slice(0, 20)) console.log(`      ${l}`);
   line('expected log lines', JSON.stringify(expectedCounts));
   line('rounds', JSON.stringify(r.rounds));
+  line('power-ups picked up', JSON.stringify(r.pickups));
   line('bot joins / rejoins', `${r.stats.joins} / ${r.stats.rejoins}`);
   line('join errors', JSON.stringify(r.stats.joinErrors));
   line('directions sent', r.stats.sent);

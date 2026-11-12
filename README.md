@@ -48,6 +48,31 @@ With "Mouse e pulsanti ← →" enabled on /admin (off by default), /display sho
 
 At startup the server prints the URLs for `/display`, `/play`, `/admin` and `/admin/print`.
 
+## Power-ups
+
+Off by default. "Power-up attivi" on /admin turns them on from the next round; the sliders below it apply immediately.
+
+- **Spawning:** a new apple becomes a power-up with the chosen probability, picked by each power-up's weight (0 = never). Power-ups take an apple's place, count toward the number of apples, never disappear, and grow the snake like an apple before their effect.
+- **Bombs:** spawn separately (bombs per minute, at most 5 at once), don't count as apples, don't grow the snake, and vanish after 10 seconds, blinking during the last 3.
+- **Timed effects** don't stack: a new one replaces the current one. A small badge by the head counts it down on /display.
+
+| | Power-up | Effect |
+|---|---|---|
+| ⭐ | Golden | Moves two cells per tick for 3 s. |
+| 👻 | Ghost | For 3 s passes through every snake and projectile, and nothing collides with it. Walls still count. |
+| 💣 | Bomb | Shrinks the snake by a quarter (never below 3) and cancels its pending growth. |
+| 🔫 | Gun | Fires one projectile straight ahead: 2 cells per tick, never wraps. Any snake it hits dies (the shooter gets the kill, unless it hit itself). Two projectiles that meet both vanish. |
+| 🧲 | Magnet | For 5 s, apples and power-ups within 3 cells move one cell toward the head each tick. Bombs aren't pulled. |
+| 🧊 | Freeze | For 3 s, every other snake moves only every second tick. |
+| ✂️ | Scissors | For 8 s, the next time it runs into another snake's body, it cuts that snake there instead of dying. A cut leaving fewer than 3 segments kills (and counts as a kill). Head-ons and your own body are unaffected. |
+| 🌀 | Portal | An entrance where it was eaten and an exit somewhere safe, for 8 s. Any head entering the entrance comes out of the exit, same direction. Projectiles ignore portals. |
+| 🍗 | Feast | 10 extra apples on the free cells around the eater. |
+| 🛡️ | Shield | For 10 s, survives the next hit (wall, body, head-on or projectile): the shield pops and the snake is a ghost for 1 s. At a wall it turns aside instead. |
+
+Segments removed from a living snake (the part scissors cut off) become apples when "I serpenti morti diventano mele" is on, and vanish otherwise. A bomb's lost tail always vanishes.
+
+To add a power-up: an entry in `src/shared/powerups.js` (its weight slider, /admin label and sprite are generated from it), its effect in the engine's `EFFECTS` table, and its Italian name in `STRINGS.admin.powerUpNames`. A test checks all three are there.
+
 ## Pages
 
 - `/display`: fullscreen view for the monitor. Double-click to toggle fullscreen. When "keyboard players" is enabled on /admin, WASD and the arrow keys control two local players.
@@ -62,7 +87,7 @@ At startup the server prints the URLs for `/display`, `/play`, `/admin` and `/ad
 npm test
 ```
 
-Load test (16 simulated phones for 5 minutes with every gameplay toggle on, malformed messages, disconnects, then a hard kill and restart). It runs its own server on 127.0.0.1 with its data in a temp folder, so it never touches `records.json`, `banned-words.json` or `config.json`:
+Load test (16 simulated phones for 5 minutes with every gameplay toggle on, power-ups included, malformed messages, disconnects, then a hard kill and restart). It runs its own server on 127.0.0.1 with its data in a temp folder, so it never touches `records.json`, `banned-words.json` or `config.json`:
 
 ```bash
 node loadtest.js --minutes 5 --bots 16
