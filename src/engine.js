@@ -431,11 +431,13 @@ export function createEngine({ config, random = Math.random } = {}) {
   //
   // A tick is two sub-steps of one cell each. In the first every snake moves
   // (a frozen one only every second tick); in the second only golden snakes
-  // do. Checking one cell at a time means nothing fast can jump over a cell.
-  // Who moves in each sub-step is decided when the tick starts.
+  // do. Projectiles move in both. Checking one cell at a time means nothing
+  // fast can jump over a cell. Who moves in each sub-step is decided when the
+  // tick starts, so an effect picked up mid-tick applies from the next one.
 
   const effectOf = (p, type) => p.snake?.effect?.type === type;
   const isGhost = (p) => effectOf(p, 'ghost');
+  const PERPENDICULAR = Object.freeze({ up: ['left', 'right'], down: ['left', 'right'], left: ['up', 'down'], right: ['up', 'down'] });
 
   // Frozen: some other living snake has the freeze effect.
   function isFrozen(p) {
@@ -455,13 +457,14 @@ export function createEngine({ config, random = Math.random } = {}) {
     const second = first.filter((p) => effectOf(p, 'golden'));
     substep(first);
     substep(second.filter((p) => p.status === 'alive'));
+    pullItems();
     countDown();
     spawnBombs();
   }
 
   // Timers run on game time (tickMs per playing tick), so a speed change
-  // mid-effect keeps its length in milliseconds. An effect starts counting
-  // the tick after it was picked up.
+  // mid-effect keeps its length in milliseconds. Everything starts counting
+  // the tick after it appeared.
   function countDown() {
     for (const p of players.values()) {
       const e = p.snake?.effect;
@@ -478,6 +481,24 @@ export function createEngine({ config, random = Math.random } = {}) {
     bombs = tick(bombs);
     if (bombs.length < before) events.push({ type: 'bombExpired' });
     portals = tick(portals);
+  }
+
+  // The cell one step from `from` in `dir`: wrapped when walls wrap, possibly
+  // off the board otherwise. A head stepping onto a portal's entrance comes
+  // out of its exit instead (projectiles don't use portals).
+  function nextCell(from, dir) {
+    const d = DIRECTIONS[dir];
+    let x = from.x + d.x;
+    let y = from.y + d.y;
+    if (rules.wrapWalls) {
+      x = (x + gridSize) % gridSize;
+      y = (y + gridSize) % gridSize;
+    }
+    return { x, y };
+  }
+  function throughPortal(cell) {
+    const portal = portals.find((p) => p.entrance.x === cell.x && p.entrance.y === cell.y);
+    return portal ? { cell: { ...portal.exit }, portal } : { cell, portal: null };
   }
 
   // cell -> [{ p, index }]: every segment that is still there after this
@@ -500,19 +521,96 @@ export function createEngine({ config, random = Math.random } = {}) {
     return map;
   }
 
+  // Snakes killed during the current sub-step, for their corpse apples.
+  let fallen = [];
+
   // Marks a player dead. The kill counts only if the killer is still in the
-  // game (it may have left mid-round).
+  // game (it may have left mid-round), and never for yourself.
   function kill(p, by) {
     p.status = 'dead';
     p.snake.effect = null;
+    fallen.push(p.snake);
     const credited = by && by !== p && players.get(by.id) === by ? by : null;
     if (credited) credited.kills++;
     events.push({ type: 'death', id: p.id, killerId: credited ? credited.id : null });
   }
 
+  // A shield takes the hit: it pops and the snake is a ghost for a moment,
+  // so it can slide clear of whatever it hit.
+  function popShield(p) {
+    setEffect(p, 'ghost', POWER_UP_RULES.shieldGhostMs);
+    events.push({ type: 'shieldPop', id: p.id });
+  }
+
+  // A projectile hit outside a snake's own move (it was standing still, or
+  // a gun went off right next to it).
+  function shot(p, shooterId) {
+    if (p.status !== 'alive') return;
+    if (effectOf(p, 'shield')) return popShield(p);
+    kill(p, players.get(shooterId) ?? null);
+  }
+
+  // Segments taken off a snake that stays alive (scissors, and any future
+  // power-up that removes segments) become apples when dead snakes do, and
+  // simply vanish otherwise.
+  function removeSegments(cells) {
+    if (!rules.corpseApples) return;
+    const blocked = occupiedCells();
+    for (const c of cells) {
+      const k = cellKey(c.x, c.y);
+      if (!inBounds(c.x, c.y) || blocked.has(k)) continue;
+      blocked.add(k);
+      apples.push({ x: c.x, y: c.y, corpse: true });
+    }
+  }
+
+  // ---- power-up effects ----
   // What each power-up does when eaten. Timed ones only need to become the
   // snake's effect: the movement and collision code asks "is X active".
-  const EFFECTS = {};
+  const EFFECTS = {
+    bomb(p) {
+      const segs = p.snake.segments;
+      const length = Math.max(POWER_UP_RULES.minLength, Math.round(segs.length * (1 - POWER_UP_RULES.bombShrink)));
+      if (length < segs.length) segs.length = length; // the lost tail vanishes: no apples to eat it back
+      p.snake.pendingGrowth = 0;
+    },
+    gun(p) {
+      const s = p.snake;
+      const head = s.segments[0];
+      const d = DIRECTIONS[s.dir];
+      const x = head.x + d.x;
+      const y = head.y + d.y;
+      events.push({ type: 'shot', id: p.id, x: head.x, y: head.y, dir: s.dir });
+      if (!inBounds(x, y)) return events.push({ type: 'projectileEnd', x: head.x, y: head.y }); // fired into a wall
+      const targets = solidAt(x, y);
+      if (targets.length) {
+        events.push({ type: 'projectileEnd', x, y, hit: true });
+        for (const t of targets) shot(t, p.id);
+        return;
+      }
+      const other = projectiles.findIndex((o) => o.x === x && o.y === y);
+      if (other !== -1) {
+        projectiles.splice(other, 1);
+        return events.push({ type: 'projectileEnd', x, y });
+      }
+      projectiles.push({ id: nextObjectId++, x, y, dir: s.dir, ownerId: p.id });
+    },
+    portal(p) {
+      const exit = findSafeCell();
+      if (!exit) return;
+      const head = p.snake.segments[0];
+      portals.push({
+        id: nextObjectId++,
+        entrance: { x: head.x, y: head.y },
+        exit,
+        remainingMs: POWER_UP_RULES.portalLifetimeMs,
+        since: tickCount,
+      });
+    },
+    feast(p) {
+      for (const c of nearestFreeCells(p.snake.segments[0], POWER_UP_RULES.feastApples)) apples.push({ x: c.x, y: c.y, feast: true });
+    },
+  };
   for (const p of Object.values(POWER_UP_TYPES)) {
     if (p.durationMs) EFFECTS[p.type] = (player) => setEffect(player, p.type, p.durationMs);
   }
@@ -522,47 +620,225 @@ export function createEngine({ config, random = Math.random } = {}) {
     EFFECTS[type]?.(player);
   }
 
+  // Living, non-ghost players with a segment on (x, y).
+  function solidAt(x, y) {
+    const out = [];
+    for (const p of players.values()) {
+      if (p.status !== 'alive' || isGhost(p)) continue;
+      if (p.snake.segments.some((c) => c.x === x && c.y === y)) out.push(p);
+    }
+    return out;
+  }
+
+  // Distance (in steps, the short way round when walls wrap) from the
+  // nearest snake cell, for every cell: a breadth-first search from all of
+  // them at once.
+  function distanceFromSnakes() {
+    const dist = new Array(gridSize * gridSize).fill(Infinity);
+    let frontier = [];
+    for (const s of aliveSnakes()) {
+      for (const c of s.segments) {
+        if (!inBounds(c.x, c.y) || dist[cellKey(c.x, c.y)] === 0) continue;
+        dist[cellKey(c.x, c.y)] = 0;
+        frontier.push(c);
+      }
+    }
+    for (let d = 1; frontier.length; d++) {
+      const next = [];
+      for (const c of frontier) {
+        for (const dir of Object.keys(DIRECTIONS)) {
+          const n = nextCell(c, dir);
+          if (!inBounds(n.x, n.y) || dist[cellKey(n.x, n.y)] !== Infinity) continue;
+          dist[cellKey(n.x, n.y)] = d;
+          next.push(n);
+        }
+      }
+      frontier = next;
+    }
+    return dist;
+  }
+
+  // A free cell for a portal exit, by the same rule as spawning: as far as
+  // SPAWN_DISTANCE from every snake, relaxed one step at a time down to any
+  // free cell. null when the board is full.
+  function findSafeCell() {
+    const occupied = occupiedCells();
+    const dist = distanceFromSnakes();
+    const free = [];
+    for (let y = 0; y < gridSize; y++) {
+      for (let x = 0; x < gridSize; x++) if (!occupied.has(cellKey(x, y))) free.push({ x, y });
+    }
+    for (let d = SPAWN_DISTANCE; d >= 0; d--) {
+      const ok = free.filter((c) => dist[cellKey(c.x, c.y)] >= d);
+      if (ok.length) return ok[randInt(ok.length)];
+    }
+    return null;
+  }
+
+  // Up to `count` free cells closest to `from`, ties in random order.
+  function nearestFreeCells(from, count) {
+    const occupied = occupiedCells();
+    const free = [];
+    for (let y = 0; y < gridSize; y++) {
+      for (let x = 0; x < gridSize; x++) {
+        if (!occupied.has(cellKey(x, y))) free.push({ x, y, d: distance(from, { x, y }), r: random() });
+      }
+    }
+    free.sort((a, b) => a.d - b.d || a.r - b.r);
+    return free.slice(0, count);
+  }
+
+  // Magnet: once per tick, apples and power-ups within magnetRadius of a
+  // magnet head move one cell toward it (along the longer axis first),
+  // never into a snake, another item or a portal. Bombs aren't pulled.
+  function pullItems() {
+    const magnets = [...players.values()].filter((p) => p.status === 'alive' && effectOf(p, 'magnet'));
+    if (!magnets.length) return;
+    const blocked = occupiedCells();
+    const moved = new Set();
+    const toward = (delta) => {
+      // The short way round when walls wrap.
+      if (rules.wrapWalls && Math.abs(delta) > gridSize / 2) delta -= Math.sign(delta) * gridSize;
+      return delta;
+    };
+    for (const p of magnets) {
+      const h = p.snake.segments[0];
+      for (const a of apples) {
+        if (moved.has(a)) continue;
+        const d = distance(a, h);
+        if (d === 0 || d > POWER_UP_RULES.magnetRadius) continue;
+        const dx = toward(h.x - a.x);
+        const dy = toward(h.y - a.y);
+        const steps = Math.abs(dx) >= Math.abs(dy) ? [[Math.sign(dx), 0], [0, Math.sign(dy)]] : [[0, Math.sign(dy)], [Math.sign(dx), 0]];
+        for (const [sx, sy] of steps) {
+          if (!sx && !sy) continue;
+          let x = a.x + sx;
+          let y = a.y + sy;
+          if (rules.wrapWalls) {
+            x = (x + gridSize) % gridSize;
+            y = (y + gridSize) % gridSize;
+          }
+          if (!inBounds(x, y) || blocked.has(cellKey(x, y))) continue;
+          blocked.delete(cellKey(a.x, a.y));
+          blocked.add(cellKey(x, y));
+          a.x = x;
+          a.y = y;
+          moved.add(a);
+          break;
+        }
+      }
+    }
+  }
+
+  // ---- one sub-step ----
+
   function substep(movers) {
+    fallen = [];
     const moves = movers.map((p) => {
       const s = p.snake;
       if (s.dirQueue.length) s.dir = s.dirQueue.shift(); // one queued turn per move
       const head = s.segments[0];
-      const d = DIRECTIONS[s.dir];
-      let x = head.x + d.x;
-      let y = head.y + d.y;
-      if (rules.wrapWalls) {
-        x = (x + gridSize) % gridSize;
-        y = (y + gridSize) % gridSize;
-      }
+      const target = nextCell(head, s.dir);
+      const via = inBounds(target.x, target.y) ? throughPortal(target) : { cell: target, portal: null };
       return {
         player: p,
         snake: s,
         head,
-        newHead: { x, y },
+        newHead: via.cell,
+        portal: via.portal,
         grows: s.pendingGrowth > 0,
         length: s.segments.length,
         ghost: isGhost(p),
+        wall: false,
       };
     });
+
+    // Walls. A shield turns the snake aside instead (to a free side if there
+    // is one) and makes it a ghost for a moment.
+    for (const m of moves) {
+      if (inBounds(m.newHead.x, m.newHead.y)) continue;
+      if (!effectOf(m.player, 'shield')) {
+        m.wall = true;
+        continue;
+      }
+      const taken = new Set();
+      for (const s of aliveSnakes()) for (const c of s.segments) taken.add(cellKey(c.x, c.y));
+      const options = PERPENDICULAR[m.snake.dir]
+        .map((dir) => ({ dir, cell: nextCell(m.head, dir) }))
+        .filter((o) => inBounds(o.cell.x, o.cell.y));
+      const pick = options.find((o) => !taken.has(cellKey(o.cell.x, o.cell.y))) ?? options[0];
+      if (!pick) {
+        m.wall = true;
+        continue;
+      }
+      popShield(m.player);
+      m.ghost = true;
+      m.snake.dir = pick.dir;
+      m.snake.dirQueue = [];
+      const via = throughPortal(pick.cell);
+      m.newHead = via.cell;
+      m.portal = via.portal;
+    }
+
     const moving = new Map(moves.map((m) => [m.player, m]));
     const body = occupancy(moving);
+    const solid = moves.filter((m) => !m.ghost && !m.wall); // ghosts pass through heads too
 
-    const dead = new Set();
-    // Who gets the kill for each death: the owner of the body it ran into, or
-    // the winner of the head-on it lost. Walls and self-collisions: nobody.
-    // Each death counts for at most one killer, even one dying the same tick.
+    // Projectiles: one cell, checked against walls, each other (same cell or
+    // swapping) and every solid segment after the moves, including new heads
+    // and a head that swaps places with them.
+    const shooterOf = new Map(); // player hit -> shooter id
+    const gone = new Set();
+    const ahead = projectiles.map((pr) => {
+      const d = DIRECTIONS[pr.dir];
+      return { pr, x: pr.x + d.x, y: pr.y + d.y };
+    });
+    for (const n of ahead) {
+      if (!inBounds(n.x, n.y)) {
+        gone.add(n.pr); // never wraps, even when walls do
+        events.push({ type: 'projectileEnd', x: n.pr.x, y: n.pr.y });
+      }
+    }
+    for (let i = 0; i < ahead.length; i++) {
+      for (let j = i + 1; j < ahead.length; j++) {
+        const a = ahead[i];
+        const b = ahead[j];
+        if (gone.has(a.pr) || gone.has(b.pr)) continue;
+        const same = a.x === b.x && a.y === b.y;
+        const swap = a.x === b.pr.x && a.y === b.pr.y && b.x === a.pr.x && b.y === a.pr.y;
+        if (same || swap) {
+          gone.add(a.pr);
+          gone.add(b.pr);
+          events.push({ type: 'projectileEnd', x: same ? a.x : (a.pr.x + b.pr.x) / 2, y: same ? a.y : (a.pr.y + b.pr.y) / 2 });
+        }
+      }
+    }
+    for (const n of ahead) {
+      if (gone.has(n.pr)) continue;
+      const hit = new Set((body.get(cellKey(n.x, n.y)) ?? []).map((h) => h.p));
+      for (const m of solid) {
+        const into = m.newHead.x === n.x && m.newHead.y === n.y;
+        const swap = m.head.x === n.x && m.head.y === n.y && m.newHead.x === n.pr.x && m.newHead.y === n.pr.y;
+        if (into || swap) hit.add(m.player);
+      }
+      if (!hit.size) continue;
+      gone.add(n.pr);
+      events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true });
+      for (const p of hit) if (!shooterOf.has(p)) shooterOf.set(p, n.pr.ownerId);
+    }
+    for (const n of ahead) {
+      if (gone.has(n.pr)) continue;
+      n.pr.x = n.x;
+      n.pr.y = n.y;
+    }
+    projectiles = projectiles.filter((pr) => !gone.has(pr));
+
+    // Heads: body hits and head-ons.
     const killer = new Map(); // move -> killing player
     const headOnGroups = [];
     const byCell = new Map();
-    const solid = moves.filter((m) => !m.ghost); // ghosts pass through heads too
-
-    for (const m of moves) {
+    for (const m of solid) {
       const { x, y } = m.newHead;
-      if (!inBounds(x, y)) {
-        dead.add(m);
-        continue;
-      }
-      if (m.ghost) continue;
       // Heads passing through each other: treated as head-on, not a body hit.
       const partner = solid.find(
         (o) => o !== m && o.head.x === x && o.head.y === y && o.newHead.x === m.head.x && o.newHead.y === m.head.y,
@@ -573,12 +849,9 @@ export function createEngine({ config, random = Math.random } = {}) {
       }
       // A hit is a head entering a cell some body covers. A snake that isn't
       // moving this sub-step is all body, its head included.
-      const hits = body.get(cellKey(x, y));
-      if (hits) {
-        dead.add(m);
-        const other = hits.find((h) => h.p !== m.player);
-        if (other) killer.set(m, other.p);
-      }
+      m.hits = body.get(cellKey(x, y)) ?? [];
+      const other = m.hits.find((h) => h.p !== m.player);
+      if (other) killer.set(m, other.p);
       const k = cellKey(x, y);
       if (!byCell.has(k)) byCell.set(k, []);
       byCell.get(k).push(m);
@@ -586,26 +859,69 @@ export function createEngine({ config, random = Math.random } = {}) {
     for (const group of byCell.values()) if (group.length > 1) headOnGroups.push(group);
 
     // Head-on: the shortest snake survives; if several share the shortest
-    // length, all of them die.
+    // length, all of them lose.
+    const lostHeadOn = new Set();
     for (const group of headOnGroups) {
       events.push({ type: 'headOn', ids: group.map((m) => m.player.id) });
       const minLength = Math.min(...group.map((m) => m.length));
       const shortest = group.filter((m) => m.length === minLength);
-      for (const m of group) if (m.length !== minLength || shortest.length > 1) dead.add(m);
+      for (const m of group) if (m.length !== minLength || shortest.length > 1) lostHeadOn.add(m);
       if (shortest.length === 1) {
         // A body hit found above takes precedence over the head-on.
         for (const m of group) if (m !== shortest[0] && !killer.has(m)) killer.set(m, shortest[0].player);
       }
     }
 
+    // Who dies. A shield takes any one hit. Scissors turn a hit on another
+    // snake's body into a cut, but don't help with anything else.
+    const dead = new Set();
+    const cuts = [];
+    const postIndex = (h) => (moving.has(h.p) ? h.index + 1 : h.index); // where the cell is after the move
+    for (const m of moves) {
+      const p = m.player;
+      const hits = m.hits ?? [];
+      const wasShot = shooterOf.has(p);
+      if (!m.wall && !hits.length && !lostHeadOn.has(m) && !wasShot) continue;
+      if (m.wall) {
+        dead.add(m);
+        continue;
+      }
+      if (effectOf(p, 'shield')) {
+        popShield(p);
+        continue;
+      }
+      const cuttable = hits.length && hits.every((h) => h.p !== p && postIndex(h) >= 1);
+      if (effectOf(p, 'scissors') && cuttable && !lostHeadOn.has(m) && !wasShot) {
+        p.snake.effect = null;
+        for (const h of hits) cuts.push({ target: h.p, index: postIndex(h), by: p });
+        continue;
+      }
+      dead.add(m);
+      if (!killer.has(m) && wasShot) killer.set(m, players.get(shooterOf.get(p)) ?? null);
+    }
+    // Snakes hit by a projectile while standing still this sub-step.
+    for (const [p, shooterId] of shooterOf) if (!moving.has(p)) shot(p, shooterId);
+
     for (const m of moves) {
       if (dead.has(m)) {
         kill(m.player, killer.get(m) ?? null);
         continue;
       }
+      if (m.player.status !== 'alive') continue;
       m.snake.segments.unshift(m.newHead);
       if (m.grows) m.snake.pendingGrowth--;
       else m.snake.segments.pop();
+      if (m.portal) events.push({ type: 'teleport', id: m.player.id, portalId: m.portal.id });
+    }
+
+    // Cuts, nearest the head first. Fewer than minLength segments left is a
+    // kill for the cutter; otherwise the cut-off part is removed.
+    cuts.sort((a, b) => a.index - b.index);
+    for (const { target, index, by } of cuts) {
+      if (target.status !== 'alive' || index >= target.snake.segments.length) continue;
+      events.push({ type: 'cut', id: target.id, byId: by.id });
+      if (index < POWER_UP_RULES.minLength) kill(target, by);
+      else removeSegments(target.snake.segments.splice(index));
     }
 
     // Items: eaten by surviving heads. A power-up grows the snake like an
@@ -620,6 +936,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         events.push(item.type ? { type: 'eat', id: m.player.id, x, y, item: item.type } : { type: 'eat', id: m.player.id, x, y });
         if (item.type) pickUp(m.player, item.type);
       }
+      if (m.player.status !== 'alive') continue;
       const b = bombs.findIndex((o) => o.x === x && o.y === y);
       if (b !== -1) {
         bombs.splice(b, 1);
@@ -628,7 +945,8 @@ export function createEngine({ config, random = Math.random } = {}) {
       }
     }
 
-    if (rules.corpseApples && dead.size) dropCorpses([...dead].map((m) => m.snake));
+    if (rules.corpseApples && fallen.length) dropCorpses(fallen);
+    fallen = [];
   }
 
   // Every segment of the snakes that just died becomes an apple, except cells
