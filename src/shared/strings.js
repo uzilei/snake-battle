@@ -44,6 +44,7 @@ export const STRINGS = Object.freeze({
     step2Title: '2. Apri il gioco',
     step2Text: 'Poi inquadra questo codice per aprire il controller.',
     step3: 'Disattiva i dati mobili se il gioco non si apre.',
+    browser: 'Problemi? Usa Chrome o Safari.',
     wifiName: 'Rete: {ssid}',
     wifiPassword: 'Password: {password}',
     gameUrl: 'Indirizzo: {url}',
@@ -173,6 +174,7 @@ export const STRINGS = Object.freeze({
     wifiLabel: 'Passo 1: connettiti al wifi',
     gameLabel: 'Passo 2: apri il gioco',
     mobileData: 'Se il gioco non si apre, disattiva i dati mobili.',
+    browser: 'Problemi? Usa Chrome o Safari.',
     printButton: 'Stampa',
   },
 

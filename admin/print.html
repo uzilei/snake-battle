@@ -57,7 +57,7 @@
     $('heading').textContent = P.heading;
     $('wifi-label').textContent = P.wifiLabel;
     $('game-label').textContent = P.gameLabel;
-    $('note').textContent = P.mobileData;
+    $('note').replaceChildren(P.mobileData, document.createElement('br'), P.browser);
     const res = await fetch('/admin/api/info', { cache: 'no-store' });
     if (res.ok) {
       const info = await res.json();

@@ -17,7 +17,7 @@ $('join-step1-title').textContent = STRINGS.join.step1Title;
 $('join-step1-text').textContent = STRINGS.join.step1Text;
 $('join-step2-title').textContent = STRINGS.join.step2Title;
 $('join-step2-text').textContent = STRINGS.join.step2Text;
-$('join-step3').textContent = STRINGS.join.step3;
+$('join-step3').replaceChildren(STRINGS.join.step3, document.createElement('br'), STRINGS.join.browser);
 $('keyboard-hint').textContent = T.keyboardHint;
 $('wins-title').textContent = T.winsTitle;
 $('fame-title').textContent = T.fameTitle;
