@@ -572,7 +572,8 @@ function drawNames(labels, cell, size) {
 
 // ---- effects (each behind an /admin toggle) ----
 const particles = []; // { x, y, vx, vy, born, life, r, color } in cells / seconds
-const rings = []; // { x, y, color, start }
+const rings = []; // { x, y, color, start, ms?, r0?, r1?, width? } (sizes in cells)
+const flashes = []; // { x, y, size, start, ms }: a white flash over a block of cells
 let shakeStart = -Infinity;
 
 function burst(s, now) {
@@ -600,19 +601,34 @@ function burst(s, now) {
 }
 
 function drawEffects(cell, now, dt) {
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    const f = flashes[i];
+    const e = (now - f.start) / f.ms;
+    if (e >= 1) {
+      flashes.splice(i, 1);
+      continue;
+    }
+    const half = (f.size / 2) * cell;
+    ctx.globalAlpha = 0.85 * (1 - e) ** 2;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect((f.x + 0.5) * cell - half, (f.y + 0.5) * cell - half, half * 2, half * 2);
+  }
   for (let i = rings.length - 1; i >= 0; i--) {
     const r = rings[i];
-    const e = (now - r.start) / RING_MS;
+    const e = (now - r.start) / (r.ms ?? RING_MS);
     if (e >= 1) {
       rings.splice(i, 1);
       continue;
     }
+    if (e < 0) continue; // starts a moment later
     const ease = 1 - (1 - e) ** 3;
+    const r0 = r.r0 ?? 0.3;
+    const r1 = r.r1 ?? 1.25;
     ctx.globalAlpha = 1 - e;
     ctx.strokeStyle = r.color;
-    ctx.lineWidth = cell * 0.14 * (1 - e) + dpr;
+    ctx.lineWidth = cell * (r.width ?? 0.14) * (1 - e) + dpr;
     ctx.beginPath();
-    ctx.arc((r.x + 0.5) * cell, (r.y + 0.5) * cell, cell * (0.3 + 0.95 * ease), 0, Math.PI * 2);
+    ctx.arc((r.x + 0.5) * cell, (r.y + 0.5) * cell, cell * (r0 + (r1 - r0) * ease), 0, Math.PI * 2);
     ctx.stroke();
   }
   const drag = 0.06 ** dt; // velocity left after dt seconds
@@ -666,6 +682,35 @@ function sparks(x, y, now, count, colors) {
   }
 }
 
+// A bomb going off, centered on cell (x, y): a big fiery burst thrown out
+// from the whole block, a white flash on the block and a shockwave.
+function explosion(x, y, now) {
+  const reach = POWER_UP_RULES.bombSize / 2;
+  const colors = ['#ff3d00', '#ff6d00', '#ff9100', '#ffc400', '#ffea00', '#d50000', '#ffffff'];
+  for (let i = 0; i < 120 && particles.length < MAX_PARTICLES; i++) {
+    const px = x + 0.5 + (Math.random() * 2 - 1) * reach;
+    const py = y + 0.5 + (Math.random() * 2 - 1) * reach;
+    // Outward from the center, a little scattered.
+    const a = Math.atan2(py - y - 0.5, px - x - 0.5) + (Math.random() - 0.5) * 1.2;
+    const v = 8 + Math.random() * 14;
+    particles.push({ x: px, y: py, vx: Math.cos(a) * v, vy: Math.sin(a) * v, born: now, life: 650 + Math.random() * 650, r: 0.12 + Math.random() * 0.22, color: colors[i % colors.length] });
+  }
+  flashes.push({ x, y, size: POWER_UP_RULES.bombSize, start: now, ms: 220 });
+  rings.push({ x, y, color: '#fff3c4', start: now, ms: 620, r0: reach, r1: reach + 2.6, width: 0.4 });
+  rings.push({ x, y, color: '#ff7043', start: now + 90, ms: 650, r0: reach, r1: reach + 2, width: 0.25 });
+}
+
+// A bomb that ran out: a small grey puff of smoke.
+function fizzle(x, y, now) {
+  const colors = ['#9e9e9e', '#bdbdbd', '#757575', '#e0e0e0'];
+  for (let i = 0; i < 18 && particles.length < MAX_PARTICLES; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = 1.5 + Math.random() * 2.5;
+    particles.push({ x: x + 0.5 + Math.cos(a) * 0.4, y: y + 0.5 + Math.sin(a) * 0.4, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1, born: now, life: 550 + Math.random() * 400, r: 0.12 + Math.random() * 0.16, color: colors[i % colors.length] });
+  }
+  rings.push({ x, y, color: 'rgba(200, 200, 200, 0.8)', start: now, ms: 500, r0: 0.6, r1: 1.7, width: 0.1 });
+}
+
 function onState(msg) {
   const s = msg.state;
   const key = `${s.round}:${s.tick}`;
@@ -691,8 +736,10 @@ function onState(msg) {
         if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item });
         if (ev.item === 'bomb') {
           if (fx.screenShake) shakeStart = now;
-          if (fx.deathParticles) sparks(ev.x, ev.y, now, 24, ['#ff7043', '#ffca28', '#5d4037']);
+          if (fx.deathParticles) explosion(ev.x, ev.y, now);
         }
+      } else if (ev.type === 'bombExpired') {
+        if (fx.deathParticles && ev.x !== undefined) fizzle(ev.x, ev.y, now);
       } else if (ev.type === 'projectileEnd') {
         if (fx.deathParticles) sparks(ev.x, ev.y, now, ev.hit ? 22 : 10, ['#fffde7', '#ffe082', '#ffb74d']);
         if (ev.hit && fx.screenShake) shakeStart = now;

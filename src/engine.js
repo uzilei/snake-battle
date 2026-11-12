@@ -501,9 +501,10 @@ export function createEngine({ config, random = Math.random } = {}) {
         if (o.since !== tickCount) o.remainingMs -= cfg.tickMs;
         return o.remainingMs > 0;
       });
-    const before = bombs.length;
+    const before = bombs;
     bombs = tick(bombs);
-    if (bombs.length < before) events.push({ type: 'bombExpired' });
+    // Where each one ran out (its block's center), for /display's fizzle.
+    for (const b of before) if (!bombs.includes(b)) events.push({ type: 'bombExpired', x: b.x, y: b.y });
     portals = tick(portals);
   }
 

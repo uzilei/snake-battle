@@ -394,7 +394,7 @@ describe('bombs', () => {
     assert.deepEqual(e.getState().bombs, [{ x: 5, y: 7, remainingMs: 100 }]);
     e.tick();
     assert.deepEqual(e.getState().bombs, []);
-    assert.ok(e.getState().events.some((ev) => ev.type === 'bombExpired'));
+    assert.deepEqual(events(e, 'bombExpired'), [{ type: 'bombExpired', x: 5, y: 7 }]);
   });
 
   test('they spawn at bombsPerMinute, never more than 5 at once, as whole free 3x3 blocks on the board, away from heads', () => {
