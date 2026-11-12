@@ -352,6 +352,31 @@ export function createEngine({ config, random = Math.random } = {}) {
 
   // ---- movement & collisions ----------------------------------------------
 
+  // cell -> [{ m, index }]: the segments each move's snake still covers after
+  // moving (its tail is left out unless it grows).
+  function occupancy(moves) {
+    const map = new Map();
+    for (const m of moves) {
+      const keep = m.grows ? m.length : m.length - 1;
+      for (let i = 0; i < keep; i++) {
+        const k = cellKey(m.snake.segments[i].x, m.snake.segments[i].y);
+        let list = map.get(k);
+        if (!list) map.set(k, (list = []));
+        list.push({ m, index: i });
+      }
+    }
+    return map;
+  }
+
+  // Marks a player dead. The kill counts only if the killer is still in the
+  // game (it may have left mid-round).
+  function kill(p, by) {
+    p.status = 'dead';
+    const credited = by && by !== p && players.get(by.id) === by ? by : null;
+    if (credited) credited.kills++;
+    events.push({ type: 'death', id: p.id, killerId: credited ? credited.id : null });
+  }
+
   function step() {
     const players_ = [...players.values()].filter((p) => p.status === 'alive');
     const moves = players_.map((p) => {
@@ -377,11 +402,8 @@ export function createEngine({ config, random = Math.random } = {}) {
 
     // Post-move bodies: every current segment except tails that will move away.
     // The old head stays (it becomes the neck); new heads are handled below.
-    const body = new Map(); // cell -> the move whose snake covers it
-    for (const m of moves) {
-      const keep = m.grows ? m.length : m.length - 1;
-      for (let i = 0; i < keep; i++) body.set(cellKey(m.snake.segments[i].x, m.snake.segments[i].y), m);
-    }
+    // A cell can hold segments of several snakes, so each lists them all.
+    const body = occupancy(moves);
 
     const dead = new Set();
     // Who gets the kill for each death: the owner of the body it ran into, or
@@ -405,10 +427,12 @@ export function createEngine({ config, random = Math.random } = {}) {
         if (moves.indexOf(m) < moves.indexOf(partner)) headOnGroups.push([m, partner]);
         continue;
       }
-      const owner = body.get(cellKey(x, y));
-      if (owner) {
+      // A hit is a head entering a cell some body covers.
+      const hits = body.get(cellKey(x, y));
+      if (hits) {
         dead.add(m);
-        if (owner !== m) killer.set(m, owner);
+        const other = hits.find((h) => h.m !== m);
+        if (other) killer.set(m, other.m);
       }
       const k = cellKey(x, y);
       if (!byCell.has(k)) byCell.set(k, []);
@@ -431,10 +455,7 @@ export function createEngine({ config, random = Math.random } = {}) {
 
     for (const m of moves) {
       if (dead.has(m)) {
-        m.player.status = 'dead';
-        const by = killer.get(m);
-        if (by) by.player.kills++;
-        events.push({ type: 'death', id: m.player.id, killerId: by ? by.player.id : null });
+        kill(m.player, killer.get(m)?.player ?? null);
         continue;
       }
       m.snake.segments.unshift(m.newHead);
