@@ -5,6 +5,7 @@ import { createBotBrain, BOT_BRAIN } from '../src/bot-brain.js';
 import { createGame, resolveSidePanel } from '../src/server/game.js';
 import { createRecords } from '../src/server/records.js';
 import { botTarget, botName, BOT_NAME_PATTERN, MAX_SNAKES } from '../src/shared/bots.js';
+import { HAT_IDS } from '../src/shared/hats.js';
 
 // Deterministic RNG (mulberry32).
 function seeded(seed) {
@@ -555,6 +556,22 @@ describe('server: bots', () => {
     const bot = { bot: true };
     assert.equal(resolveSidePanel('auto', { phase: 'playing', players: [bot, bot, bot, { bot: false }] }), 'join');
     assert.equal(resolveSidePanel('auto', { phase: 'playing', players: [bot, { bot: false }, { bot: false }] }), 'leaderboard');
+  });
+
+  test('each bot wears a random hat, kept while it plays, shown like a phone hat', () => {
+    const { game, admin } = newGame({ bots: 12 });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    game.tickOnce();
+    const hats = display.last('state').hats;
+    const ids = botsOf(game).map((p) => p.id);
+    assert.ok(ids.every((id) => HAT_IDS.includes(hats[id])), JSON.stringify(hats));
+    assert.ok(new Set(ids.map((id) => hats[id])).size > 1, 'all the same hat');
+    for (let i = 0; i < 5; i++) game.tickOnce();
+    assert.deepEqual(display.last('state').hats, hats); // the same ones
+    assert.ok(admin.last('admin').players.filter((p) => p.bot).every((p) => HAT_IDS.includes(p.hat)));
+    admin.send({ t: 'settings', hats: false }); // the hats toggle covers them too
+    assert.equal(display.last('state').hats, null);
   });
 
   test('/admin lists bots and can kick one (it comes back next round)', () => {

@@ -150,7 +150,7 @@ Computer players, so an empty booth still has something going on. Off by default
 - **Settings** (saved): the number of bots (0–24), "Riempi" (fill mode) and their skill (1–3, default 2).
   - **Fill mode:** the bots only fill up to that number and step aside as people join. With 4: 1 phone gives 3 bots, and 4 or more phones give none.
   - **The 24-snake limit:** bots and people together never go past 24. Beyond that, the bots fall back to fill mode, whatever the switch says.
-- **Joining and leaving:** bots join and leave only between rounds (or at a round restart). They are named "Bot 1", "Bot 2"… and marked 🤖 on the scoreboard and on /admin. People can't pick a name like "Bot 3". Bots don't count toward "Giocatori massimi", nor toward the "fewer than 2 players: show how to join" rule of the automatic side column.
+- **Joining and leaving:** bots join and leave only between rounds (or at a round restart). They are named "Bot 1", "Bot 2"… and marked 🤖 on the scoreboard and on /admin. Each wears a random hat, kept while it plays (shown when the hats toggle is on). People can't pick a name like "Bot 3". Bots don't count toward "Giocatori massimi", nor toward the "fewer than 2 players: show how to join" rule of the automatic side column.
 - **Records:** bots are never recorded on the global leaderboard. A person's kills of bots, and wins against them, count as usual.
 - **Rounds:** a round where only bots are left alive ends at once, with no winner, as soon as a person is waiting to join.
 - **The brain** (`src/bot-brain.js`) runs on the server before each tick. It reads the same state /display gets and steers through `setDirection`, like a phone. In order of priority:

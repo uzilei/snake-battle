@@ -12,7 +12,7 @@ import { nameKey } from './names.js';
 import { createRecords, RECORD_STATS } from './records.js';
 import { SETTINGS_VERSION } from './settings-store.js';
 import { FRUIT_CODES } from '../shared/fruits.js';
-import { validHat } from '../shared/hats.js';
+import { validHat, HAT_IDS } from '../shared/hats.js';
 import { cleanName } from '../shared/names.js';
 import { BOT_LIMITS, BOT_NAME_PATTERN, botName, botTarget } from '../shared/bots.js';
 import { createBotBrain } from '../bot-brain.js';
@@ -364,7 +364,8 @@ export function createGame({
       const name = botName(n);
       if (!engine.addPlayer(id, name, { bot: true }).ok) break;
       bots.set(id, n);
-      owners.set(id, { client: null, slot: null, source: 'bot', session: null, hat: null });
+      const hat = HAT_IDS[Math.floor(random() * HAT_IDS.length)]; // a random one, kept while it stays
+      owners.set(id, { client: null, slot: null, source: 'bot', session: null, hat });
       log(`[bots] ${id} joined as ${name}`);
     }
   }
