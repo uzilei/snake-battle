@@ -783,13 +783,32 @@ export function createEngine({ config, random = Math.random } = {}) {
     });
   }
 
+  // Whether turning to `dir` now would put the head on a cell of the snake's
+  // own body, through portals and wrapping walls. The tail doesn't count when
+  // it moves off its cell this move (no growth pending). Only the snake's own
+  // body: other snakes and walls are the player's problem.
+  function turnsIntoOwnBody(s, dir) {
+    const target = nextCell(s.segments[0], dir);
+    if (!inBounds(target.x, target.y)) return false;
+    const { cell } = throughPortal(target);
+    const body = s.segments.slice(1, s.pendingGrowth > 0 ? undefined : -1);
+    return body.some((c) => c.x === cell.x && c.y === cell.y);
+  }
+
   // ---- one sub-step ----
 
   function substep(movers) {
     fallen = [];
     const moves = movers.map((p) => {
       const s = p.snake;
-      if (s.dirQueue.length) s.dir = s.dirQueue.shift(); // one queued turn per move
+      if (s.dirQueue.length) {
+        // One queued turn per move. A turn that would take the head straight
+        // into the snake's own body is dropped and the snake goes straight on
+        // instead (a swipe too many shouldn't be suicide); the rest of the
+        // queue carries on next move. Going straight into it still counts.
+        const turn = s.dirQueue.shift();
+        if (turn !== OPPOSITE[s.dir] && (isGhost(p) || !turnsIntoOwnBody(s, turn))) s.dir = turn;
+      }
       const head = s.segments[0];
       const target = nextCell(head, s.dir);
       const via = inBounds(target.x, target.y) ? throughPortal(target) : { cell: target, portal: null };

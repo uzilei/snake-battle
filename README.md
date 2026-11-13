@@ -27,6 +27,8 @@ The first start creates `config.json` with a random admin password, which is pri
 
 Player names are checked against `banned-words.json`. It is created from the starter list in `src/server/banned-words.default.json` on the first start, and can be edited live from /admin. If the file is ever empty or unreadable, it is renamed to `banned-words.json.bad` and the starter list is used again, so the filter is never silently off.
 
+Swipes are queued (up to 3) and one turn is applied per tick. A queued turn that would put the head straight into the snake's own body (not counting a tail that moves away) is skipped and the snake goes straight on, so one swipe too many isn't suicide; going straight into your own body still kills. Other snakes and walls get no such protection.
+
 The game rules (dead snakes become apples, wrap-around walls) are /admin toggles, off by default, applied from the next round. So are two extra win conditions on top of "last snake alive", which always applies; when several are on, whichever triggers first ends the round:
 
 - **Time limit** (`roundTimeLimitSec`): when it runs out, the longest living snake wins, or the one with the most kills this round (ties broken by length), as chosen on /admin. A full tie is a draw. /display shows the remaining time and flashes it in the last 10 seconds.

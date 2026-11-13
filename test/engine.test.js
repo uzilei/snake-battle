@@ -92,12 +92,130 @@ describe('body collisions', () => {
 });
 
 describe('self collisions', () => {
-  test('turning into your own body kills you', () => {
-    // Head (2,2) travelling left; turning down hits (2,3), which is not the tail.
+  test('going straight into your own body kills you', () => {
+    // Head (2,2) travelling down; (2,3) ahead is body, not the tail.
+    const e = setup({ a: [[[2, 2], [2, 1], [3, 1], [3, 2], [3, 3], [2, 3], [1, 3]], 'down'] });
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+  });
+
+  test('going straight into your own body with scissors cuts it there', () => {
+    const e = setup({ a: [[[2, 2], [2, 1], [3, 1], [3, 2], [3, 3], [2, 3], [1, 3], [0, 3]], 'down'], z: [[[15, 15], [14, 15], [13, 15]], 'right'] }, { appleCount: 0 });
+    e._debug.setEffect('a', 'scissors', 5000);
+    e.tick();
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.deepEqual(snake(e, 'a').segments.map((c) => [c.x, c.y]), [[2, 3], [2, 2], [2, 1], [3, 1], [3, 2], [3, 3]]);
+  });
+});
+
+describe('suicide-turn protection', () => {
+  const cells = (e, id) => snake(e, id).segments.map((c) => [c.x, c.y]);
+  const bystander = { z: [[[15, 15], [14, 15], [13, 15]], 'right'] };
+
+  test('a turn into your own body is skipped: the snake goes straight on', () => {
+    // Head (2,2) travelling left; turning down would hit (2,3), not the tail.
     const e = setup({ a: [[[2, 2], [3, 2], [3, 3], [2, 3], [1, 3]], 'left'] });
     assert.equal(e.setDirection('a', 'down'), true);
     e.tick();
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 1, y: 2 });
+    assert.equal(snake(e, 'a').dir, 'left');
+  });
+
+  test('a U-turn with an extra swipe no longer self-kills', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5], [2, 5], [1, 5]], 'right'], ...bystander }, { appleCount: 0 });
+    for (const dir of ['up', 'left', 'down']) assert.equal(e.setDirection('a', dir), true);
+    e.tick();
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 5, y: 4 }); // up
+    e.tick();
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 4, y: 4 }); // left, alongside the body
+    e.tick(); // down would be (4,5), its own body: straight on instead
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 3, y: 4 });
+  });
+
+  test('the rest of the queue carries on after a skipped turn', () => {
+    const e = setup({ a: [[[2, 2], [3, 2], [3, 3], [2, 3], [1, 3]], 'left'], ...bystander }, { appleCount: 0 });
+    for (const dir of ['down', 'left', 'up']) assert.equal(e.setDirection('a', dir), true);
+    e.tick(); // down: skipped
+    e.tick(); // left: already going left
+    e.tick(); // up
+    assert.deepEqual(cells(e, 'a').slice(0, 3), [[0, 1], [0, 2], [1, 2]]);
+    assert.equal(snake(e, 'a').dir, 'up');
+  });
+
+  test('a legitimate turn right next to the body still works', () => {
+    const e = setup({ a: [[[2, 2], [3, 2], [3, 3], [2, 3], [1, 3]], 'left'] });
+    e.setDirection('a', 'up');
+    e.tick();
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 2, y: 1 });
+  });
+
+  test('turning onto a tail that moves away is allowed; onto one that stays (growing) is not', () => {
+    const shape = [[[3, 2], [4, 2], [4, 3], [3, 3], [2, 3], [1, 3]], 'left'];
+    for (const [apple, expected] of [[false, { x: 2, y: 3 }], [true, { x: 1, y: 2 }]]) {
+      const e = setup({ a: shape, ...bystander }, { appleCount: 0 });
+      if (apple) e._debug.setApples([[2, 2]]);
+      e.tick(); // head (2,2); the tail is now at (2,3)
+      e.setDirection('a', 'down');
+      e.tick();
+      assert.equal(player(e, 'a').status, 'alive');
+      assert.deepEqual(snake(e, 'a').segments[0], expected);
+    }
+  });
+
+  test('a turn whose portal exit is your own body is skipped too', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5], [2, 5], [1, 5]], 'right'], ...bystander }, { appleCount: 0 });
+    e._debug.addPortal([5, 4], [3, 5]);
+    e.setDirection('a', 'up');
+    e.tick();
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 6, y: 5 });
+  });
+
+  test('only your own body: turning into another snake or a wall still kills', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'], b: [[[8, 4], [7, 4], [6, 4], [5, 4], [4, 4]], 'right'], ...bystander }, { appleCount: 0 });
+    e.setDirection('a', 'up'); // (5,4): b's body
+    e.tick();
     assert.equal(player(e, 'a').status, 'dead');
+    const w = setup({ a: [[[5, 0], [4, 0], [3, 0]], 'right'], ...bystander }, { appleCount: 0 });
+    w.setDirection('a', 'up');
+    w.tick();
+    assert.equal(player(w, 'a').status, 'dead');
+  });
+
+  test('after a skipped turn, a queued reversal is dropped, even by a snake that became a ghost meanwhile', () => {
+    for (const ghostAfterSkip of [false, true]) {
+      // Heading left with body below: 'down' is skipped, which leaves 'right'
+      // queued: a reversal into the neck.
+      const e = setup({ a: [[[2, 2], [3, 2], [3, 3], [2, 3], [1, 3]], 'left'], ...bystander }, { appleCount: 0 });
+      for (const dir of ['down', 'right']) assert.equal(e.setDirection('a', dir), true);
+      e.tick();
+      if (ghostAfterSkip) e._debug.setEffect('a', 'ghost', 5000); // nothing in its body would stop it
+      e.tick();
+      assert.equal(player(e, 'a').status, 'alive');
+      assert.equal(snake(e, 'a').dir, 'left');
+      assert.deepEqual(snake(e, 'a').segments[0], { x: 0, y: 2 });
+    }
+  });
+
+  test('scissors: a turn into your own body is skipped too, so nothing is cut', () => {
+    const e = setup({ a: [[[2, 2], [3, 2], [3, 3], [2, 3], [1, 3]], 'left'], ...bystander }, { appleCount: 0 });
+    e._debug.setEffect('a', 'scissors', 5000);
+    e.setDirection('a', 'down');
+    e.tick();
+    assert.equal(snake(e, 'a').segments.length, 5);
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 1, y: 2 });
+    assert.equal(snake(e, 'a').effect.type, 'scissors');
+  });
+
+  test('a ghost turns through its own body as before', () => {
+    const e = setup({ a: [[[2, 2], [3, 2], [3, 3], [2, 3], [1, 3]], 'left'], ...bystander }, { appleCount: 0 });
+    e._debug.setEffect('a', 'ghost', 5000);
+    e.setDirection('a', 'down');
+    e.tick();
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 2, y: 3 });
   });
 
   test('chasing your own tail is safe', () => {
