@@ -847,18 +847,22 @@ function drawFace(hx, hy, pose, look, headR, cell) {
   ctx.restore();
 }
 
-// A hat on the head at (hx, hy) px: upright when the snake goes up, turning
-// with the face (same eased angle), sitting on the back of the head between
-// the eyes, sized to the head.
+// A hat on the head at (hx, hy) px: its top points back toward the tail
+// (upright when the snake goes down), turning with the face (same eased
+// angle), sized to the head.
 const HAT_SIZE = 1.7; // hat width, in head radii
+const HAT_BACK = 0.9; // how far behind the head's center the hat sits, in head radii (negative: toward the face)
 function drawHat(hx, hy, angle, hat, headR) {
   const px = Math.max(4, Math.round(headR * HAT_SIZE));
   const img = sprite(`hat-${hat}`, px);
   if (!img) return;
+  const back = headR * HAT_BACK;
   ctx.save();
-  ctx.translate(hx, hy);
-  ctx.rotate(angle + Math.PI / 2); // the sprite's top points the way the head faces
-  ctx.drawImage(img, -px / 2, -px / 2 + headR * 0.35, px, px);
+  // Moved along the heading first, so the offset doesn't depend on which way
+  // the sprite is turned below.
+  ctx.translate(hx - Math.cos(angle) * back, hy - Math.sin(angle) * back);
+  ctx.rotate(angle - Math.PI / 2);
+  ctx.drawImage(img, -px / 2, -px / 2, px, px);
   ctx.restore();
 }
 
