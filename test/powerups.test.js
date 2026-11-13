@@ -864,8 +864,8 @@ describe('bomb', () => {
     e.tick(); // apple: pending 3
     e.setDirection('a', 'up');
     e.setDirection('a', 'left'); // still queued when the bomb goes off
-    e.tick(); // up into (13,4), a corner of the bomb: 13 long, minus round(13 / 4) = 3 off the front
-    assert.deepEqual(cells(e, 'a'), Array.from({ length: 10 }, (_, i) => [11 - i, 5]));
+    e.tick(); // up into (13,4), a corner of the bomb: 13 long, minus round(13 / 2) = 7 off the front
+    assert.deepEqual(cells(e, 'a'), Array.from({ length: 6 }, (_, i) => [7 - i, 5]));
     const s = snake(e, 'a');
     assert.equal(s.dir, 'right'); // from segment 1 toward segment 0 of what is left
     assert.equal(s.pendingGrowth, 0);
@@ -874,33 +874,76 @@ describe('bomb', () => {
     assert.deepEqual(e.getState().bombs, []);
     assert.deepEqual(events(e, 'eat').map((ev) => [ev.item, ev.x, ev.y]), [['bomb', 14, 3]]);
     e.tick(); // the queued left turn is gone: it goes on right
-    assert.deepEqual(head(e, 'a'), [12, 5]);
+    assert.deepEqual(head(e, 'a'), [8, 5]);
   });
 
   test('the new direction is the way the remaining body was going, across a wrapping edge too', () => {
-    // Came down column 5 and turned right: after losing 2 the head is (5,5), going down.
-    const e = setup({ a: [[[6, 5], [5, 5], [5, 4], [5, 3], [5, 2], [5, 1], [5, 0]], 'right'], ...far }, PU);
+    // Came down column 5 and turned right: 8 long after the move, it loses 4
+    // and the head is (5,3), going down.
+    const e = setup({ a: [[[6, 5], [5, 5], [5, 4], [5, 3], [5, 2], [5, 1], [5, 0], [4, 0]], 'right'], ...far }, PU);
     e._debug.setBombs([[8, 6]]);
     e.tick();
-    assert.deepEqual(cells(e, 'a'), [[5, 5], [5, 4], [5, 3], [5, 2], [5, 1]]);
+    assert.deepEqual(cells(e, 'a'), [[5, 3], [5, 2], [5, 1], [5, 0]]);
     assert.equal(snake(e, 'a').dir, 'down');
     // Wrapped from x = 19 to 0: the rest still goes right.
-    const w = setup({ a: [[[1, 5], [0, 5], [19, 5], [18, 5], [17, 5], [16, 5]], 'right'], ...far }, { ...PU, wrapWalls: true });
-    w._debug.setBombs([[3, 6]]);
+    const w = setup({ a: [[[3, 5], [2, 5], [1, 5], [0, 5], [19, 5], [18, 5], [17, 5], [16, 5]], 'right'], ...far }, { ...PU, wrapWalls: true });
+    w._debug.setBombs([[5, 6]]);
     w.tick();
     assert.deepEqual(cells(w, 'a'), [[0, 5], [19, 5], [18, 5], [17, 5]]);
     assert.equal(snake(w, 'a').dir, 'right');
   });
 
   test('if fewer than 3 segments would remain the snake dies, with no kill credit', () => {
-    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'], b: [[[5, 9], [4, 9], [3, 9], [2, 9]], 'right'], ...far }, PU);
+    const row = (y, n) => Array.from({ length: n }, (_, i) => [5 - i, y]);
+    const e = setup({ a: [row(5, 5), 'right'], b: [row(9, 6), 'right'], ...far }, PU);
     e._debug.setBombs([[7, 5], [7, 9]]);
     e.tick();
-    assert.equal(player(e, 'a').status, 'dead'); // 3 - 1 = 2 left
+    assert.equal(player(e, 'a').status, 'dead'); // 5 - round(2.5) = 2 left
     assert.equal(events(e, 'death')[0].killerId, null);
     assert.ok(e.getState().players.every((p) => p.kills === 0));
-    assert.equal(player(e, 'b').status, 'alive'); // 4 - 1 = 3 left
+    assert.equal(player(e, 'b').status, 'alive'); // 6 - 3 = 3 left
     assert.equal(snake(e, 'b').segments.length, 3);
+  });
+
+  test("'cut' is the default mode; only the listed modes are accepted", () => {
+    assert.equal(createEngine({}).config.bombMode, 'cut');
+    assert.deepEqual(sanitizeConfig({ bombMode: 'kill' }), { bombMode: 'kill' });
+    assert.deepEqual(sanitizeConfig({ bombMode: 'shrink' }), {});
+    assert.deepEqual(sanitizeConfig({ bombMode: true }), {});
+  });
+
+  test("'kill' mode: the snake dies outright, however long, with no kill credit", () => {
+    const row = Array.from({ length: 12 }, (_, i) => [17 - i, 5]);
+    const e = setup({ a: [row, 'right'], ...far }, { ...PU, bombMode: 'kill' });
+    e._debug.setBombs([[19, 6]]); // covers (18-20, 5-7)
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.deepEqual(events(e, 'death').map((ev) => [ev.id, ev.killerId]), [['a', null]]);
+    assert.deepEqual(events(e, 'eat').map((ev) => ev.item), ['bomb']);
+    assert.deepEqual(e.getState().bombs, []);
+    assert.ok(e.getState().players.every((p) => p.kills === 0));
+  });
+
+  test("'kill' mode: a ghost passes through and a shield pops, as in 'cut' mode", () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5], [2, 5]], 'right'], b: [[[5, 9], [4, 9], [3, 9], [2, 9]], 'right'], ...far }, { ...PU, bombMode: 'kill' });
+    e._debug.setEffect('a', 'ghost', 3000);
+    e._debug.setEffect('b', 'shield', 10000);
+    e._debug.setBombs([[7, 5], [7, 9]]);
+    e.tick();
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.equal(player(e, 'b').status, 'alive');
+    assert.equal(snake(e, 'b').segments.length, 4);
+    assert.equal(snake(e, 'b').effect.type, 'ghost');
+    assert.equal(events(e, 'shieldPop').length, 1);
+    assert.deepEqual(e.getState().bombs.map((b) => [b.x, b.y]), [[7, 5]]); // only the one the shield hit went off
+  });
+
+  test('the mode is read live', () => {
+    const e = setup({ a: [Array.from({ length: 8 }, (_, i) => [11 - i, 5]), 'right'], ...far }, PU);
+    e.config.bombMode = 'kill';
+    e._debug.setBombs([[13, 6]]);
+    e.tick();
+    assert.equal(player(e, 'a').status, 'dead');
   });
 
   test('a ghost passes through without setting it off', () => {

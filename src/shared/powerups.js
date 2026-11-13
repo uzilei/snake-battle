@@ -41,7 +41,7 @@ export const POWER_UP_RULES = Object.freeze({
   bombBlinkMs: 3000, // and blinks during its last this-many ms
   maxBombs: 5,
   bombSize: 3, // a bomb covers a bombSize x bombSize block around its center
-  bombShrink: 0.25, // fraction of its length a snake loses off its front to a bomb
+  bombShrink: 0.5, // fraction of its length a snake loses off its front to a bomb (in 'cut' mode)
   bombGhostMs: 1000, // after a bomb, the snake is a ghost for this long
   minLength: 3, // a bomb or a cut that would leave fewer segments kills
   shieldGhostMs: 1000, // after a shield pops, the snake is a ghost for this long

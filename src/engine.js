@@ -56,6 +56,9 @@ export const CONFIG_CHOICES = Object.freeze({
   // Who wins when the time limit runs out: the longest living snake, or the
   // living snake with the most kills this round (ties broken by length).
   timeLimitWinner: Object.freeze(['longest', 'kills']),
+  // What a bomb does to a snake that sets it off: blow off the front half
+  // ('cut'), or kill it outright ('kill'). Read live.
+  bombMode: Object.freeze(['cut', 'kill']),
 });
 
 // On/off rules. Like gridSize, they are read when a round starts, so a change
@@ -628,12 +631,14 @@ export function createEngine({ config, random = Math.random } = {}) {
   // What each power-up does when eaten. Timed ones only need to become the
   // snake's effect: the movement and collision code asks "is X active".
   const EFFECTS = {
-    // Blows off the front of the snake: it carries on from what's left, as a
-    // ghost for a moment so it can't crash straight away. The lost part
-    // vanishes (no apples to eat it back). Too little left: it dies, and
-    // nobody gets the kill. A shield pops instead.
+    // 'cut' mode: blows off the front of the snake; it carries on from what's
+    // left, as a ghost for a moment so it can't crash straight away. The
+    // lost part vanishes (no apples to eat it back). Too little left: it
+    // dies. 'kill' mode: it just dies. Nobody gets the kill either way, and
+    // a shield pops instead.
     bomb(p) {
       if (effectOf(p, 'shield')) return popShield(p);
+      if (cfg.bombMode === 'kill') return kill(p, null);
       const s = p.snake;
       const drop = Math.max(1, Math.round(s.segments.length * POWER_UP_RULES.bombShrink));
       if (s.segments.length - drop < POWER_UP_RULES.minLength) return kill(p, null);

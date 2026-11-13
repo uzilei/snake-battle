@@ -52,6 +52,7 @@ $('rules-hint').textContent = A.rulesHint;
 $('h-win').textContent = A.winConditions;
 $('win-hint').textContent = A.winHint;
 $('l-timeLimitWinner').textContent = A.timeLimitWinner;
+$('l-bombMode').textContent = A.bombMode;
 $('h-global').textContent = A.globalLeaderboard;
 $('l-leaderboardStat').textContent = A.leaderboardStat;
 for (const stat of RESET_STATS) $(`btn-reset-${stat}`).textContent = A.reset[stat];
@@ -130,6 +131,7 @@ function fillSelect(select, options) {
 fillSelect($('side-panel'), A.sidePanelOptions);
 fillSelect($('leaderboard-stat'), A.leaderboardStatOptions);
 fillSelect($('c-timeLimitWinner'), A.timeLimitWinnerOptions);
+fillSelect($('c-bombMode'), A.bombModeOptions);
 
 // ---- connection -----------------------------------------------------------------
 let ws = null;
@@ -191,10 +193,12 @@ $('leaderboard-stat').addEventListener('change', (e) => {
   send({ t: 'settings', leaderboardStat: e.target.value });
   e.target.blur();
 });
-$('c-timeLimitWinner').addEventListener('change', (e) => {
-  send({ t: 'config', values: { timeLimitWinner: e.target.value } });
-  e.target.blur();
-});
+for (const key of ['timeLimitWinner', 'bombMode']) {
+  $(`c-${key}`).addEventListener('change', (e) => {
+    send({ t: 'config', values: { [key]: e.target.value } });
+    e.target.blur();
+  });
+}
 for (const stat of RESET_STATS) {
   $(`btn-reset-${stat}`).addEventListener('click', () => {
     if (confirm(A.confirmReset[stat])) send({ t: 'resetRecords', stat });
@@ -258,7 +262,9 @@ function update(msg) {
   // "Record" with both records toggles off falls back to the scoreboard: say why.
   $('side-records-off').hidden = !(msg.settings.sidePanel === 'records' && !msg.settings.leaderboard);
   if (document.activeElement !== $('leaderboard-stat')) $('leaderboard-stat').value = msg.settings.leaderboardStat;
-  if (document.activeElement !== $('c-timeLimitWinner')) $('c-timeLimitWinner').value = msg.config.timeLimitWinner;
+  for (const key of ['timeLimitWinner', 'bombMode']) {
+    if (document.activeElement !== $(`c-${key}`)) $(`c-${key}`).value = msg.config[key];
+  }
   // The settings of a win condition only matter while it is on.
   $('sliders-time').parentElement.classList.toggle('off', !msg.config.timeLimitWin);
   $('sliders-target').parentElement.classList.toggle('off', !msg.config.targetLengthWin);

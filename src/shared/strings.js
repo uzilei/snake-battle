@@ -189,6 +189,11 @@ export const STRINGS = Object.freeze({
       'L’interruttore vale dal prossimo round; i cursori valgono subito. Un power-up prende il posto di una mela e conta nel numero di mele. Le bombe compaiono a parte e spariscono dopo 10 secondi.',
     powerUpChance: 'Probabilità che una nuova mela sia un power-up (%)',
     bombsPerMinute: 'Bombe al minuto (0 = nessuna)',
+    bombMode: 'Effetto delle bombe (vale subito)',
+    bombModeOptions: {
+      cut: 'Tagliano via la metà davanti del serpente',
+      kill: 'Eliminano il serpente',
+    },
     weightsTitle: 'Frequenza di ogni power-up',
     weightsHint: 'Più alto = più frequente rispetto agli altri. 0 = mai.',
     // One per entry of src/shared/powerups.js (the weight sliders use them).
@@ -202,7 +207,7 @@ export const STRINGS = Object.freeze({
       portal: 'Portale: ingresso e uscita',
       feast: 'Banchetto: 10 mele intorno',
       shield: 'Scudo: resiste a un colpo',
-      bomb: 'Bomba: accorcia di un quarto',
+      bomb: 'Bomba: taglia via la metà davanti o elimina (vedi «Effetto delle bombe»)',
     },
     activeThisRound: 'Attive in questo round: {list}',
     noneActive: 'nessuna',
