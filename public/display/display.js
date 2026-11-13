@@ -172,7 +172,8 @@ function darker(hex, amount = 0.28) {
   return darkCache.get(hex);
 }
 
-// Background: dark board with a subtle grid, cached until the size changes.
+// Background: a checkerboard of two subtle dark shades, cached until the size
+// changes.
 let gridLayer = null;
 let gridLayerKey = '';
 function background(size, n) {
@@ -184,17 +185,12 @@ function background(size, n) {
   const g = gridLayer.getContext('2d');
   g.fillStyle = '#0a0f1e';
   g.fillRect(0, 0, size, size);
-  const cell = size / n;
-  const w = Math.max(1, Math.round(dpr));
-  g.fillStyle = 'rgba(140, 160, 220, 0.09)';
-  for (let i = 1; i < n; i++) {
-    const p = Math.round(i * cell - w / 2);
-    g.fillRect(p, 0, w, size);
-    g.fillRect(0, p, size, w);
+  g.fillStyle = '#0f162b';
+  // Whole-pixel edges, so neighbouring squares meet without seams.
+  const edge = (i) => Math.round((i * size) / n);
+  for (let y = 0; y < n; y++) {
+    for (let x = y % 2; x < n; x += 2) g.fillRect(edge(x), edge(y), edge(x + 1) - edge(x), edge(y + 1) - edge(y));
   }
-  g.strokeStyle = 'rgba(140, 160, 220, 0.25)';
-  g.lineWidth = 2 * w;
-  g.strokeRect(w, w, size - 2 * w, size - 2 * w);
   return gridLayer;
 }
 
