@@ -558,18 +558,21 @@ describe('server: bots', () => {
     assert.equal(resolveSidePanel('auto', { phase: 'playing', players: [bot, { bot: false }, { bot: false }] }), 'leaderboard');
   });
 
-  test('each bot wears a random hat, kept while it plays, shown like a phone hat', () => {
-    const { game, admin } = newGame({ bots: 12 });
+  test('each bot gets a random hat or none, kept while it plays, shown like a phone hat', () => {
+    const { game, admin } = newGame({ bots: 20 });
     const display = fakeClient(game);
     display.send({ t: 'hello', role: 'display' });
     game.tickOnce();
     const hats = display.last('state').hats;
     const ids = botsOf(game).map((p) => p.id);
-    assert.ok(ids.every((id) => HAT_IDS.includes(hats[id])), JSON.stringify(hats));
-    assert.ok(new Set(ids.map((id) => hats[id])).size > 1, 'all the same hat');
+    // Listed only when wearing one (like a phone that picked none).
+    assert.ok(Object.values(hats).every((h) => HAT_IDS.includes(h)), JSON.stringify(hats));
+    const picks = new Set(ids.map((id) => hats[id] ?? 'none'));
+    assert.ok(picks.has('none'), 'nobody went without');
+    assert.ok(picks.size > 2, 'too few different hats');
     for (let i = 0; i < 5; i++) game.tickOnce();
     assert.deepEqual(display.last('state').hats, hats); // the same ones
-    assert.ok(admin.last('admin').players.filter((p) => p.bot).every((p) => HAT_IDS.includes(p.hat)));
+    assert.ok(admin.last('admin').players.filter((p) => p.bot).every((p) => p.hat === null || HAT_IDS.includes(p.hat)));
     admin.send({ t: 'settings', hats: false }); // the hats toggle covers them too
     assert.equal(display.last('state').hats, null);
   });

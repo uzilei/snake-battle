@@ -364,7 +364,9 @@ export function createGame({
       const name = botName(n);
       if (!engine.addPlayer(id, name, { bot: true }).ok) break;
       bots.set(id, n);
-      const hat = HAT_IDS[Math.floor(random() * HAT_IDS.length)]; // a random one, kept while it stays
+      // A random hat, or none, kept while it stays.
+      const choices = [null, ...HAT_IDS];
+      const hat = choices[Math.floor(random() * choices.length)];
       owners.set(id, { client: null, slot: null, source: 'bot', session: null, hat });
       log(`[bots] ${id} joined as ${name}`);
     }

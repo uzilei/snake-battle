@@ -131,6 +131,9 @@ h1 { margin: 0 0 3vh; font-size: 6vh; font-weight: 900; letter-spacing: 0.02em; 
 
 #lb-list .swatch { width: 2.8vh; height: 2.8vh; border-radius: 0.6vh; }
 #lb-list .name { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#lb-list .name-line { display: flex; align-items: center; gap: 0.25em; min-width: 0; }
+#lb-list .name-text { overflow: hidden; text-overflow: ellipsis; }
+#lb-list .hat { width: 0.9em; height: 0.9em; flex: none; }
 #lb-list .status { display: block; font-size: 2.4vh; color: var(--muted); font-weight: 600; }
 #lb-list .length { font-size: 5.2vh; font-weight: 900; font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
 #lb-list .kills { font-size: 2.6vh; color: var(--muted); font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }

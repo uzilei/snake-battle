@@ -1720,7 +1720,8 @@ function updateOverlay(msg) {
 
 const STATUS_ORDER = { alive: 0, dead: 1, queued: 2 };
 
-function updateLeaderboard(state) {
+// hats: playerId -> hat id (null when the hats toggle is off).
+function updateLeaderboard(state, hats) {
   $('lb-round').textContent = state.round > 0 ? fmt(T.round, { n: state.round }) : '';
   const players = [...state.players].sort(
     (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.length - a.length || a.name.localeCompare(b.name),
@@ -1735,7 +1736,22 @@ function updateLeaderboard(state) {
       swatch.style.background = playerColor(p.colorIndex);
       const name = document.createElement('span');
       name.className = 'name';
-      name.textContent = p.bot ? `🤖 ${p.name}` : p.name; // textContent: names come from clients
+      // The name (cut short if it must be) and, after it, their hat.
+      const line = document.createElement('span');
+      line.className = 'name-line';
+      const text = document.createElement('span');
+      text.className = 'name-text';
+      text.textContent = p.bot ? `🤖 ${p.name}` : p.name; // textContent: names come from clients
+      line.append(text);
+      const hat = HATS.find((h) => h.id === hats?.[p.id]);
+      if (hat) {
+        const img = document.createElement('img');
+        img.className = 'hat';
+        img.src = `/twemoji/${hat.twemoji}.svg`;
+        img.alt = hat.emoji;
+        line.append(img);
+      }
+      name.append(line);
       const status = document.createElement('span');
       status.className = 'status';
       status.textContent = T[p.status] ?? '';
@@ -1911,10 +1927,10 @@ function render(now) {
   if (panel === 'leaderboard') {
     // Avoid rebuilding the list when nothing visible changed. The side
     // column's classes and the window size change the room it has.
-    const key = JSON.stringify([state.round, state.players, $('side').className, latest.keyboardPlayers, innerHeight]);
+    const key = JSON.stringify([state.round, state.players, $('side').className, latest.keyboardPlayers, innerHeight, latest.hats]);
     if (key !== lastSideKey) {
       lastSideKey = key;
-      updateLeaderboard(state);
+      updateLeaderboard(state, latest.hats);
     }
   } else lastSideKey = '';
 }
