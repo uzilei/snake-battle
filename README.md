@@ -63,7 +63,7 @@ At startup the server prints the URLs for `/display`, `/play`, `/admin` and `/ad
 Off by default. "Power-up attivi" on /admin turns them on from the next round; the sliders below it apply immediately.
 
 - **Spawning:** a new apple becomes a power-up with the chosen probability, picked by each power-up's weight (0 = never). Power-ups take an apple's place, count toward the number of apples, never disappear, and grow the snake like an apple before their effect.
-- **Bombs:** each covers a 3x3 block, drawn as one big bomb. They spawn separately (bombs per minute, at most 5 at once) only where all 9 cells are free, don't count as apples, don't grow the snake, and vanish after 10 seconds, blinking during the last 3.
+- **Bombs:** each covers a 3x3 block, drawn as one big bomb inside a pulsing red danger outline like the badger's. They spawn separately (bombs per minute, at most 5 at once) only where all 9 cells are free, don't count as apples, don't grow the snake, and vanish after 10 seconds, blinking during the last 3.
 - **Timed effects** don't stack: a new one replaces the current one. A small badge by the head counts it down on /display.
 
 | | Power-up | Effect |

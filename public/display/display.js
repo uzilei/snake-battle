@@ -262,26 +262,29 @@ function drawItems(items, cell, now) {
     const px = Math.max(1, Math.round(span * 0.84));
     let scale = 1;
     let alpha = 1;
+    // A bomb blinks during its last seconds.
+    if (it.type === 'bomb' && it.remainingMs !== undefined && it.remainingMs < POWER_UP_RULES.bombBlinkMs) {
+      alpha = blinkAlpha(now);
+    }
     if (it.power) {
-      // Power-ups pulse gently (each a little out of step) and sit on a soft
-      // glow, so they stand out from apples.
+      // Power-ups pulse gently (each a little out of step).
       scale = 1 + 0.09 * Math.sin(now / 190 + it.x * 1.7 + it.y);
       const cx = (it.x + 0.5) * cell;
       const cy = (it.y + 0.5) * cell;
-      const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, span * 0.8);
-      // The bomb emoji is nearly black: it gets a light disc and a red glow.
-      glow.addColorStop(0, it.type === 'bomb' ? 'rgba(255, 110, 80, 0.75)' : 'rgba(255, 240, 170, 0.32)');
-      glow.addColorStop(1, it.type === 'bomb' ? 'rgba(255, 80, 60, 0)' : 'rgba(255, 240, 170, 0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(cx - span * 0.8, cy - span * 0.8, span * 1.6, span * 1.6);
       if (it.type === 'bomb') {
-        ctx.fillStyle = 'rgba(255, 235, 225, 0.55)';
-        disc(cx, cy, span * 0.36);
+        // Danger, like the badger: a pulsing red outline round its block.
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        dangerOutline(cx, cy, span, span, cell, now);
+        ctx.restore();
+      } else {
+        // The others sit on a soft glow, so they stand out from apples.
+        const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, span * 0.8);
+        glow.addColorStop(0, 'rgba(255, 240, 170, 0.32)');
+        glow.addColorStop(1, 'rgba(255, 240, 170, 0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(cx - span * 0.8, cy - span * 0.8, span * 1.6, span * 1.6);
       }
-    }
-    // A bomb blinks during its last seconds.
-    if (it.type === 'bomb' && it.remainingMs !== undefined && it.remainingMs < POWER_UP_RULES.bombBlinkMs) {
-      alpha = Math.floor(now / 140) % 2 === 0 ? 1 : 0.25;
     }
     const size = px * scale;
     const x = (it.x + 0.5) * cell - size / 2;
@@ -1375,6 +1378,26 @@ function blockPath(x, y, w, h, r) {
   else ctx.rect(x, y, w, h);
 }
 
+// Something deadly (the badger, a bomb): a faint red fill and a glowing,
+// pulsing red line just outside its w x h block centered on (cx, cy).
+function dangerOutline(cx, cy, w, h, cell, now) {
+  const pulse = 0.5 + 0.5 * Math.sin(now / 150);
+  const pad = cell * 0.08;
+  ctx.save();
+  blockPath(cx - w / 2 - pad, cy - h / 2 - pad, w + 2 * pad, h + 2 * pad, cell * 0.35);
+  ctx.fillStyle = `rgba(255, 30, 30, ${0.1 + 0.08 * pulse})`;
+  ctx.fill();
+  ctx.shadowColor = 'rgba(255, 30, 30, 0.95)';
+  ctx.shadowBlur = cell * (0.35 + 0.45 * pulse);
+  ctx.lineWidth = Math.max(2, cell * (0.1 + 0.06 * pulse));
+  ctx.strokeStyle = `rgb(255, ${Math.round(40 + 70 * pulse)}, ${Math.round(40 + 30 * pulse)})`;
+  ctx.stroke();
+  ctx.restore();
+}
+
+// On and off, for something about to go.
+const blinkAlpha = (now) => (Math.floor(now / 140) % 2 === 0 ? 1 : 0.25);
+
 function drawBadger(b, cell, now) {
   if (!b || !badgerAnim) return;
   const at = ratAt(badgerAnim, now);
@@ -1405,16 +1428,7 @@ function drawBadger(b, cell, now) {
     return;
   }
   ctx.globalAlpha = clamp(remainingNow(b.remainingMs, now) / BADGER_RULES.fadeMs, 0, 1);
-  // The danger outline: a red glow and a pulsing red line just outside the block.
-  blockPath(cx - w / 2 - pad, cy - h / 2 - pad, w + 2 * pad, h + 2 * pad, cell * 0.35);
-  ctx.fillStyle = `rgba(255, 30, 30, ${0.1 + 0.08 * pulse})`;
-  ctx.fill();
-  ctx.shadowColor = 'rgba(255, 30, 30, 0.95)';
-  ctx.shadowBlur = cell * (0.35 + 0.45 * pulse);
-  ctx.lineWidth = Math.max(2, cell * (0.1 + 0.06 * pulse));
-  ctx.strokeStyle = `rgb(255, ${Math.round(40 + 70 * pulse)}, ${Math.round(40 + 30 * pulse)})`;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
+  dangerOutline(cx, cy, w, h, cell, now);
   const px = Math.max(1, Math.round(w * 0.98));
   const img = sprite('badger', px);
   ctx.translate(cx, cy);
