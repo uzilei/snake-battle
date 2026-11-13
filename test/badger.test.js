@@ -533,6 +533,63 @@ describe('badger bites', () => {
     assert.equal(badger(e).hp, 2);
   });
 
+  // A 16-long snake drives right along row 10 into a still badger (x 18-22,
+  // y 9-11) as a ghost for 3 ticks, so it's passing once the ghost ends.
+  // Then its head goes up out of the block and loops back down into it at
+  // (20, 9) on tick 8, while the rest of it is still inside.
+  function loopBack(before8) {
+    const e = setup({ a: [row(10, 17, 2), 'right'], ...far }, { gridSize: 40 });
+    e._debug.setEffect('a', 'ghost', 300);
+    e._debug.setBadger([20, 10], { ...STILL, remainingMs: 1e9 });
+    const turns = { 5: 'up', 7: 'left', 8: 'down' };
+    for (let t = 1; t <= 7; t++) {
+      if (turns[t]) e.setDirection('a', turns[t]);
+      run(e, 1);
+      assert.deepEqual(events(e, 'badgerBite'), [], `tick ${t}`);
+      assert.equal(snake(e, 'a').segments.length, 16, `tick ${t}`);
+    }
+    assert.equal(snake(e, 'a').effect, null); // not a ghost any more
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 20, y: 8 }); // just outside
+    assert.ok(snake(e, 'a').segments.some((c) => covers(badger(e), c.x, c.y)), 'fully out: not passing any more');
+    before8(e);
+    e.setDirection('a', turns[8]);
+    run(e, 1);
+    assert.deepEqual(snake(e, 'a').segments[0], { x: 20, y: 9 });
+    return e;
+  }
+
+  test('a passing snake whose head loops back into the block is bitten', () => {
+    const e = loopBack(() => {});
+    assert.deepEqual(events(e, 'badgerBite'), [{ type: 'badgerBite', id: 'a', index: 0 }]);
+    assert.equal(player(e, 'a').status, 'dead');
+  });
+
+  test('looping back in with scissors, a passing snake deals 1 damage', () => {
+    const e = loopBack((e) => e._debug.setEffect('a', 'scissors', 8000));
+    assert.deepEqual(events(e, 'badgerHit'), [{ type: 'badgerHit', id: 'a', x: 20, y: 9, hp: 2 }]);
+    assert.deepEqual(events(e, 'badgerBite'), []);
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.equal(snake(e, 'a').effect.type, 'ghost');
+  });
+
+  test('the badger moving onto more of a passing snake still does not bite', () => {
+    // 16 long, driving right along row 10 into a badger walking left (one
+    // cell every 4 ticks) onto more and more of it, a ghost for 3 ticks only.
+    const e = setup({ a: [row(10, 17, 2), 'right'], ...far }, { gridSize: 40 });
+    e._debug.setEffect('a', 'ghost', 300);
+    e._debug.setBadger([21, 10], { dir: 'left', remainingMs: 1e9 });
+    let movedOntoIt = 0;
+    for (let t = 1; t <= 14; t++) {
+      const was = badger(e).x;
+      run(e, 1);
+      assert.deepEqual(events(e, 'badgerBite'), [], `tick ${t}`);
+      assert.equal(snake(e, 'a').segments.length, 16, `tick ${t}`);
+      if (t > 3 && badger(e).x !== was) movedOntoIt++;
+    }
+    assert.ok(movedOntoIt >= 2, `the badger only stepped ${movedOntoIt} times after the ghost ended`);
+    assert.equal(player(e, 'a').status, 'alive');
+  });
+
   test('a frozen snake standing still is bitten when the badger steps onto it', () => {
     const e = setup({ a: [row(12, 15, 4), 'right'], ...far });
     run(e, 1); // now on tick 2, so the next tick is odd: frozen snakes sit it out

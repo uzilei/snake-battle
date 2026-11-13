@@ -1487,9 +1487,10 @@ export function createEngine({ config, random = Math.random } = {}) {
   // fewer than minLength segments would be left). A shield pops instead.
   // Nobody gets a kill.
   // A snake touching it while immune (a ghost, which includes the second
-  // after a shield pops) is passing through: never bitten, even once the
-  // immunity ends and even as the badger moves onto more of it, until no
-  // segment of it is inside any more.
+  // after a shield pops) is passing through until no segment of it is
+  // inside any more: once the immunity ends, the badger moving onto more of
+  // it still doesn't bite. Its head moving into the block from outside
+  // (looping back in) does count, as for any snake that isn't a ghost.
   // Scissors: a snake holding them whose head moved into the block (the
   // new contact is its head, and it moved this sub-step; the badger
   // stepping onto it bites as usual) hits it instead of being bitten:
@@ -1507,8 +1508,10 @@ export function createEngine({ config, random = Math.random } = {}) {
         passing.delete(p);
         continue;
       }
-      if (isGhost(p)) passing.add(p);
-      if (passing.has(p)) continue;
+      if (isGhost(p)) {
+        passing.add(p);
+        continue;
+      }
       const was = before.get(p);
       // A segment's previous self: itself, or for the head the old head
       // (the same object when the snake didn't move).
@@ -1516,6 +1519,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       const index = segs.findIndex((c, i) => badgerCovers(c.x, c.y) && !wasInside(i));
       if (index === -1) continue;
       const headIn = index === 0 && Boolean(was) && was.head !== segs[0];
+      if (passing.has(p) && !headIn) continue; // the badger moved onto it
       if (headIn && effectOf(p, 'scissors')) {
         setEffect(p, 'ghost', BADGER_RULES.hitGhostMs); // replaces the scissors
         passing.add(p);
