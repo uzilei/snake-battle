@@ -1451,9 +1451,16 @@ function drawBadgerName(b, name, cell, size, now) {
   const at = ratAt(badgerAnim, now);
   const h = b.height * cell;
   const cy = (at.y + 0.5) * cell;
-  const font = Math.max(12, Math.round(cell * 0.95));
+  let font = Math.max(12, Math.round(cell * 0.95));
   ctx.save();
-  ctx.font = `900 ${font}px system-ui, "Segoe UI", Arial, sans-serif`;
+  const setFont = () => (ctx.font = `900 ${font}px system-ui, "Segoe UI", Arial, sans-serif`);
+  setFont();
+  // A long name on a small board: shrink it to fit 90% of the width.
+  const wide = ctx.measureText(name).width + font * 0.4;
+  if (wide > size * 0.9) {
+    font = Math.max(8, Math.floor((font * size * 0.9) / wide));
+    setFont();
+  }
   ctx.textAlign = 'center';
   ctx.lineJoin = 'round';
   const gap = cell * 0.25;

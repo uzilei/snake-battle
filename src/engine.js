@@ -1401,8 +1401,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   // After the moves: a segment touches the badger only when newly inside
   // it. The head counts when it moved in (from outside the block), any
   // segment when the badger moved onto it. Segments that were already in
-  // (a ghost passing through, a popped shield) don't count until they have
-  // left. Ghosts are never bitten. Per snake, the new contact nearest the
+  // (a body under the warning when it became active) don't count until they
+  // have left. Ghosts are never bitten. Per snake, the new contact nearest the
   // head counts: the head dies, anywhere else is cut off there (dead if
   // fewer than minLength segments would be left). A shield pops instead.
   // Nobody gets a kill.
