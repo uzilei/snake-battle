@@ -142,6 +142,62 @@ describe('badger spawning', () => {
     assert.equal(e.getState().projectiles.length, 1);
   });
 
+  test('the average applies at once, even after the delay was drawn', () => {
+    const e = setup(far, { badgerEverySec: 600 });
+    run(e, 3000); // 300 s of play: the delay (300-900 s) has been drawn
+    assert.equal(badger(e), null); // (with this seed it drew a longer one)
+    e.updateConfig({ badgerEverySec: 30 }); // now due within 45 s: long past
+    run(e, 1);
+    assert.ok(badger(e));
+  });
+
+  test('a snake under the warning is safe when it activates, until it leaves and comes back', () => {
+    const e = setup({ a: [row(10, 11, 9), 'right'], ...far }); // head at x 11, inside x 8-12
+    e._debug.setBadger([10, 10], { warningMs: 200 });
+    run(e, 2); // active at the end of the 2nd tick; a is at x 13, 12, 11
+    assert.equal(badger(e).warningMs, 0);
+    assert.deepEqual(cells(e, 'a'), row(10, 13, 11));
+    assert.deepEqual([badger(e).x, badger(e).y], [10, 10]);
+    e._debug.setBadger([10, 10], STILL); // keep it put from here on
+    run(e, 3); // out the other side: x 16, 15, 14
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.equal(snake(e, 'a').segments.length, 3);
+    // Back in: down to (16, 11), then left until x 12.
+    e.setDirection('a', 'down');
+    run(e, 1);
+    e.setDirection('a', 'left');
+    run(e, 3); // x 15, 14, 13
+    assert.equal(player(e, 'a').status, 'alive');
+    run(e, 1);
+    assert.equal(player(e, 'a').status, 'dead');
+    assert.equal(events(e, 'badgerBite')[0].index, 0);
+  });
+
+  test('a rat under the warning is caught when the badger becomes active', () => {
+    const e = setup(far, { appleCount: 1 });
+    e._debug.setBadger([10, 10], { warningMs: 200 });
+    e._debug.addRat([10, 10], 'up', { moveAt: 1e9 });
+    run(e, 1);
+    assert.equal(e.getState().rats.length, 1); // still the warning
+    run(e, 1);
+    assert.equal(e.getState().rats.length, 0);
+    assert.deepEqual(events(e, 'ratCaught').map((ev) => [ev.x, ev.y]), [[10, 10]]);
+  });
+
+  test('a portal exit never opens inside it', () => {
+    const e = setup({ a: [row(8, 3, 1), 'right'], ...far }, { gridSize: 12 });
+    for (let i = 0; i < 30; i++) {
+      e._debug.setSnake('a', row(8, 3, 1), 'right');
+      e._debug.setSnake('z', [[11, 11], [11, 10], [11, 9]], 'left');
+      e._debug.setBadger([6, 3], { warningMs: 5000 });
+      e._debug.addPowerUps([[4, 8, 'portal']]);
+      e.tick();
+      const portal = e.getState().portals.at(-1);
+      assert.ok(portal);
+      for (const c of portal.ends) assert.ok(!covers({ x: 6, y: 3 }, c.x, c.y), `a portal end at ${c.x},${c.y}`);
+    }
+  });
+
   test('0 means never, and a new round clears it', () => {
     const e = setup(far, { badgerEverySec: 0 });
     for (let i = 0; i < 2000; i++) e.tick();

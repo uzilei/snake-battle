@@ -96,10 +96,10 @@ Rules and numbers live in `src/shared/rats.js`; the engine's `moveRats` does the
 
 ## Honey badger 🦡
 
-A rare predator: a 5×3 block (5 wide, 3 tall) that never rotates. Two /admin sliders control it; both are saved and apply at once, and neither depends on the power-up switch:
+A rare predator: a 5×3 block (5 wide, 3 tall) that never rotates. Two /admin sliders control it; both are saved, and neither depends on the power-up switch:
 
-- **"Tasso del miele" (average seconds between badgers):** 120 by default, 30–600, or 0 for never. The real delay is random, between half and one and a half times the average, counted in seconds of play.
-- **"Quanto resta in campo" (lifetime):** 20 s by default, 5–120.
+- **"Tasso del miele" (average seconds between badgers):** 120 by default, 30–600, or 0 for never. The real delay is random, between half and one and a half times the average, counted in seconds of play. A change applies at once.
+- **"Quanto resta in campo" (lifetime):** 20 s by default, 5–120. A change applies from the next badger.
 
 There is never more than one badger on the board.
 

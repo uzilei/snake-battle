@@ -147,7 +147,10 @@ export function createEngine({ config, random = Math.random } = {}) {
   // lifetimeMs, moveAt, turnAt, since }, (x, y) the center of its block.
   let badger = null;
   let badgerWaitMs = 0; // ms of play since the last badger (or the round start)
-  let badgerDueMs = null; // when the next one is due, drawn once half the average has passed
+  // The next one is due after badgerDueFactor x the average (0.5 to 1.5),
+  // drawn once half the average has passed; kept as a factor so a slider
+  // change applies at once.
+  let badgerDueFactor = null;
   let winnerId = null;
   let participants = 0; // snakes spawned at round start
   let intermissionElapsed = 0;
@@ -206,7 +209,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     portals = [];
     badger = null;
     badgerWaitMs = 0;
-    badgerDueMs = null;
+    badgerDueFactor = null;
   }
 
   function snakeCells() {
@@ -1285,7 +1288,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   function removeBadger() {
     badger = null;
     badgerWaitMs = 0;
-    badgerDueMs = null;
+    badgerDueFactor = null;
   }
 
   // Once per playing tick, after the moves: the warning and the lifetime run
@@ -1317,11 +1320,11 @@ export function createEngine({ config, random = Math.random } = {}) {
     if (cfg.badgerEverySec <= 0) return;
     badgerWaitMs += cfg.tickMs;
     const averageMs = cfg.badgerEverySec * 1000;
-    if (badgerDueMs === null) {
+    if (badgerDueFactor === null) {
       if (badgerWaitMs < averageMs / 2) return;
-      badgerDueMs = averageMs / 2 + random() * averageMs;
+      badgerDueFactor = 0.5 + random();
     }
-    if (badgerWaitMs < badgerDueMs) return;
+    if (badgerWaitMs < badgerDueFactor * averageMs) return;
     if (spawnBadger()) events.push({ type: 'badgerSpawn', x: badger.x, y: badger.y });
   }
 
