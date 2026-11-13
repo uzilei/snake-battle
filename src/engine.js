@@ -792,11 +792,12 @@ export function createEngine({ config, random = Math.random } = {}) {
     return free.slice(0, count);
   }
 
-  // Magnet: after the moves, every fruit (a regular or extra apple, not a
-  // power-up, rat or bomb) within magnetRadius of a magnet head flies straight to
-  // it and is eaten, exactly like an apple the head ran into: growth, an
-  // 'eat' event (with magnet: true and where the apple was, for /display's
-  // flight), and a replacement spawns as usual. Nothing on the way stops it.
+  // Magnet: after the moves, every plain fruit (a regular or extra apple)
+  // within magnetRadius of a magnet head flies straight to it. Power-ups,
+  // rats and bombs are never pulled. A pulled apple is eaten exactly like
+  // an apple the head ran into: growth, an 'eat' event (with magnet: true
+  // and where the apple was, for /display's flight), and a replacement
+  // spawns as usual. Nothing on the way stops it.
   // An apple in reach of two magnets goes to the nearer head (the first
   // player on a tie).
   function magnetEat() {
