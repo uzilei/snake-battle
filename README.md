@@ -119,7 +119,8 @@ There is never more than one badger on the board.
   - while active, a red outline pulses round it;
   - the warning is a dashed, pulsing red outline with ⚠️ in the middle;
   - a shot badger goes off in a bomb's burst the size of its block, and the shooter winks;
-  - rats get a soft green glow, so green means eat and red means run.
+  - rats get a soft green glow, so green means eat and red means run;
+  - a boss name: the /admin field "Nome del tasso" (saved, up to 20 characters, cleaned like a player name, empty for none) is drawn under its block in big bold red-outlined letters, from the warning on, or above the block when there's no room below.
 
   The burst and the puff follow the particles toggle.
 

@@ -132,6 +132,8 @@ export const STRINGS = Object.freeze({
     badgerEverySec:
       'Tasso del miele 🦡, il predatore: secondi in media tra un tasso e l’altro (s, il tempo esatto varia a caso; 0 = mai)',
     badgerLifetimeSec: 'Quanto resta in campo il tasso del miele 🦡 (s)',
+    badgerName: 'Nome del tasso 🦡, scritto sotto di lui come un boss (vuoto = nessun nome)',
+    badgerNamePlaceholder: 'Nessun nome',
     maxPlayers: 'Giocatori massimi',
     gridSize: 'Dimensione griglia (dal prossimo round)',
     intermissionMs: 'Pausa tra i round (ms)',

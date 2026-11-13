@@ -30,6 +30,8 @@ export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
 const SELF = 'self';
 export { MAX_NAME_LENGTH, nameKey };
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
+// The honey badger's boss name on /display ('' = none).
+export const MAX_BADGER_NAME_LENGTH = 20;
 const MAX_MESSAGES_PER_SECOND = 40;
 
 // Strips control/format characters, blank-looking characters and extra
@@ -60,6 +62,7 @@ const SETTING_RULES = Object.freeze({
   displayButtons: isBoolean,
   hats: isBoolean,
   ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, isBoolean])),
+  badgerName: (v) => typeof v === 'string' && v.length <= 200,
   // The fruits apples may be drawn as: any subset of the list, no repeats.
   fruits: (v) => Array.isArray(v) && v.length <= FRUIT_CODES.length && new Set(v).size === v.length && v.every((c) => FRUIT_CODES.includes(c)),
 });
@@ -68,6 +71,8 @@ const SETTING_RULES = Object.freeze({
 // saved file doesn't change with the order they were ticked in.
 const SETTING_NORMALIZE = Object.freeze({
   fruits: (v) => FRUIT_CODES.filter((c) => v.includes(c)),
+  // Cleaned like a player name; nothing visible left means no name.
+  badgerName: (v) => cleanName(v, MAX_BADGER_NAME_LENGTH),
 });
 const normalized = (key, value) => (SETTING_NORMALIZE[key] ? SETTING_NORMALIZE[key](value) : value);
 
@@ -128,6 +133,7 @@ const defaultSettings = () => ({
   leaderboardStat: 'auto', // applies immediately, like sidePanel
   displayButtons: false, // mouse cursor and side panel buttons on /display
   hats: true, // /display draws the hats players picked on /play
+  badgerName: '', // drawn under the honey badger, like a boss name
   ...EFFECT_DEFAULTS,
   fruits: [...FRUIT_CODES], // every fruit in use
 });
@@ -208,6 +214,7 @@ export function createGame({
       effects: Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, settings[k]])),
       fruits: settings.fruits, // codes new apples are drawn as (none: all 🍎)
       hats: settings.hats ? hatsOf(state) : null, // playerId -> hat id, for players wearing one
+      badgerName: settings.badgerName || null,
       records: settings.leaderboard ? recordsView : null, // { wins, kills, score }: top 10 each
       leaderboardStat: settings.leaderboardStat,
       localPlayers: null, // filled per client

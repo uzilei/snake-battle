@@ -1295,6 +1295,7 @@ function drawBoard(msg, now, dt) {
   drawEffects(cell, now, dt);
   drawEffectBadges(badges, cell, now);
   drawNames(labels, cell, size);
+  drawBadgerName(state.badger, msg.badgerName, cell, size, now);
   applyShake(now);
 }
 
@@ -1439,6 +1440,37 @@ function drawBadger(b, cell, now) {
     ctx.fillStyle = '#5d4037';
     ctx.fillRect(-w / 2 + pad, -h / 2 + pad, w - 2 * pad, h - 2 * pad);
   }
+  ctx.restore();
+}
+
+// The badger's boss name (set on /admin), warning included: big bold text
+// with a thick red outline just under its block, or above it when there's
+// no room below. It blinks along with the badger.
+function drawBadgerName(b, name, cell, size, now) {
+  if (!b || !name || !badgerAnim) return;
+  const at = ratAt(badgerAnim, now);
+  const h = b.height * cell;
+  const cy = (at.y + 0.5) * cell;
+  const font = Math.max(12, Math.round(cell * 0.95));
+  ctx.save();
+  ctx.font = `900 ${font}px system-ui, "Segoe UI", Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.lineJoin = 'round';
+  const gap = cell * 0.25;
+  const below = cy + h / 2 + gap + font <= size;
+  ctx.textBaseline = below ? 'top' : 'bottom';
+  const y = below ? cy + h / 2 + gap : cy - h / 2 - gap;
+  const half = ctx.measureText(name).width / 2 + font * 0.2;
+  const x = clamp((at.x + 0.5) * cell, half, size - half);
+  if (b.warningMs <= 0 && remainingNow(b.remainingMs, now) < BADGER_RULES.blinkMs) ctx.globalAlpha = blinkAlpha(now);
+  ctx.lineWidth = Math.max(3, font * 0.28);
+  ctx.strokeStyle = '#d50000';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = font * 0.3;
+  ctx.strokeText(name, x, y);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff8e1';
+  ctx.fillText(name, x, y);
   ctx.restore();
 }
 

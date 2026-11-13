@@ -752,6 +752,54 @@ describe('display effects toggles', () => {
   });
 });
 
+describe('badger boss name', () => {
+  const setup = () => {
+    const game = createGame({ log: quiet });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    const admin = fakeClient(game, { admin: true, isAuthorized: () => true });
+    admin.send({ t: 'hello', role: 'admin' });
+    return { game, display, admin };
+  };
+
+  test('none by default; the admin sets it and /display gets it', () => {
+    const { game, display, admin } = setup();
+    game.tickOnce();
+    assert.equal(game.settings.badgerName, '');
+    assert.equal(display.last('state').badgerName, null);
+    admin.send({ t: 'settings', badgerName: 'Re Tasso' });
+    assert.equal(display.last('state').badgerName, 'Re Tasso');
+    admin.send({ t: 'settings', badgerName: '' });
+    assert.equal(display.last('state').badgerName, null);
+  });
+
+  test('cleaned like a player name and capped at 20 characters', () => {
+    const { game, admin } = setup();
+    admin.send({ t: 'settings', badgerName: '  Il   Terribile​ ' });
+    assert.equal(game.settings.badgerName, 'Il Terribile');
+    admin.send({ t: 'settings', badgerName: 'x'.repeat(25) });
+    assert.equal(game.settings.badgerName, 'x'.repeat(20));
+    admin.send({ t: 'settings', badgerName: ' ㅤ ' });
+    assert.equal(game.settings.badgerName, '');
+  });
+
+  test('anything but a reasonable string is rejected', () => {
+    const { game, admin } = setup();
+    admin.send({ t: 'settings', badgerName: 'Boss' });
+    for (const value of [42, null, ['a'], {}, 'y'.repeat(201)]) {
+      admin.send({ t: 'settings', badgerName: value });
+      assert.equal(admin.last('error').code, 'badMessage');
+    }
+    assert.equal(game.settings.badgerName, 'Boss');
+  });
+
+  test('not open to non-admin clients', () => {
+    const { game, display } = setup();
+    display.send({ t: 'settings', badgerName: 'Hacker' });
+    assert.equal(game.settings.badgerName, '');
+  });
+});
+
 describe('hats', () => {
   const setup = () => {
     const game = createGame({ log: quiet });

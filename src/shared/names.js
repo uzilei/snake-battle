@@ -16,16 +16,16 @@ const VISIBLE = /[\p{L}\p{N}\p{S}\p{P}]/u;
 
 /**
  * A name as it will be shown: control/format and blank characters removed,
- * whitespace collapsed, capped at MAX_NAME_LENGTH characters. '' when
- * nothing visible is left (the caller rejects it as an empty name).
+ * whitespace collapsed, capped at `max` characters. '' when nothing
+ * visible is left (the caller rejects it as an empty name).
  */
-export function cleanName(raw) {
+export function cleanName(raw, max = MAX_NAME_LENGTH) {
   if (typeof raw !== 'string') return '';
   const cleaned = raw
     .replace(/[\p{C}]/gu, '')
     .replace(BLANKS, '')
     .replace(/\s+/g, ' ')
     .trim();
-  const capped = [...cleaned].slice(0, MAX_NAME_LENGTH).join('').trim();
+  const capped = [...cleaned].slice(0, max).join('').trim();
   return VISIBLE.test(capped) ? capped : '';
 }

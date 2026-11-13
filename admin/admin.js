@@ -242,8 +242,32 @@ function buildSliders(limits) {
     wrap.append(label, input, output, range);
     $(parent).append(wrap);
     sliderEls[key] = { input, output };
+    if (key === 'badgerLifetimeSec') $(parent).append(badgerNameField());
   }
   slidersBuilt = true;
+}
+
+// The badger's boss name: a text field, sent as it's typed (the server
+// cleans it and caps it at 20 characters).
+function badgerNameField() {
+  const label = document.createElement('label');
+  label.className = 'field badger-name';
+  const text = document.createElement('span');
+  text.textContent = A.badgerName;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.id = 's-badgerName';
+  input.maxLength = 20;
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.placeholder = A.badgerNamePlaceholder;
+  let timer = null;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => send({ t: 'settings', badgerName: input.value }), 300);
+  });
+  label.append(text, input);
+  return label;
 }
 
 // ---- rendering ------------------------------------------------------------------
@@ -264,6 +288,8 @@ function update(msg) {
     output.textContent = msg.config[key];
   }
   if (document.activeElement !== $('side-panel')) $('side-panel').value = msg.settings.sidePanel;
+  const badgerName = $('s-badgerName');
+  if (badgerName && document.activeElement !== badgerName) badgerName.value = msg.settings.badgerName ?? '';
   $('keyboard').checked = msg.settings.keyboardPlayers;
   // "Record" with both records toggles off falls back to the scoreboard: say why.
   $('side-records-off').hidden = !(msg.settings.sidePanel === 'records' && !msg.settings.leaderboard);
