@@ -14,5 +14,5 @@ export const BADGER_RULES = Object.freeze({
   turnMinTicks: 20,
   turnMaxTicks: 100,
   headClearance: 3, // a new badger's block is at least this many steps from every snake head
-  fadeMs: 1000, // /display fades it out over its last second
+  blinkMs: 3000, // /display blinks it during its last 3 s, like a bomb
 });

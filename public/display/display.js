@@ -1368,8 +1368,8 @@ function drawRats(cell, n, now, fx) {
 // One big 🦡 over its whole block, never rotated, mirrored when heading
 // right (the emoji faces left). Red means danger: during its warning the
 // block gets a dashed, pulsing red outline with ⚠️ in the middle; once
-// active, a glowing red outline pulses round it, and it fades out over its
-// last second.
+// active, a glowing red outline pulses round it, and it blinks during its
+// last seconds, like a bomb.
 const BADGER_ART_TOP = 0.68; // where the badger's middle is in the emoji's square, from the top (it sits low)
 
 function blockPath(x, y, w, h, r) {
@@ -1427,7 +1427,7 @@ function drawBadger(b, cell, now) {
     ctx.restore();
     return;
   }
-  ctx.globalAlpha = clamp(remainingNow(b.remainingMs, now) / BADGER_RULES.fadeMs, 0, 1);
+  if (remainingNow(b.remainingMs, now) < BADGER_RULES.blinkMs) ctx.globalAlpha = blinkAlpha(now);
   dangerOutline(cx, cy, w, h, cell, now);
   const px = Math.max(1, Math.round(w * 0.98));
   const img = sprite('badger', px);
