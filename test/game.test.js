@@ -715,13 +715,13 @@ describe('display effects toggles', () => {
     const { game, display } = setup();
     game.tickOnce();
     const msg = display.last('state');
-    assert.deepEqual(msg.effects, { deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true });
+    assert.deepEqual(msg.effects, { deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true, killPopups: false });
     assert.equal(msg.tickMs, game.config.tickMs);
   });
 
   test('the admin turns each one on and off, live', () => {
     const { game, display, admin } = setup();
-    for (const key of ['deathParticles', 'appleRings', 'screenShake', 'snakeAnimations']) {
+    for (const key of ['deathParticles', 'appleRings', 'screenShake', 'snakeAnimations', 'killPopups']) {
       admin.send({ t: 'settings', [key]: true });
       assert.equal(display.last('state').effects[key], true);
       admin.send({ t: 'settings', [key]: false });

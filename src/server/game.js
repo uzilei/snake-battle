@@ -26,7 +26,7 @@ const RESET_TARGETS = Object.freeze([...RECORD_STATS, 'all']);
 // Cosmetic /display effects: applied live, no effect on the game itself.
 // Each with its default: the snake animations (eyes, blinking, tongue, mouth,
 // swallow bumps) are on unless the admin turns them off.
-const EFFECT_DEFAULTS = Object.freeze({ deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true });
+const EFFECT_DEFAULTS = Object.freeze({ deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true, killPopups: false });
 export const EFFECT_SETTINGS = Object.freeze(Object.keys(EFFECT_DEFAULTS));
 export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
 const SELF = 'self';

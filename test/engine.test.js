@@ -1064,6 +1064,34 @@ describe('kills', () => {
     assert.equal(kills(e, 'a'), 0);
   });
 
+  test("credited deaths number the killer's snake kills this round", () => {
+    // c gets a and b at once, then e runs into c's body a tick later.
+    const e = setup({
+      a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+      b: [[[6, 5], [7, 5], [8, 5], [9, 5]], 'left'],
+      c: [[[5, 7], [5, 6], [5, 5], [5, 4]], 'down'],
+      d: bystander,
+      e: [[[3, 7], [2, 7], [1, 7]], 'right'],
+    });
+    e.tick();
+    assert.deepEqual(['a', 'b'].map((id) => deathOf(e, id).killNo).sort(), [1, 2]);
+    e.tick(); // e reaches (5, 7): c's body by now
+    assert.equal(player(e, 'e').status, 'dead');
+    assert.deepEqual(deathOf(e, 'e'), { type: 'death', id: 'e', killerId: 'c', killNo: 3 });
+  });
+
+  test('the kill numbering starts again each round', () => {
+    const e = setup({ a: [[[4, 5], [3, 5], [2, 5]], 'right'], b: [[[5, 7], [5, 6], [5, 5], [5, 4]], 'down'] });
+    e.tick(); // a runs into b: b alone, the round ends
+    assert.equal(deathOf(e, 'a').killNo, 1);
+    for (let i = 0; i < 20 && !(e.getState().phase === 'playing' && e.getState().round === 2); i++) e.tick();
+    assert.equal(e.getState().round, 2);
+    e._debug.setSnake('a', [[4, 5], [3, 5], [2, 5]], 'right');
+    e._debug.setSnake('b', [[5, 7], [5, 6], [5, 5], [5, 4]], 'down');
+    e.tick();
+    assert.equal(deathOf(e, 'a').killNo, 1);
+  });
+
   test('a killer that dies on the same tick still gets the kill', () => {
     // a runs into b's body at (5, 5) while b's head leaves the board.
     const e = setup({

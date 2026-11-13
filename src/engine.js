@@ -127,7 +127,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   const cfg = config ?? {};
   Object.assign(cfg, { ...createDefaultConfig(), ...sanitizeConfig(cfg) });
 
-  // id -> { id, name, colorIndex, status: 'queued' | 'alive' | 'dead', snake, kills, bot }
+  // id -> { id, name, colorIndex, status: 'queued' | 'alive' | 'dead', snake, kills, snakeKills, bot }
+  // (kills counts the badger too; snakeKills only snakes)
   // `bot`: a computer player. It doesn't count toward maxPlayers, and a round
   // with nobody but bots left alive ends as soon as a person is waiting.
   // Map preserves join order, which keeps spawning deterministic.
@@ -167,7 +168,9 @@ export function createEngine({ config, random = Math.random } = {}) {
   let intermissionElapsed = 0;
   let countdownElapsed = 0;
   // What happened during the latest tick, for renderers (effects, sounds...):
-  // { type: 'eat', id, x, y } | { type: 'death', id } | { type: 'headOn', ids }.
+  // { type: 'eat', id, x, y } | { type: 'death', id, killerId, killNo? } |
+  // { type: 'headOn', ids }. killNo: which of the killer's snake kills this
+  // round it is (1, 2, ...), only when someone got the kill.
   // Rebuilt every tick; read-only output, never input.
   let events = [];
 
@@ -479,6 +482,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     // waits for a turn.
     for (const p of players.values()) {
       p.kills = 0;
+      p.snakeKills = 0;
       if (!spawnInto(p, occupied, others)) {
         p.snake = null;
         p.status = 'queued'; // grid too crowded, try again next round
@@ -688,8 +692,13 @@ export function createEngine({ config, random = Math.random } = {}) {
     p.snake.effect = null;
     fallen.push(p.snake);
     const credited = by && by !== p && players.get(by.id) === by ? by : null;
-    if (credited) credited.kills++;
-    events.push({ type: 'death', id: p.id, killerId: credited ? credited.id : null });
+    if (!credited) {
+      events.push({ type: 'death', id: p.id, killerId: null });
+      return;
+    }
+    credited.kills++;
+    credited.snakeKills = (credited.snakeKills ?? 0) + 1;
+    events.push({ type: 'death', id: p.id, killerId: credited.id, killNo: credited.snakeKills });
   }
 
   // A shield takes the hit: it pops and the snake is a ghost for a moment,
@@ -1606,7 +1615,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     const used = new Set([...players.values()].map((p) => p.colorIndex));
     let colorIndex = 0;
     while (used.has(colorIndex)) colorIndex++;
-    const p = { id, name: String(name), colorIndex, status: 'queued', snake: null, kills: 0, bot: Boolean(bot) };
+    const p = { id, name: String(name), colorIndex, status: 'queued', snake: null, kills: 0, snakeKills: 0, bot: Boolean(bot) };
     players.set(id, p);
     if (!bot) {
       // People come before bots in the player list (spawning, scoreboard ties, /admin).

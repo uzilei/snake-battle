@@ -45,6 +45,11 @@ export const STRINGS = Object.freeze({
     panelNames: { leaderboard: 'Classifica', records: 'Record', join: 'Come giocare' },
     panelPrev: '← {name}',
     panelNext: '{name} →',
+    // Popup over a snake killed by another (/admin effect), by the killer's
+    // snake kills this round. Left in English on purpose (arcade style); past
+    // the last one, killPopupMore with the count.
+    killPopups: ['KILL!', 'DOUBLE KILL!!', 'TRIPLE KILL!!!', 'QUADRA KILL!!!!', 'PENTA KILL!!!!!'],
+    killPopupMore: '{n}× KILL!!!!!',
   },
 
   // ---- join panel (display side column and /admin/print) ------------------
@@ -173,6 +178,7 @@ export const STRINGS = Object.freeze({
     appleRings: 'Anello quando si mangia una mela',
     screenShake: 'Scossa dello schermo negli scontri frontali',
     snakeAnimations: 'Animazioni dei serpenti (sguardo, battito di ciglia, lingua, bocca, boccone che scende, occhiolino dopo un’eliminazione)',
+    killPopups: 'Scritta «KILL!» con particelle su ogni eliminazione («DOUBLE KILL!!», «TRIPLE KILL!!!»… per chi ne fa di più nel round)',
     fruitsTitle: 'Frutta',
     fruitsHint: 'Le mele compaiono come uno di questi frutti, a caso. Solo grafica: vale per le mele nuove. Nessuno selezionato = tutte 🍎.',
     fruitsAll: 'Tutti',

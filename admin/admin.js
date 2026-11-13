@@ -90,6 +90,7 @@ const RULE_TOGGLES = {
   appleRings: 'settings',
   screenShake: 'settings',
   snakeAnimations: 'settings',
+  killPopups: 'settings',
 };
 for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
   $(`l-${key}`).textContent = A[key];

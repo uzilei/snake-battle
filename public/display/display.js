@@ -914,7 +914,7 @@ function drawFace(hx, hy, pose, look, headR, cell) {
         ctx.restore();
       }
     }
-    ctx.lineWidth = Math.max(1, cell * 0.06);
+    ctx.lineWidth = Math.max(1, cell * 0.1);
     ctx.strokeStyle = look.dark;
     ctx.beginPath();
     ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
@@ -1099,6 +1099,93 @@ function applyShake(now) {
   } else if (shaking) {
     canvas.style.transform = '';
     shaking = false;
+  }
+}
+
+// ---- kill popups (an /admin toggle) ----
+// "KILL!", "DOUBLE KILL!!"... over the head of a snake killed by another,
+// tilted, popping in with a burst, then floating up and fading. The more
+// kills the killer has this round, the bigger and hotter it gets.
+const KILL_POPUP_MS = 1500;
+const KILL_TIERS = ['#ffffff', '#ffe066', '#ffa726', '#ff5252', '#e040fb']; // fill per kill number
+const killPopups = []; // { x, y, n, text, color, start, tilt, end }
+
+function killText(n) {
+  const names = STRINGS.display.killPopups;
+  return n <= names.length ? names[n - 1] : fmt(STRINGS.display.killPopupMore, { n });
+}
+
+function addKillPopup(x, y, n, color, now) {
+  // Kills close together: the older popups nearby make way, fading out fast.
+  for (const p of killPopups) {
+    if (Math.abs(p.x - x) < 5 && Math.abs(p.y - y) < 3) p.end = Math.min(p.end, now + 200);
+  }
+  const side = Math.random() < 0.5 ? -1 : 1;
+  killPopups.push({ x, y, n, text: killText(n), color, start: now, tilt: side * (0.08 + Math.random() * 0.12), end: now + KILL_POPUP_MS });
+  const hot = KILL_TIERS[Math.min(n, KILL_TIERS.length) - 1];
+  const colors = ['#ffd54f', '#ffffff', color, hot];
+  const tier = Math.min(n, 6);
+  // Gold stars and confetti in the killer's color, more and faster each kill.
+  for (let i = 0, count = 14 + 8 * tier; i < count && particles.length < MAX_PARTICLES; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = (5 + tier) * (0.35 + Math.random() * 0.65);
+    particles.push({
+      x: x + 0.5, y: y + 0.5, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1.5, born: now,
+      life: 600 + Math.random() * 500, r: 0.1 + Math.random() * 0.12 + 0.02 * tier, color: colors[i % colors.length],
+      star: i % 3 !== 2, spin: Math.random() * Math.PI,
+    });
+  }
+  rings.push({ x, y, color: hot, start: now, ms: 520, r0: 0.4, r1: 1.4 + 0.35 * tier, width: 0.18 });
+  if (n >= 2) rings.push({ x, y, color: color, start: now + 90, ms: 520, r0: 0.3, r1: 1 + 0.3 * tier, width: 0.12 });
+}
+
+const easeOutBack = (e) => 1 + 2.7 * (e - 1) ** 3 + 1.7 * (e - 1) ** 2;
+
+function drawKillPopups(cell, size, now) {
+  for (let i = killPopups.length - 1; i >= 0; i--) {
+    const p = killPopups[i];
+    const e = (now - p.start) / KILL_POPUP_MS;
+    if (now >= p.end) {
+      killPopups.splice(i, 1);
+      continue;
+    }
+    const tier = Math.min(p.n, 6);
+    // Readable on any board: at least 3% of the board, a cell otherwise.
+    const fontPx = Math.round(Math.max(cell * 0.8, size * 0.03) * (1 + 0.22 * (tier - 1)));
+    const font = `900 ${fontPx}px system-ui, "Segoe UI", Roboto, sans-serif`;
+    const pop = easeOutBack(clamp(e / 0.16, 0, 1)); // 0 -> 1, overshooting
+    const fade = Math.min(e < 0.65 ? 1 : 1 - (e - 0.65) / 0.35, (p.end - now) / 200); // making way: gone in 200 ms
+    const rise = cell * 0.9 * (1 - (1 - e) ** 2);
+    ctx.save();
+    ctx.font = font;
+    const w = ctx.measureText(p.text).width;
+    const pad = fontPx * 0.4;
+    const x = clamp((p.x + 0.5) * cell, w / 2 + pad, size - w / 2 - pad);
+    const y = clamp((p.y + 0.5) * cell - cell * 0.6 - rise, fontPx, size - fontPx);
+    ctx.translate(x, y);
+    // From 3 kills on it shakes a little as it lands.
+    const wobble = tier >= 3 ? Math.sin((now - p.start) / 28) * 0.06 * (1 - clamp(e / 0.35, 0, 1)) : 0;
+    ctx.rotate(p.tilt + wobble);
+    ctx.scale(pop, pop);
+    ctx.globalAlpha = clamp(fade, 0, 1);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    // A sticker: dark edge, the killer's color, then the fill.
+    ctx.lineWidth = fontPx * 0.32;
+    ctx.strokeStyle = 'rgba(4, 6, 12, 0.92)';
+    ctx.strokeText(p.text, 0, 0);
+    ctx.lineWidth = fontPx * 0.14;
+    ctx.strokeStyle = p.color;
+    ctx.strokeText(p.text, 0, 0);
+    const fill = p.n > KILL_TIERS.length ? `hsl(${((now - p.start) / 4) % 360}, 100%, 70%)` : KILL_TIERS[p.n - 1];
+    if (tier >= 3) {
+      ctx.shadowColor = fill;
+      ctx.shadowBlur = fontPx * 0.5;
+    }
+    ctx.fillStyle = fill;
+    ctx.fillText(p.text, 0, 0);
+    ctx.restore();
   }
 }
 
@@ -1337,6 +1424,11 @@ function onState(msg) {
         diedAt.set(ev.id, now);
         const snake = s.snakes.find((x) => x.id === ev.id);
         if (fx.deathParticles && snake) burst(snake, now);
+        if (fx.killPopups && snake && ev.killNo) {
+          const head = snake.segments[0];
+          addKillPopup(head.x, head.y, ev.killNo, colorOf(ev.killerId), now);
+          if (fx.screenShake && ev.killNo >= 3) shakeStart = now;
+        }
         // The killer winks, with a little sparkle by its head.
         const killer = ev.killerId && s.snakes.find((x) => x.id === ev.killerId);
         if (fx.snakeAnimations && killer?.alive) wink(killer, now);
@@ -1408,6 +1500,7 @@ function drawBoard(msg, now, dt) {
   drawEffects(cell, now, dt);
   drawEffectBadges(badges, cell, now);
   drawNames(labels, cell, size);
+  drawKillPopups(cell, size, now);
   drawBadgerHud(state.badger, msg.badgerName, cell, size, now);
   applyShake(now);
 }
