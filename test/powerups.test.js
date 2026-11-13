@@ -26,7 +26,7 @@ function seeded(seed) {
 // their own tests), so spawned items are exactly apples and power-ups.
 function setup(snakes, config = {}) {
   const engine = createEngine({
-    config: { gridSize: 20, appleCount: 0, intermissionMs: 0, ratChance: 0, ...config },
+    config: { gridSize: 20, appleCount: 0, intermissionMs: 0, ratChance: 0, chickenChance: 0, ...config },
     random: seeded(42),
   });
   for (const id of Object.keys(snakes)) engine.addPlayer(id, id);
@@ -675,7 +675,7 @@ describe('spawn protection', () => {
   // Spawned by the engine itself (no _debug.setSnake, which places a bare
   // snake), so the shield is the one every round starts with.
   const spawned = (config = {}) => {
-    const e = createEngine({ config: { gridSize: 30, appleCount: 0, intermissionMs: 0, ratChance: 0, tickMs: 100, ...config }, random: seeded(3) });
+    const e = createEngine({ config: { gridSize: 30, appleCount: 0, intermissionMs: 0, ratChance: 0, chickenChance: 0, tickMs: 100, ...config }, random: seeded(3) });
     e.addPlayer('a', 'A');
     e.addPlayer('b', 'B');
     e.tick(); // the round starts

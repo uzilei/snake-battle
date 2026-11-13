@@ -25,7 +25,7 @@ function gameOn(file, log = quiet) {
 }
 
 const CHANGES = {
-  config: { tickMs: 120, gridSize: 40, appleCount: 7, wrapWalls: true, corpseApples: true, timeLimitWin: true, roundTimeLimitSec: 90, timeLimitWinner: 'kills', targetLengthWin: true, targetLength: 25, powerUps: true, powerUpChance: 60, bombsPerMinute: 9, bombMode: 'kill', ratChance: 40, spawnShieldSec: 7, weightGolden: 0, weightGun: 7, weightShield: 10 },
+  config: { tickMs: 120, gridSize: 40, appleCount: 7, wrapWalls: true, corpseApples: true, timeLimitWin: true, roundTimeLimitSec: 90, timeLimitWinner: 'kills', targetLengthWin: true, targetLength: 25, powerUps: true, powerUpChance: 60, bombsPerMinute: 9, bombMode: 'kill', ratChance: 40, chickenChance: 15, spawnShieldSec: 7, weightGolden: 0, weightGun: 7, weightShield: 10 },
   settings: { sidePanel: 'records', keyboardPlayers: true, leaderboard: true, leaderboardStat: 'kills', displayButtons: true, hats: false, badgerName: 'Re Tasso', deathParticles: true, appleRings: true, screenShake: true, snakeAnimations: false, fruits: ['1f34e'] },
 };
 

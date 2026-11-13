@@ -73,7 +73,7 @@ Off by default. "Power-up attivi" on /admin turns them on from the next round; t
 | 💣 | Bomb | A head entering any of its 9 cells sets it off. What happens depends on "Effetto delle bombe" on /admin (saved, applies at once). In "cut" mode (the default) the front half of the snake (at least 1 segment) is blown off and vanishes, and the snake carries on from the rest, in the direction that part was going, as a ghost for 1 s; its pending growth and queued turns are cleared, and if fewer than 3 segments would remain it dies. In "kill" mode the snake dies outright. Either way nobody gets the kill, a ghost passes through without setting it off, and a shield pops instead. |
 | 🔫 | Gun | Fires one projectile straight ahead: 2 cells per tick, never wraps. Any snake it hits dies (the shooter gets the kill, unless it hit itself). Two projectiles that meet both vanish. |
 | 🧲 | Magnet | For 5 s, every apple (regular or extra) within 3 cells flies straight into the mouth and is eaten. Power-ups and bombs aren't pulled. |
-| 🧊 | Freeze | For 3 s, every other snake moves only every second tick. Rats and the badger move half as often too, and are tinted blue like the frozen snakes. |
+| 🧊 | Freeze | For 3 s, every other snake moves only every second tick. Rats, chickens and the badger move half as often too, and are tinted blue like the frozen snakes. |
 | ✂️ | Scissors | For 8 s, the next time it runs into a body (another snake's or its own), it cuts that snake there instead of dying. A cut leaving fewer than 3 segments kills: it counts as a kill when it was another snake, and as no kill when it was yourself. Head-ons and heads are unaffected. |
 | 🌀 | Portal | A two-way pair for 8 s: one end where it was eaten, the other somewhere safe with 3 free cells ahead. The eater's head goes through at once; after that, any head entering either end comes out of the other, same direction, and the body follows. Projectiles ignore portals. |
 | 🍗 | Feast | 10 extra apples on the free cells around the eater. |
@@ -92,7 +92,19 @@ Rare food that runs away. A new apple becomes a rat with the "topo" probability 
 - **Not affected:** the magnet doesn't pull rats. A projectile (or a gun fired right next to one) kills a rat. The rat just disappears, and nobody gets a kill.
 - **/display:** each rat is drawn as 🐀 or 🐁 (fixed per rat, purely visual). Rats slide smoothly between cells. The sprite is never rotated: it's mirrored while running right, and keeps its last left/right look while running up or down.
 
-Rules and numbers live in `src/shared/rats.js`; the engine's `moveRats` does the movement.
+Rules and numbers live in `src/shared/rats.js`; the engine's `moveCreatures` does the movement.
+
+## Chickens 🐓
+
+Rarer food that flees. A new apple becomes a chicken with the "gallo" probability on /admin (2% by default, 0 = never), rolled when the rat roll fails. Like the rat's, the setting is saved, applies at once and doesn't depend on the power-up switch. Chickens take an apple's place and count toward the number of apples.
+
+- **Calm:** it moves exactly like a rat: one cell every second tick, a new random direction every 2–20 ticks or when blocked, wrapping with the walls, ignoring portals.
+- **Alerted:** a snake head (ghosts too) 2 grid steps away or closer alerts it. It then moves every tick, starting that very tick. Each move, 80% of the time it takes the free way that ends furthest from the nearest head (back where it came from included); otherwise it moves like a rat. It calms down once no head has come that close for 1 s.
+- **Eating:** caught exactly like a rat: a head entering its cell, or the chicken running into or out of the cell a head is entering. Ghosts catch it too. It grows the snake by 25 × "Crescita per mela", and a feast spawns round the eater, as if it had picked up 🍗. The 🍗 power-up itself is unchanged.
+- **Not affected:** the magnet doesn't pull it. A projectile (or a gun fired right next to it) kills it: nobody grows or scores, but the feast spawns where it died. The badger kills it like a rat, with no feast.
+- **/display:** 🐓, never rotated, mirrored while running right, sliding between cells, on the rats' green glow. While it's alerted a small ❗ pops up above it and bobs, and goes when it calms down.
+
+Rules and numbers live in `src/shared/chicken.js`.
 
 ## Honey badger 🦡
 
@@ -112,14 +124,14 @@ There is never more than one badger on the board.
 
   A shield pops instead of any of these, and the badger never gives anyone a kill. Several snakes can be bitten at once. The badger bites before items are eaten, so a head can't eat its way out of it through a portal.
 - **Items:** ignored. Fruits and power-ups spawn and stay under it as usual.
-- **Rats:** a new apple that would become a rat under the badger (warning included) stays a plain apple. A rat inside the active badger dies, whether it ran in, the badger moved onto it, or it was under the warning when the badger became active. Nobody grows or gets a kill.
+- **Rats and chickens:** a new apple that would become a rat or a chicken under the badger (warning included) stays a plain apple. A rat or chicken inside the active badger dies, whether it ran in, the badger moved onto it, or it was under the warning when the badger became active. Nobody grows or gets a kill, and a chicken leaves no feast.
 - **Projectiles:** a projectile entering any of its cells (or that the badger steps onto, or a gun fired right next to it) kills the badger at once. That is a kill for the shooter, and the projectile is used up.
 - **/display:**
   - one big 🦡 over its block, never rotated, mirrored while heading right, sliding smoothly;
   - while active, a red outline pulses round it;
   - the warning is a dashed, pulsing red outline with ⚠️ in the middle;
   - a shot badger goes off in a bomb's burst the size of its block, and the shooter winks;
-  - rats get a soft green glow, so green means eat and red means run;
+  - rats and chickens get a soft green glow, so green means eat and red means run;
   - a boss name: the /admin field "Nome del tasso" (saved, up to 20 characters, cleaned like a player name, empty for none) is drawn under its block in big bold red-outlined letters, from the warning on, or above the block when there's no room below.
 
   The burst and the puff follow the particles toggle.

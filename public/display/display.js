@@ -6,6 +6,7 @@ import { playerColor } from '/shared/colors.js';
 import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt } from '/shared/snake-path.js';
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
 import { RAT_RULES } from '/shared/rats.js';
+import { CHICKEN_RULES } from '/shared/chicken.js';
 import { BADGER_RULES } from '/shared/badger.js';
 import { FRUIT_CODES } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
@@ -45,6 +46,8 @@ const ITEM_IMAGES = {
   ...Object.fromEntries(POWER_UPS.map((p) => [p.type, loadImage(`/twemoji/${p.twemoji}.svg`)])),
   rat: loadImage(`/twemoji/${RAT_RULES.twemoji}.svg`),
   mouse: loadImage(`/twemoji/${RAT_RULES.mouseTwemoji}.svg`),
+  chicken: loadImage(`/twemoji/${CHICKEN_RULES.twemoji}.svg`),
+  alert: loadImage(`/twemoji/${CHICKEN_RULES.alertTwemoji}.svg`),
   badger: loadImage(`/twemoji/${BADGER_RULES.twemoji}.svg`),
   warning: loadImage(`/twemoji/${BADGER_RULES.warningTwemoji}.svg`),
   ...Object.fromEntries(HATS.map((h) => [`hat-${h.id}`, loadImage(`/twemoji/${h.twemoji}.svg`)])),
@@ -1066,7 +1069,10 @@ let fruits = new Map(); // "x,y" -> which fruit sprite the plain apple there is 
 // Rats slide from cell to cell over the moveEveryTicks ticks a step takes.
 // facing: 1 = as the emoji is drawn (left), -1 = mirrored (right).
 let rats = new Map(); // id -> { from, to, start, ms, facing }
-let eatenRats = []; // { from, to, start, ms, facing, color, id }: sliding into the mouth that ate them
+// Chickens slide the same way; alertSince: when its ❗ popped up (null: calm).
+let chickens = new Map(); // id -> { from, to, start, ms, facing, alertSince }
+// Rats and chickens sliding into the mouth that ate them; sprite: what to draw.
+let eatenRats = []; // { from, to, start, ms, facing, color, sprite }
 // The badger slides like a rat, a cell every moveEveryTicks ticks.
 let badgerAnim = null; // { id, from, to, start, ms, facing }
 const FLIGHT_MS = 200;
@@ -1158,6 +1164,7 @@ function onState(msg) {
       eaten = [];
       flights = [];
       rats = new Map();
+      chickens = new Map();
       eatenRats = [];
       badgerAnim = null;
       anims.clear();
@@ -1177,6 +1184,17 @@ function onState(msg) {
       if (!old) rats.set(r.id, { from: r, to: r, start: now, ms: 1, facing: r.dir === 'right' ? -1 : 1 });
       else if (old.to.x === r.x && old.to.y === r.y) rats.set(r.id, old);
       else rats.set(r.id, ratStep(old, r, s.gridSize, now, msg.tickMs * (r.stepTicks ?? RAT_RULES.moveEveryTicks)));
+    }
+    const oldChickens = chickens;
+    chickens = new Map();
+    for (const c of s.chickens ?? []) {
+      const old = oldChickens.get(c.id);
+      let anim;
+      if (!old) anim = { from: c, to: c, start: now, ms: 1, facing: c.dir === 'right' ? -1 : 1 };
+      else if (old.to.x === c.x && old.to.y === c.y) anim = { ...old };
+      else anim = ratStep(old, c, s.gridSize, now, msg.tickMs * (c.stepTicks ?? CHICKEN_RULES.moveEveryTicks));
+      anim.alertSince = c.alerted ? (old?.alertSince ?? now) : null;
+      chickens.set(c.id, anim);
     }
     // Where the badger was drawn until now (for its burst or puff if it's gone).
     const oldBadger = badgerAnim;
@@ -1202,7 +1220,7 @@ function onState(msg) {
         // A swallow bump, once the food has visibly gone in (a bomb isn't food).
         if (fx.snakeAnimations && ev.item !== 'bomb') {
           const start = now + (ev.magnet ? FLIGHT_MS : msg.tickMs * EAT_AT);
-          animOf(ev.id, now).bumps.push({ start, size: ev.item === 'rat' ? 1.5 : ev.item ? 1.2 : 1 });
+          animOf(ev.id, now).bumps.push({ start, size: ev.item === 'chicken' ? 1.8 : ev.item === 'rat' ? 1.5 : ev.item ? 1.2 : 1 });
         }
         // A bomb goes off at once (its x, y is the block's center).
         const fruit = ev.item ? undefined : oldFruits.get(`${ev.x},${ev.y}`);
@@ -1210,7 +1228,10 @@ function onState(msg) {
         else if (ev.item === 'rat') {
           // It slides on from wherever it was drawn into the head's cell.
           const old = oldRats.get(ev.ratId);
-          if (old) eatenRats.push({ ...ratStep(old, ev, s.gridSize, now, msg.tickMs * EAT_AT), color: colorOf(ev.id), id: ev.ratId });
+          if (old) eatenRats.push({ ...ratStep(old, ev, s.gridSize, now, msg.tickMs * EAT_AT), color: colorOf(ev.id), sprite: ratSprite(ev.ratId) });
+        } else if (ev.item === 'chicken') {
+          const old = oldChickens.get(ev.chickenId);
+          if (old) eatenRats.push({ ...ratStep(old, ev, s.gridSize, now, msg.tickMs * EAT_AT), color: colorOf(ev.id), sprite: 'chicken' });
         } else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item, sprite: fruit });
         if (ev.item === 'bomb') {
           if (fx.screenShake) shakeStart = now;
@@ -1233,6 +1254,8 @@ function onState(msg) {
         if (fx.screenShake) shakeStart = now;
       } else if (ev.type === 'ratCaught') {
         if (fx.deathParticles) sparks(ev.x, ev.y, now, 14, ['#bdbdbd', '#9e9e9e', '#ff5252']);
+      } else if (ev.type === 'chickenCaught') {
+        if (fx.deathParticles) sparks(ev.x, ev.y, now, 16, ['#ffffff', '#ffe0b2', '#ff5252']); // feathers
       } else if (ev.type === 'projectileEnd') {
         if (fx.deathParticles) sparks(ev.x, ev.y, now, ev.hit ? 22 : 10, ['#fffde7', '#ffe082', '#ffb74d']);
         if (ev.hit && fx.screenShake) shakeStart = now;
@@ -1290,6 +1313,7 @@ function drawBoard(msg, now, dt) {
   if (animate) {
     const food = items.filter((it) => it.type !== 'bomb');
     for (const r of rats.values()) food.push(ratAt(r, now));
+    for (const c of chickens.values()) food.push(ratAt(c, now));
     for (const r of eatenRats) food.push(ratAt(r, now));
     const heads = new Map();
     for (const [id, a] of anims) if (a.head) heads.set(id, a.head);
@@ -1342,9 +1366,11 @@ function ratStep(old, to, n, now, ms) {
   return { from, to: { x: to.x, y: to.y }, start: now, ms: Math.max(1, ms), facing };
 }
 
-function drawRat(x, y, facing, cell, n, id, frozen) {
+// A rat or a chicken (type: its sprite), unrotated, mirrored when facing
+// right, on a soft green glow.
+function drawRat(x, y, facing, cell, n, type, frozen) {
   const px = Math.max(1, Math.round(cell * 0.9));
-  const img = creatureSprite(ratSprite(id), px, frozen);
+  const img = creatureSprite(type, px, frozen);
   // Partly off one edge (wrapping in): also drawn on the other side.
   const xs = [x, ...(x < 0 ? [x + n] : x > n - 1 ? [x - n] : [])];
   const ys = [y, ...(y < 0 ? [y + n] : y > n - 1 ? [y - n] : [])];
@@ -1354,7 +1380,7 @@ function drawRat(x, y, facing, cell, n, id, frozen) {
       ctx.translate((ax + 0.5) * cell, (ay + 0.5) * cell);
       // A soft green glow: food (where the badger's red means danger).
       const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, cell * 0.8);
-      glow.addColorStop(0, 'rgba(110, 255, 140, 0.42)');
+      glow.addColorStop(0, 'rgba(110, 255, 140, 0.24)');
       glow.addColorStop(1, 'rgba(110, 255, 140, 0)');
       ctx.fillStyle = glow;
       ctx.fillRect(-cell * 0.8, -cell * 0.8, cell * 1.6, cell * 1.6);
@@ -1370,10 +1396,34 @@ function drawRat(x, y, facing, cell, n, id, frozen) {
   }
 }
 
+// A chicken's ❗ while it's alerted: it pops up above it, bobs a little,
+// and stays on the board on the top row.
+function drawAlert(x, y, since, cell, now) {
+  const k = clamp((now - since) / 220, 0, 1);
+  const pop = k < 1 ? 1 + 2.7 * (k - 1) ** 3 + 1.7 * (k - 1) ** 2 : 1; // ease out, overshooting a little
+  const size = cell * 0.62 * pop;
+  const px = Math.max(1, Math.round(cell * 0.62));
+  const img = sprite('alert', px);
+  if (!img || size <= 0) return;
+  const cx = (x + 0.5) * cell;
+  const bob = Math.sin(now / 110) * cell * 0.06;
+  const cy = Math.max(size / 2, (y + 0.5) * cell - cell * 0.8 + bob);
+  ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+}
+
 function drawRats(cell, n, now, fx, frozen) {
   for (const [id, r] of rats) {
     const at = ratAt(r, now);
-    drawRat(at.x, at.y, r.facing, cell, n, id, frozen);
+    drawRat(at.x, at.y, r.facing, cell, n, ratSprite(id), frozen);
+  }
+  for (const c of chickens.values()) {
+    const at = ratAt(c, now);
+    drawRat(at.x, at.y, c.facing, cell, n, 'chicken', frozen);
+  }
+  for (const c of chickens.values()) {
+    if (c.alertSince === null) continue;
+    const at = ratAt(c, now);
+    drawAlert(at.x, at.y, c.alertSince, cell, now);
   }
   eatenRats = eatenRats.filter((r) => {
     if (now >= r.start + r.ms) {
@@ -1381,7 +1431,7 @@ function drawRats(cell, n, now, fx, frozen) {
       return false;
     }
     const at = ratAt(r, now);
-    drawRat(at.x, at.y, r.facing, cell, n, r.id, frozen);
+    drawRat(at.x, at.y, r.facing, cell, n, r.sprite, frozen);
     return true;
   });
 }

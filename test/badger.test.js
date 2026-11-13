@@ -23,7 +23,7 @@ function seeded(seed) {
 // badgers unless asked for.
 function setup(snakes, config = {}) {
   const engine = createEngine({
-    config: { gridSize: 20, appleCount: 0, intermissionMs: 0, ratChance: 0, spawnShieldSec: 0, badgerEverySec: 0, tickMs: 100, ...config },
+    config: { gridSize: 20, appleCount: 0, intermissionMs: 0, ratChance: 0, chickenChance: 0, spawnShieldSec: 0, badgerEverySec: 0, tickMs: 100, ...config },
     random: seeded(42),
   });
   for (const id of Object.keys(snakes)) engine.addPlayer(id, id);
@@ -74,7 +74,7 @@ describe('badger spawning', () => {
   // Snakes circling on a wrapping board, so the round goes on.
   function circling(seed, config = {}) {
     const e = createEngine({
-      config: { gridSize: 24, appleCount: 0, ratChance: 0, spawnShieldSec: 0, wrapWalls: true, badgerEverySec: 30, tickMs: 100, ...config },
+      config: { gridSize: 24, appleCount: 0, ratChance: 0, chickenChance: 0, spawnShieldSec: 0, wrapWalls: true, badgerEverySec: 30, tickMs: 100, ...config },
       random: seeded(seed),
     });
     for (const id of ['a', 'b', 'c']) e.addPlayer(id, id);
@@ -257,7 +257,7 @@ describe('badger movement', () => {
     let kept = 0;
     for (let seed = 1; seed <= 40; seed++) {
       const e = createEngine({
-        config: { gridSize: 40, appleCount: 0, ratChance: 0, spawnShieldSec: 0, badgerEverySec: 0, tickMs: 100 },
+        config: { gridSize: 40, appleCount: 0, ratChance: 0, chickenChance: 0, spawnShieldSec: 0, badgerEverySec: 0, tickMs: 100 },
         random: seeded(seed),
       });
       e.addPlayer('z', 'z');
@@ -284,7 +284,7 @@ describe('badger movement', () => {
       const out = new Set();
       for (let seed = 1; seed <= 20; seed++) {
         const e = createEngine({
-          config: { gridSize: 20, appleCount: 0, ratChance: 0, spawnShieldSec: 0, badgerEverySec: 0, tickMs: 100 },
+          config: { gridSize: 20, appleCount: 0, ratChance: 0, chickenChance: 0, spawnShieldSec: 0, badgerEverySec: 0, tickMs: 100 },
           random: seeded(seed),
         });
         e.addPlayer('z', 'z');

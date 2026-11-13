@@ -22,7 +22,7 @@ function seeded(seed) {
 // first, dir]) and an empty board. Tick 1 starts the round.
 function setup(snakes, config = {}, seed = 42) {
   const engine = createEngine({
-    config: { gridSize: 20, appleCount: 0, intermissionMs: 0, ratChance: 0, ...config },
+    config: { gridSize: 20, appleCount: 0, intermissionMs: 0, ratChance: 0, chickenChance: 0, ...config },
     random: seeded(seed),
   });
   for (const id of Object.keys(snakes)) engine.addPlayer(id, id);
@@ -42,7 +42,7 @@ const NEVER = 1e9; // a tick that never comes
 // nor spawns new ones (until something is eaten).
 function fill(e) {
   const s = e.getState();
-  e.updateConfig({ appleCount: s.apples.length + s.powerUps.length + s.rats.length });
+  e.updateConfig({ appleCount: s.apples.length + s.powerUps.length + s.rats.length + s.chickens.length });
 }
 const rats = (e) => e.getState().rats.map((r) => [r.x, r.y]);
 const rat = (e) => e._debug.rats()[0];
@@ -373,7 +373,7 @@ describe('rat spawning', () => {
   });
 
   test('at 0% no rat ever appears', () => {
-    const e = createEngine({ config: { gridSize: 12, appleCount: 10, intermissionMs: 0, ratChance: 0, wrapWalls: true }, random: seeded(5) });
+    const e = createEngine({ config: { gridSize: 12, appleCount: 10, intermissionMs: 0, ratChance: 0, chickenChance: 0, wrapWalls: true }, random: seeded(5) });
     e.addPlayer('a', 'a');
     e.addPlayer('b', 'b');
     for (let i = 0; i < 300; i++) {

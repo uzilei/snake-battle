@@ -6,6 +6,7 @@
 
 import { WEIGHTED_POWER_UPS, POWER_UP_TYPES, POWER_UP_RULES, weightKey } from './shared/powerups.js';
 import { RAT_RULES } from './shared/rats.js';
+import { CHICKEN_RULES } from './shared/chicken.js';
 import { BADGER_RULES } from './shared/badger.js';
 
 export const DIRECTIONS = Object.freeze({
@@ -38,6 +39,9 @@ export const CONFIG_LIMITS = Object.freeze({
   // % of new apples that are a rat instead (0 = no rats). Read live, and
   // independent of the powerUps toggle.
   ratChance: { min: 0, max: 100, default: 3 },
+  // % of new apples that are a chicken instead (0 = no chickens), rolled
+  // when the rat roll fails. Read live, independent of powerUps.
+  chickenChance: { min: 0, max: 100, default: 2 },
   maxPlayers: { min: 1, max: 24, default: 24 },
   gridSize: { min: 10, max: 80, default: 30 },
   intermissionMs: { min: 0, max: 30000, default: 4000 },
@@ -134,15 +138,16 @@ export function createEngine({ config, random = Math.random } = {}) {
   let win = lockWin(); // the numbers behind rules.timeLimitWin / targetLengthWin
   let playingElapsed = 0; // ms of PLAYING ticks this round, for the time limit
   let endReason = null; // why the last round ended: 'lastAlive' | 'time' | 'target'
-  // Board items. Apples, power-ups ({ x, y, type }) and rats ({ x, y,
-  // type: 'rat', id, dir, ... }, see moveRats) share one list in spawn order.
+  // Board items. Apples, power-ups ({ x, y, type }) and creatures (rats and
+  // chickens: { x, y, type: 'rat' | 'chicken', id, dir, ... }, see
+  // moveCreatures) share one list in spawn order.
   // Regular ones count toward cfg.appleCount; extras (corpse: dead or cut
   // snakes, feast: the feast power-up) come on top of it.
   let apples = [];
   let bombs = []; // { x, y, remainingMs, since }: (x, y) is the center of a 3x3 block; on top of appleCount, despawn
   let projectiles = []; // { id, x, y, dir, ownerId }
   let portals = []; // { id, ends: [{x,y}, {x,y}], remainingMs, since }: two-way, both ends alike
-  let nextObjectId = 1; // ids for projectiles, portals, rats and badgers (for /display)
+  let nextObjectId = 1; // ids for projectiles, portals, creatures and badgers (for /display)
   // The honey badger, at most one: { id, x, y, dir, warningMs, remainingMs,
   // lifetimeMs, moveAt, turnAt, since }, (x, y) the center of its block.
   let badger = null;
@@ -179,6 +184,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   const isExtra = (a) => Boolean(a.corpse || a.feast);
+  // The items that run around: rats and chickens.
+  const isCreature = (a) => a.type === 'rat' || a.type === 'chicken';
 
   // Bombs cover a block of cells around their center, always on the board.
   const BOMB_REACH = (POWER_UP_RULES.bombSize - 1) / 2;
@@ -326,7 +333,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // Keeps the apple count in line with cfg.appleCount (applies live).
-  // Power-ups and rats take an apple's place and count toward it. Extra apples count
+  // Power-ups and creatures take an apple's place and count toward it. Extra apples count
   // towards the total too, so no new apple spawns while the board already
   // holds appleCount or more. Lowering appleCount trims the newest regular
   // items (apples or power-ups) down to it; extras are never removed.
@@ -343,8 +350,9 @@ export function createEngine({ config, random = Math.random } = {}) {
     while (apples.length < cfg.appleCount) {
       const apple = spawnApple(occupied);
       if (!apple) break;
-      // A rat that would start under the badger stays a plain apple.
-      if (rollRat()) apples.push(badgerCovers(apple.x, apple.y, true) ? apple : newRat(apple));
+      // A creature that would start under the badger stays a plain apple.
+      const creature = rollCreature();
+      if (creature) apples.push(badgerCovers(apple.x, apple.y, true) ? apple : newCreature(apple, creature));
       else {
         const type = rollPowerUp();
         apples.push(type ? { ...apple, type } : apple);
@@ -353,21 +361,24 @@ export function createEngine({ config, random = Math.random } = {}) {
     }
   }
 
-  // Whether a spawning apple becomes a rat. Rolled before the power-up; at
-  // 0% it draws no random number, so games without rats play out as before.
-  function rollRat() {
-    return cfg.ratChance > 0 && random() * 100 < cfg.ratChance;
+  // Whether a spawning apple becomes a rat or a chicken (null: neither). The
+  // rat is rolled first, then the chicken, both before the power-up; at 0%
+  // a roll draws no random number, so games without them play out as before.
+  function rollCreature() {
+    if (cfg.ratChance > 0 && random() * 100 < cfg.ratChance) return 'rat';
+    if (cfg.chickenChance > 0 && random() * 100 < cfg.chickenChance) return 'chicken';
+    return null;
   }
 
   const ratTurnIn = () => RAT_RULES.turnMinTicks + randInt(RAT_RULES.turnMaxTicks - RAT_RULES.turnMinTicks + 1);
 
-  // A rat on (x, y), facing a random way. It first moves moveEveryTicks
-  // after it appears.
-  function newRat({ x, y }, dir = Object.keys(DIRECTIONS)[randInt(4)]) {
+  // A rat or a chicken on (x, y), facing a random way. It first moves
+  // moveEveryTicks after it appears (a chicken sooner if a head is near).
+  function newCreature({ x, y }, type, dir = Object.keys(DIRECTIONS)[randInt(4)]) {
     return {
       x,
       y,
-      type: 'rat',
+      type,
       id: nextObjectId++,
       dir,
       from: null, // the cell it last moved off, so it doesn't turn straight back
@@ -375,6 +386,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       moveAt: tickCount + RAT_RULES.moveEveryTicks,
       stepTicks: RAT_RULES.moveEveryTicks, // the interval set at its last move (for /display's slide)
       turnAt: tickCount + ratTurnIn(),
+      ...(type === 'chicken' ? { calmMs: 0 } : {}), // alerted while > 0 (ms left until it calms down)
     };
   }
 
@@ -540,8 +552,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     return false;
   }
 
-  // Freeze slows the creatures too: while any living snake has it, rats and
-  // the badger move half as often (their move interval doubles).
+  // Freeze slows the creatures too: while any living snake has it, rats,
+  // chickens and the badger move half as often (their move interval doubles).
   function creaturesFrozen() {
     for (const p of players.values()) if (p.status === 'alive' && effectOf(p, 'freeze')) return true;
     return false;
@@ -710,10 +722,10 @@ export function createEngine({ config, random = Math.random } = {}) {
         events.push({ type: 'projectileEnd', x, y, hit: true });
         return killBadger(p);
       }
-      const rat = ratHitBy(x, y);
-      if (rat !== -1) {
-        apples.splice(rat, 1);
-        return events.push({ type: 'projectileEnd', x, y, hit: true });
+      const creature = creatureHitBy(x, y);
+      if (creature !== -1) {
+        events.push({ type: 'projectileEnd', x, y, hit: true });
+        return creatureShot(creature);
       }
       const other = projectiles.findIndex((o) => o.x === x && o.y === y);
       if (other !== -1) {
@@ -741,7 +753,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       events.push({ type: 'teleport', id: p.id, portalId: portal.id });
     },
     feast(p) {
-      for (const c of nearestFreeCells(p.snake.segments[0], POWER_UP_RULES.feastApples)) apples.push({ x: c.x, y: c.y, feast: true });
+      spawnFeast(p.snake.segments[0]);
     },
   };
   for (const p of Object.values(POWER_UP_TYPES)) {
@@ -834,6 +846,11 @@ export function createEngine({ config, random = Math.random } = {}) {
     return null;
   }
 
+  // The feast: feastApples extra apples on the free cells nearest `from`.
+  function spawnFeast(from) {
+    for (const c of nearestFreeCells(from, POWER_UP_RULES.feastApples)) apples.push({ x: c.x, y: c.y, feast: true });
+  }
+
   // Up to `count` free cells closest to `from`, ties in random order.
   function nearestFreeCells(from, count) {
     const occupied = occupiedCells();
@@ -888,7 +905,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     return body.some((c) => c.x === cell.x && c.y === cell.y);
   }
 
-  // ---- rats ----
+  // ---- creatures: rats and chickens ----
   // Every moveEveryTicks ticks (twice that while freeze slows creatures) a
   // rat runs one cell on, at the start of the
   // tick's first sub-step (before the snakes, against the board as it is).
@@ -898,21 +915,45 @@ export function createEngine({ config, random = Math.random } = {}) {
   // rat. It never turns back to the cell it just left unless that's the only
   // way out, and it stays put when boxed in. Portals mean nothing to it.
   //
-  // Eating happens in the snakes' item check: a rat that runs into the cell
-  // a head is entering is eaten, and so is one leaving the cell a head is
-  // entering (r.left), so it can never slip past a head.
-  function moveRats() {
-    const rats = apples.filter((a) => a.type === 'rat');
-    if (!rats.length) return;
-    const blocked = occupiedCells(); // includes every rat, kept current below
-    for (const r of rats) {
+  // A chicken moves the same way, with one difference: a snake head (any,
+  // ghosts too) within alertRadius grid steps alerts it. Alerted, it moves
+  // every alertMoveEveryTicks ticks (from that very tick), and each move
+  // it takes, with fleeChance, the free way that ends furthest from the
+  // nearest head (even back where it came from); otherwise it moves like a
+  // rat. It calms down once no head has been that close for calmAfterMs.
+  //
+  // Eating happens in the snakes' item check: a creature that runs into the
+  // cell a head is entering is eaten, and so is one leaving the cell a head
+  // is entering (r.left), so it can never slip past a head.
+  function moveCreatures() {
+    const creatures = apples.filter(isCreature);
+    if (!creatures.length) return;
+    const blocked = occupiedCells(); // includes every creature, kept current below
+    const heads = aliveSnakes().map((s) => s.segments[0]);
+    const nearestHead = (c) => heads.reduce((min, h) => Math.min(min, distance(c, h)), Infinity);
+    for (const r of creatures) {
+      const chicken = r.type === 'chicken';
+      if (chicken) {
+        if (nearestHead(r) <= CHICKEN_RULES.alertRadius) {
+          if (r.calmMs <= 0) r.moveAt = Math.min(r.moveAt, tickCount); // newly alerted: off at once
+          r.calmMs = CHICKEN_RULES.calmAfterMs;
+        } else if (r.calmMs > 0) r.calmMs -= cfg.tickMs;
+      }
+      const alerted = chicken && r.calmMs > 0;
       if (tickCount < r.moveAt) continue;
-      r.stepTicks = creatureInterval(RAT_RULES.moveEveryTicks);
+      const every = alerted ? CHICKEN_RULES.alertMoveEveryTicks : chicken ? CHICKEN_RULES.moveEveryTicks : RAT_RULES.moveEveryTicks;
+      r.stepTicks = creatureInterval(every);
       r.moveAt = tickCount + r.stepTicks;
       const options = Object.keys(DIRECTIONS)
         .map((dir) => ({ dir, cell: nextCell(r, dir) }))
         .filter(({ cell }) => inBounds(cell.x, cell.y) && !blocked.has(cellKey(cell.x, cell.y)));
-      let pick = tickCount < r.turnAt ? options.find((o) => o.dir === r.dir) : null;
+      let pick = null;
+      if (alerted && options.length && random() < CHICKEN_RULES.fleeChance) {
+        const away = options.map((o) => nearestHead(o.cell));
+        const most = Math.max(...away);
+        const best = options.filter((o, i) => away[i] === most);
+        pick = best[best.length > 1 ? randInt(best.length) : 0];
+      } else if (tickCount < r.turnAt) pick = options.find((o) => o.dir === r.dir);
       if (!pick) {
         r.turnAt = tickCount + ratTurnIn();
         const onward = options.filter(({ cell }) => !(r.from && cell.x === r.from.x && cell.y === r.from.y));
@@ -920,7 +961,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         if (!pool.length) continue; // boxed in
         pick = pool[randInt(pool.length)];
       }
-      // The cell it leaves stays blocked for the other rats this sub-step:
+      // The cell it leaves stays blocked for the other creatures this sub-step:
       // a head entering it still catches this one.
       r.from = r.left = { x: r.x, y: r.y };
       r.x = pick.cell.x;
@@ -937,24 +978,31 @@ export function createEngine({ config, random = Math.random } = {}) {
     return i !== -1 ? i : apples.findIndex((a) => a.left && a.left.x === x && a.left.y === y);
   }
 
-  // A projectile entering (x, y) hits a rat on (x, y), or one that just ran
-  // off it (which includes swapping places with the projectile).
-  function ratHitBy(x, y) {
+  // A projectile entering (x, y) hits a creature on (x, y), or one that just
+  // ran off it (which includes swapping places with the projectile).
+  function creatureHitBy(x, y) {
     const on = (c) => c && c.x === x && c.y === y;
-    return apples.findIndex((a) => a.type === 'rat' && (on(a) || on(a.left)));
+    return apples.findIndex((a) => isCreature(a) && (on(a) || on(a.left)));
+  }
+
+  // The creature apples[i] was shot: gone, nobody grows or scores. A chicken
+  // leaves its feast where it died.
+  function creatureShot(i) {
+    const [c] = apples.splice(i, 1);
+    if (c.type === 'chicken') spawnFeast(c);
   }
 
   // ---- one sub-step ----
 
-  function substep(movers, ratsMove) {
+  function substep(movers, creaturesMove) {
     fallen = [];
-    for (const a of apples) if (a.type === 'rat') a.left = null;
+    for (const a of apples) if (isCreature(a)) a.left = null;
     // Which segments are inside the badger before anything moves.
     const inside = badgerSnapshot();
-    if (ratsMove) {
-      moveRats();
+    if (creaturesMove) {
+      moveCreatures();
       moveBadger();
-      badgerEatsRats();
+      badgerEatsCreatures();
     }
     const moves = movers.map((p) => {
       const s = p.snake;
@@ -1059,12 +1107,12 @@ export function createEngine({ config, random = Math.random } = {}) {
           killBadger(players.get(n.pr.ownerId) ?? null);
           continue;
         }
-        // A rat in the way simply dies (no kill credit).
-        const r = ratHitBy(n.x, n.y);
+        // A creature in the way simply dies (no kill credit).
+        const r = creatureHitBy(n.x, n.y);
         if (r === -1) continue;
-        apples.splice(r, 1);
         gone.add(n.pr);
         events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true });
+        creatureShot(r);
         continue;
       }
       gone.add(n.pr);
@@ -1177,7 +1225,9 @@ export function createEngine({ config, random = Math.random } = {}) {
 
     // Items: eaten by surviving heads (ghosts too). A power-up grows the
     // snake like an apple, then takes effect; a rat is worth
-    // growthMultiplier apples. A head entering any cell of a bomb sets it
+    // growthMultiplier apples, a chicken its own growthMultiplier plus a
+    // feast round the eater, as if it had picked up the feast power-up.
+    // A head entering any cell of a bomb sets it
     // off (a ghost passes through); it doesn't grow the snake.
     for (const m of moves) {
       if (dead.has(m) || m.player.status !== 'alive') continue;
@@ -1188,6 +1238,10 @@ export function createEngine({ config, random = Math.random } = {}) {
         if (item.type === 'rat') {
           m.snake.pendingGrowth += cfg.growthPerApple * RAT_RULES.growthMultiplier;
           events.push({ type: 'eat', id: m.player.id, x, y, item: 'rat', ratId: item.id });
+        } else if (item.type === 'chicken') {
+          m.snake.pendingGrowth += cfg.growthPerApple * CHICKEN_RULES.growthMultiplier;
+          events.push({ type: 'eat', id: m.player.id, x, y, item: 'chicken', chickenId: item.id });
+          spawnFeast(m.newHead);
         } else {
           m.snake.pendingGrowth += cfg.growthPerApple;
           events.push(item.type ? { type: 'eat', id: m.player.id, x, y, item: item.type } : { type: 'eat', id: m.player.id, x, y });
@@ -1318,7 +1372,7 @@ export function createEngine({ config, random = Math.random } = {}) {
           badger.moveAt = tickCount + creatureInterval(BADGER_RULES.moveEveryTicks);
           badger.turnAt = tickCount + badgerTurnIn();
           events.push({ type: 'badgerActive', x: badger.x, y: badger.y });
-          badgerEatsRats(); // any that ran under it during the warning
+          badgerEatsCreatures(); // any that ran under it during the warning
         }
         return;
       }
@@ -1377,14 +1431,15 @@ export function createEngine({ config, random = Math.random } = {}) {
     b.dir = pick;
   }
 
-  // A rat inside the active badger (it ran in, the badger moved onto it, or
-  // it was under the warning when the badger became active) is gone:
-  // nobody grows, nobody gets a kill.
-  function badgerEatsRats() {
+  // A creature inside the active badger (it ran in, the badger moved onto
+  // it, or it was under the warning when the badger became active) is gone:
+  // nobody grows, nobody gets a kill, and a chicken leaves no feast.
+  function badgerEatsCreatures() {
     if (!isActive(badger)) return;
     apples = apples.filter((a) => {
-      if (a.type !== 'rat' || !badgerCovers(a.x, a.y)) return true;
-      events.push({ type: 'ratCaught', ratId: a.id, x: a.x, y: a.y });
+      if (!isCreature(a) || !badgerCovers(a.x, a.y)) return true;
+      if (a.type === 'rat') events.push({ type: 'ratCaught', ratId: a.id, x: a.x, y: a.y });
+      else events.push({ type: 'chickenCaught', chickenId: a.id, x: a.x, y: a.y });
       return false;
     });
   }
@@ -1552,11 +1607,14 @@ export function createEngine({ config, random = Math.random } = {}) {
       apples: apples
         .filter((a) => !a.type)
         .map((a) => (a.corpse ? { x: a.x, y: a.y, corpse: true } : a.feast ? { x: a.x, y: a.y, feast: true } : { x: a.x, y: a.y })),
-      powerUps: apples.filter((a) => a.type && a.type !== 'rat').map((a) => ({ x: a.x, y: a.y, type: a.type })),
+      powerUps: apples.filter((a) => a.type && !isCreature(a)).map((a) => ({ x: a.x, y: a.y, type: a.type })),
       // stepTicks: the ticks its last step takes (doubled by freeze), for
       // /display's slide.
       rats: apples.filter((a) => a.type === 'rat').map((a) => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, stepTicks: a.stepTicks })),
-      // Freeze is slowing the rats and the badger (/display tints them blue).
+      chickens: apples
+        .filter((a) => a.type === 'chicken')
+        .map((a) => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, stepTicks: a.stepTicks, alerted: a.calmMs > 0 })),
+      // Freeze is slowing the creatures and the badger (/display tints them blue).
       creaturesFrozen: creaturesFrozen(),
       bombs: bombs.map((b) => ({ x: b.x, y: b.y, remainingMs: b.remainingMs })),
       projectiles: projectiles.map((p) => ({ id: p.id, x: p.x, y: p.y, dir: p.dir, ownerId: p.ownerId })),
@@ -1643,10 +1701,15 @@ export function createEngine({ config, random = Math.random } = {}) {
     // Adds a rat facing `dir` that next moves on tick `moveAt` (default: the
     // next tick) and keeps going straight until tick `turnAt`, when free.
     addRat([x, y], dir, { moveAt = tickCount + 1, turnAt = tickCount + 1000 } = {}) {
-      apples.push({ ...newRat({ x, y }, dir), moveAt, turnAt });
+      apples.push({ ...newCreature({ x, y }, 'rat', dir), moveAt, turnAt });
     },
-    // Rat internals, for the movement tests.
+    // The same for a chicken (calm to begin with).
+    addChicken([x, y], dir, { moveAt = tickCount + 1, turnAt = tickCount + 1000 } = {}) {
+      apples.push({ ...newCreature({ x, y }, 'chicken', dir), moveAt, turnAt });
+    },
+    // Rat and chicken internals, for the movement tests.
     rats: () => apples.filter((a) => a.type === 'rat').map((a) => ({ ...a })),
+    chickens: () => apples.filter((a) => a.type === 'chicken').map((a) => ({ ...a })),
     addPortal([ax, ay], [bx, by], remainingMs = POWER_UP_RULES.portalLifetimeMs) {
       portals.push({ id: nextObjectId++, ends: [{ x: ax, y: ay }, { x: bx, y: by }], remainingMs, since: tickCount });
     },

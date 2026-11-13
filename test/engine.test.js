@@ -429,7 +429,7 @@ describe('config', () => {
   });
 
   test('appleCount applies live', () => {
-    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'] });
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'] }, { ratChance: 0, chickenChance: 0 }); // plain apples only
     e.updateConfig({ appleCount: 5 });
     e.tick();
     assert.equal(e.getState().apples.length, 5);

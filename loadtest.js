@@ -85,6 +85,7 @@ async function main() {
     powerUpChance: 60,
     bombsPerMinute: 10,
     ratChance: 30, // rats too
+    chickenChance: 20, // and chickens
   };
   const admin = await openAdmin(base, wsBase);
   admin.ws.send(JSON.stringify({ t: 'config', values: wanted }));
