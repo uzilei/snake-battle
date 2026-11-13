@@ -50,6 +50,9 @@ export const STRINGS = Object.freeze({
     // the last one, killPopupMore with the count.
     killPopups: ['KILL!', 'DOUBLE KILL!!', 'TRIPLE KILL!!!', 'QUADRA KILL!!!!', 'PENTA KILL!!!!!'],
     killPopupMore: '{n}× KILL!!!!!',
+    // Below it, dropping, when the snake killed led the round in kills
+    // (streak) or was the longest (mvp). Also English on purpose.
+    takedowns: { streak: 'STREAK SHUTDOWN!', mvp: 'MVP DOWN!' },
   },
 
   // ---- join panel (display side column and /admin/print) ------------------
@@ -152,7 +155,13 @@ export const STRINGS = Object.freeze({
     bots: 'Numero di bot (0 = nessuno)',
     botFill:
       'Riempi: i bot completano i posti fino al numero scelto e lasciano il posto a chi si unisce (es. 4: con 1 telefono 3 bot, con 4 o più nessuno)',
-    botSkill: 'Abilità dei bot (1 = lenti e fanno errori, 3 = pronti e mai errori)',
+    // One weight slider per bot skill (the emoji is added in front).
+    botWeights: {
+      1: 'Peso abilità 1 (lenti, spesso sbagliano)',
+      2: 'Peso abilità 2 (medi, sbagliano di rado)',
+      3: 'Peso abilità 3 (pronti, mai errori)',
+    },
+    botWeightsHint: 'Ogni nuovo bot riceve un’abilità a caso secondo questi pesi (es. 1, 2, 1: metà abilità 2). Tutti a 0 = ognuna ugualmente probabile. Vale dal prossimo round. L’emoji compare accanto al nome del bot sullo schermo.',
     gridSize: 'Dimensione griglia (dal prossimo round)',
     intermissionMs: 'Pausa tra i round (ms)',
     countdownMs: 'Conto alla rovescia prima del round (ms, 0 = disattivato)',

@@ -68,12 +68,13 @@ export function createBotBrain({ random = Math.random, onError = () => {} } = {}
    * @param {object} state engine.getState()
    * @param {string[]} ids the bots to steer
    * @param {object} [opts]
-   * @param {number} [opts.skill] 1-3
+   * @param {number} [opts.skill] 1-3, for every bot not in `skills`
+   * @param {Map<string, number>} [opts.skills] id -> 1-3, per bot
    * @param {'cut'|'kill'} [opts.bombMode]
    * @returns {Map<string, string>} id -> direction, for bots that move this tick and
    *   decide (or react) now; the others keep going
    */
-  function think(state, ids, { skill = 2, bombMode = 'cut' } = {}) {
+  function think(state, ids, { skill = 2, skills = null, bombMode = 'cut' } = {}) {
     nodesUsed = 0;
     const out = new Map();
     if (state.phase !== 'playing' || !ids.length) {
@@ -82,11 +83,12 @@ export function createBotBrain({ random = Math.random, onError = () => {} } = {}
     }
     const board = buildBoard(state);
     let budget = BOT_BRAIN.nodeBudget;
-    const maxWait = BOT_BRAIN.thinkWait[skill] ?? 0;
-    const roll = () => (maxWait > 0 ? Math.floor(random() * (maxWait + 1)) : 0);
     for (const id of ids) {
       const me = board.snakes.get(id);
       if (!me || !me.alive || !board.movesNext(me)) continue;
+      const mySkill = skills?.get(id) ?? skill;
+      const maxWait = BOT_BRAIN.thinkWait[mySkill] ?? 0;
+      const roll = () => (maxWait > 0 ? Math.floor(random() * (maxWait + 1)) : 0);
       // First move this round: a fresh roll too (0: decide now).
       const wait = waits.get(id) ?? roll();
       // Between decisions only a reflex, and not always.
@@ -94,7 +96,7 @@ export function createBotBrain({ random = Math.random, onError = () => {} } = {}
       waits.set(id, reflex ? wait - 1 : roll());
       if (reflex && random() >= BOT_BRAIN.reflexChance) continue;
       try {
-        const { dir, nodes } = decide(board, me, { skill, bombMode, budget, random, reflex });
+        const { dir, nodes } = decide(board, me, { skill: mySkill, bombMode, budget, random, reflex });
         budget -= nodes;
         nodesUsed += nodes;
         if (dir) out.set(id, dir);

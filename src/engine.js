@@ -23,6 +23,10 @@ const SPAWN_CLEARANCE = 3; // free cells required ahead of a freshly spawned hea
 // Preferred minimum Manhattan distance between a new head and any other snake
 // cell; relaxed one step at a time when the board is too crowded.
 export const SPAWN_DISTANCE = 5;
+// Killing a leader is a special kill (the death event's takedown): the snake
+// with the most snake kills this round, above streakAbove, or the longest,
+// above mvpAbove.
+export const LEADERS = Object.freeze({ streakAbove: 2, mvpAbove: 20 });
 export const INPUT_BUFFER_SIZE = 3; // queued turns per snake; one is applied per tick
 
 export const PHASES = Object.freeze({
@@ -170,7 +174,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   // What happened during the latest tick, for renderers (effects, sounds...):
   // { type: 'eat', id, x, y } | { type: 'death', id, killerId, killNo? } |
   // { type: 'headOn', ids }. killNo: which of the killer's snake kills this
-  // round it is (1, 2, ...), only when someone got the kill.
+  // round it is (1, 2, ...), only when someone got the kill. takedown:
+  // 'streak' or 'mvp' when the victim was a leader (see LEADERS), only then.
   // Rebuilt every tick; read-only output, never input.
   let events = [];
 
@@ -585,6 +590,7 @@ export function createEngine({ config, random = Math.random } = {}) {
 
   function step() {
     const alive = [...players.values()].filter((p) => p.status === 'alive');
+    leaders = findLeaders(alive);
     // A frozen snake sits out every odd tick, golden or not.
     const first = alive.filter((p) => !(tickCount % 2 === 1 && isFrozen(p)));
     const second = first.filter((p) => effectOf(p, 'golden'));
@@ -685,6 +691,22 @@ export function createEngine({ config, random = Math.random } = {}) {
   // Snakes killed during the current sub-step, for their corpse apples.
   let fallen = [];
 
+  // The snakes worth a special kill, as they were when the tick began (so
+  // kills and growth during the tick don't matter): the most snake kills
+  // this round (above LEADERS.streakAbove) and the longest (above
+  // LEADERS.mvpAbove). Ties: all of them.
+  let leaders = { streak: new Set(), mvp: new Set() };
+  function findLeaders(alive) {
+    const top = (value, above) => {
+      const best = Math.max(above + 1, ...alive.map(value));
+      return new Set(alive.filter((p) => value(p) >= best));
+    };
+    return {
+      streak: top((p) => p.snakeKills ?? 0, LEADERS.streakAbove),
+      mvp: top((p) => p.snake.segments.length, LEADERS.mvpAbove),
+    };
+  }
+
   // Marks a player dead. The kill counts only if the killer is still in the
   // game (it may have left mid-round), and never for yourself.
   function kill(p, by) {
@@ -698,7 +720,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     }
     credited.kills++;
     credited.snakeKills = (credited.snakeKills ?? 0) + 1;
-    events.push({ type: 'death', id: p.id, killerId: credited.id, killNo: credited.snakeKills });
+    const takedown = leaders.streak.has(p) ? 'streak' : leaders.mvp.has(p) ? 'mvp' : null; // a streak counts first
+    events.push({ type: 'death', id: p.id, killerId: credited.id, killNo: credited.snakeKills, ...(takedown ? { takedown } : {}) });
   }
 
   // A shield takes the hit: it pops and the snake is a ghost for a moment,
@@ -1812,6 +1835,10 @@ export function createEngine({ config, random = Math.random } = {}) {
       if (!p) throw new Error(`unknown player ${id}`);
       p.snake = { segments: segments.map(([x, y]) => ({ x, y })), dir, dirQueue: [], pendingGrowth: 0, effect: null };
       p.status = 'alive';
+    },
+    // Sets how many snakes a player has killed this round.
+    setSnakeKills(id, n) {
+      players.get(id).snakeKills = n;
     },
     // Gives a snake a timed effect, as if it had just picked it up.
     setEffect(id, type, durationMs) {

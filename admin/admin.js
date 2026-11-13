@@ -6,7 +6,7 @@ import { playerColor } from '/shared/colors.js';
 import { WEIGHTED_POWER_UPS, weightKey } from '/shared/powerups.js';
 import { FRUITS, FRUIT_CODES, APPLE_FRUIT } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
-import { BOT_LIMITS } from '/shared/bots.js';
+import { BOT_LIMITS, BOT_SKILLS, BOT_SKILL_EMOJI, botWeightKey } from '/shared/bots.js';
 
 const A = STRINGS.admin;
 const $ = (id) => document.getElementById(id);
@@ -33,7 +33,8 @@ const SLIDERS = [
   { key: 'bombsPerMinute', step: 1, parent: 'sliders-powerups' },
   // Server settings, not engine config.
   { key: 'bots', step: 1, parent: 'sliders-bots', kind: 'settings' },
-  { key: 'botSkill', step: 1, parent: 'sliders-bots', kind: 'settings' },
+  // One weight per bot skill.
+  ...BOT_SKILLS.map((k) => ({ key: botWeightKey(k), step: 1, parent: 'sliders-bot-weights', kind: 'settings', label: `${BOT_SKILL_EMOJI[k]} ${A.botWeights[k]}` })),
   // One weight slider per power-up, generated from the shared list.
   ...WEIGHTED_POWER_UPS.map((p) => ({
     key: weightKey(p.type),
@@ -73,6 +74,7 @@ $('weights-hint').textContent = A.weightsHint;
 $('h-effects').textContent = A.effects;
 $('h-bots').textContent = A.botsTitle;
 $('bots-hint').textContent = A.botsHint;
+$('bot-weights-hint').textContent = A.botWeightsHint;
 $('effects-hint').textContent = A.effectsHint;
 
 // Engine rules go through 'config'; the records and effects toggles are server settings.

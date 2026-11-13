@@ -14,7 +14,7 @@ import { SETTINGS_VERSION } from './settings-store.js';
 import { FRUIT_CODES } from '../shared/fruits.js';
 import { validHat, HAT_IDS } from '../shared/hats.js';
 import { cleanName } from '../shared/names.js';
-import { BOT_LIMITS, BOT_NAME_PATTERN, MAX_SNAKES, botName, botTarget } from '../shared/bots.js';
+import { BOT_LIMITS, BOT_NAME_PATTERN, BOT_SKILLS, MAX_SNAKES, botName, botTarget, botWeightKey, pickBotSkill } from '../shared/bots.js';
 import { createBotBrain } from '../bot-brain.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
@@ -66,7 +66,7 @@ const SETTING_RULES = Object.freeze({
   hats: isBoolean,
   bots: inLimits(BOT_LIMITS.bots),
   botFill: isBoolean,
-  botSkill: inLimits(BOT_LIMITS.botSkill),
+  ...Object.fromEntries(BOT_SKILLS.map((k) => [botWeightKey(k), inLimits(BOT_LIMITS[botWeightKey(k)])])),
   ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, isBoolean])),
   badgerName: (v) => typeof v === 'string' && v.length <= 200,
   // The fruits apples may be drawn as: any subset of the list, no repeats.
@@ -142,7 +142,8 @@ const defaultSettings = () => ({
   badgerName: '', // drawn under the honey badger, like a boss name
   bots: BOT_LIMITS.bots.default, // computer players (0 = none)
   botFill: false, // bots only fill up to `bots`, making room for people
-  botSkill: BOT_LIMITS.botSkill.default,
+  // Skill weights for new bots (botWeight1..3).
+  ...Object.fromEntries(BOT_SKILLS.map((k) => [botWeightKey(k), BOT_LIMITS[botWeightKey(k)].default])),
   ...EFFECT_DEFAULTS,
   fruits: [...FRUIT_CODES], // every fruit in use
 });
@@ -167,6 +168,11 @@ export function createGame({
     const accepted = engine.updateConfig(savedSettings.config);
     const valid = pickValidSettings(savedSettings.settings);
     Object.assign(settings, valid);
+    // Saved before the skill weights: its one skill becomes the only weight.
+    const oldSkill = savedSettings.settings?.botSkill;
+    if (BOT_SKILLS.includes(oldSkill) && !BOT_SKILLS.some((k) => botWeightKey(k) in valid)) {
+      for (const k of BOT_SKILLS) settings[botWeightKey(k)] = k === oldSkill ? 1 : 0;
+    }
     log(`[settings] restored ${Object.keys(accepted).length} config values and ${Object.keys(valid).length} settings`);
   }
   const settingsSnapshot = () => ({ version: SETTINGS_VERSION, config: { ...config }, settings: structuredClone(settings) });
@@ -224,6 +230,7 @@ export function createGame({
       effects: Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, settings[k]])),
       fruits: settings.fruits, // codes new apples are drawn as (none: all 🍎)
       hats: settings.hats ? hatsOf(state) : null, // playerId -> hat id, for players wearing one
+      botSkills: Object.fromEntries([...bots].map(([id, b]) => [id, b.skill])), // bot id -> 1-3
       badgerName: settings.badgerName || null,
       records: settings.leaderboard ? recordsView : null, // { wins, kills, score }: top 10 each
       leaderboardStat: settings.leaderboardStat,
@@ -334,7 +341,7 @@ export function createGame({
   // Computer players: engine players with { bot: true }, owned by no client.
   // They join and leave only between rounds (or at a restart); the brain
   // steers them right before each tick.
-  const bots = new Map(); // playerId -> number in its name
+  const bots = new Map(); // playerId -> { n: number in its name, skill: 1-3 }
   let nextBotId = 1;
   const thinkStats = { samples: [] }; // ms per think, last TICK_WINDOW
 
@@ -356,7 +363,7 @@ export function createGame({
       const id = `b${nextBotId++}`;
       const name = botName(n);
       if (!engine.addPlayer(id, name, { bot: true }).ok) break;
-      bots.set(id, n);
+      bots.set(id, { n, skill: pickBotSkill(settings, random) });
       // A random hat, or none, kept while it stays.
       const choices = [null, ...HAT_IDS];
       const hat = choices[Math.floor(random() * choices.length)];
@@ -367,7 +374,7 @@ export function createGame({
 
   // The lowest-numbered bot leaves (the next round renumbers them).
   function removeBot() {
-    const [id] = [...bots].sort((a, b) => a[1] - b[1])[0];
+    const [id] = [...bots].sort((a, b) => a[1].n - b[1].n)[0];
     removeOwnedPlayer(id);
     log(`[bots] ${id} left to make room`);
   }
@@ -383,7 +390,8 @@ export function createGame({
   function steerBots() {
     if (!bots.size) return;
     const started = performance.now();
-    const dirs = brain.think(engine.getState(), [...bots.keys()], { skill: settings.botSkill, bombMode: config.bombMode });
+    const skills = new Map([...bots].map(([id, b]) => [id, b.skill]));
+    const dirs = brain.think(engine.getState(), [...bots.keys()], { skills, bombMode: config.bombMode });
     for (const [id, dir] of dirs) engine.setDirection(id, dir, { replace: true });
     thinkStats.samples.push(performance.now() - started);
     if (thinkStats.samples.length > TICK_WINDOW) thinkStats.samples.shift();

@@ -1092,6 +1092,86 @@ describe('kills', () => {
     assert.equal(deathOf(e, 'a').killNo, 1);
   });
 
+  describe('takedowns: killing the leader in kills or length', () => {
+    const row = (y, fromX, toX) => {
+      const step = fromX <= toX ? 1 : -1;
+      const out = [];
+      for (let x = fromX; x !== toX + step; x += step) out.push([x, y]);
+      return out;
+    };
+    const column = (x, fromY, toY) => row(0, fromY, toY).map(([y]) => [x, y]);
+    // v runs into k's body at (5, 5). v's body: `length` cells back from
+    // (4, 5) along row 5, down column 0 and along row 19.
+    const trail = [...row(5, 4, 0), ...column(0, 6, 19), ...row(19, 1, 19)];
+    const victim = (length) => [trail.slice(0, length), 'right'];
+    const scene = (vLength, others = {}) =>
+      setup({ v: victim(vLength), k: [[[5, 7], [5, 6], [5, 5], [5, 4]], 'down'], c: bystander, ...others });
+    const takedownOf = (e) => {
+      e.tick();
+      assert.equal(player(e, 'v').status, 'dead');
+      return deathOf(e, 'v').takedown;
+    };
+
+    test('the longest snake, above 20 cells: an MVP takedown', () => {
+      assert.equal(takedownOf(scene(21)), 'mvp');
+      assert.equal(takedownOf(scene(20)), undefined); // not above 20
+      const short = scene(5);
+      short.tick();
+      assert.deepEqual(deathOf(short, 'v'), { type: 'death', id: 'v', killerId: 'k', killNo: 1 });
+    });
+
+    test('not the longest: no MVP takedown; tied for longest: still one', () => {
+      // c: a long snake in rows 12 and 11, heading up out of (19, 12).
+      const long = (length) => [[...row(12, 19, 1), ...row(11, 1, 5)].slice(0, length), 'up'];
+      assert.equal(takedownOf(scene(21, { c: long(22) })), undefined);
+      assert.equal(takedownOf(scene(21, { c: long(21) })), 'mvp');
+    });
+
+    test('the most snake kills this round, above 2: a streak takedown', () => {
+      for (const [kills, want] of [[3, 'streak'], [2, undefined]]) {
+        const e = scene(3);
+        e._debug.setSnakeKills('v', kills);
+        assert.equal(takedownOf(e), want, `${kills} kills`);
+      }
+      const e = scene(3);
+      e._debug.setSnakeKills('v', 3);
+      e._debug.setSnakeKills('c', 4); // c leads
+      assert.equal(takedownOf(e), undefined);
+      const tie = scene(3);
+      tie._debug.setSnakeKills('v', 4);
+      tie._debug.setSnakeKills('c', 4);
+      assert.equal(takedownOf(tie), 'streak');
+    });
+
+    test('both leaders at once: the streak wins', () => {
+      const e = scene(22);
+      e._debug.setSnakeKills('v', 3);
+      assert.equal(takedownOf(e), 'streak');
+    });
+
+    test('only a credited kill is a takedown', () => {
+      const e = setup({ v: [[[19, 5], [18, 5], [17, 5]], 'right'], c: bystander }); // into the wall
+      e._debug.setSnakeKills('v', 5);
+      e.tick();
+      assert.deepEqual(deathOf(e, 'v'), { type: 'death', id: 'v', killerId: null });
+    });
+
+    test('leaders are taken as the tick began: a third kill on the tick it dies does not count', () => {
+      // a runs into c's body (c's third kill) while c runs into d's body.
+      const e = setup({
+        a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+        c: [[[5, 6], [5, 5], [5, 4], [5, 3]], 'down'],
+        d: [[[6, 7], [5, 7], [4, 7]], 'right'],
+        z: bystander,
+      });
+      e._debug.setSnakeKills('c', 2);
+      e.tick();
+      assert.equal(deathOf(e, 'a').killNo, 3);
+      assert.equal(deathOf(e, 'c').killerId, 'd');
+      assert.equal(deathOf(e, 'c').takedown, undefined);
+    });
+  });
+
   test('a killer that dies on the same tick still gets the kill', () => {
     // a runs into b's body at (5, 5) while b's head leaves the board.
     const e = setup({

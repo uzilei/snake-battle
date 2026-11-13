@@ -4,7 +4,7 @@ import { createEngine } from '../src/engine.js';
 import { createBotBrain, BOT_BRAIN } from '../src/bot-brain.js';
 import { createGame, resolveSidePanel } from '../src/server/game.js';
 import { createRecords } from '../src/server/records.js';
-import { botTarget, botName, BOT_NAME_PATTERN, MAX_SNAKES } from '../src/shared/bots.js';
+import { botTarget, botName, BOT_NAME_PATTERN, MAX_SNAKES, pickBotSkill } from '../src/shared/bots.js';
 import { HAT_IDS } from '../src/shared/hats.js';
 
 // Deterministic RNG (mulberry32).
@@ -444,6 +444,22 @@ describe('bot brain: reaction time', () => {
     assert.ok(Math.max(...perTick) < 12, `per tick ${perTick}`);
   });
 
+  test('each bot thinks at its own skill when skills are given per bot', () => {
+    // Two lured bots: a at skill 1 waits between decisions, b at skill 3 never does.
+    const e = setup({ a: [row(10, 5, 3), 'right'], b: [row(14, 5, 3), 'right'], ...far });
+    e._debug.setApples([[5, 7], [5, 11]]);
+    const brain = createBotBrain({ random: seeded(4), onError: (err) => { throw err; } });
+    const state = e.getState();
+    const skills = new Map([['a', 1], ['b', 3]]);
+    const decided = { a: 0, b: 0 };
+    for (let i = 0; i < 40; i++) {
+      const dirs = brain.think(state, ['a', 'b'], { skill: 3, skills });
+      for (const id of ['a', 'b']) if (dirs.get(id)) decided[id]++;
+    }
+    assert.equal(decided.b, 40);
+    assert.ok(decided.a < 25, `a decided ${decided.a} times`); // about 40 / 2.5
+  });
+
   // Regression: with a fixed interval a bot circling an apple could fall into
   // step with the loop, deciding only where the apple wasn't next to its head
   // and keeping its course where it was, and never eat it.
@@ -548,10 +564,10 @@ describe('server: bots', () => {
     const { game, admin } = newGame();
     assert.equal(game.settings.bots, 0);
     assert.equal(game.settings.botFill, false);
-    assert.equal(game.settings.botSkill, 2);
+    assert.deepEqual([game.settings.botWeight1, game.settings.botWeight2, game.settings.botWeight3], [0, 1, 0]);
     game.tickOnce();
     assert.equal(botsOf(game).length, 0);
-    for (const bad of [{ bots: 25 }, { bots: -1 }, { bots: 2.5 }, { botSkill: 0 }, { botSkill: 4 }, { botFill: 'yes' }]) {
+    for (const bad of [{ bots: 25 }, { bots: -1 }, { bots: 2.5 }, { botWeight1: -1 }, { botWeight3: 11 }, { botWeight2: 1.5 }, { botSkill: 2 }, { botFill: 'yes' }]) {
       admin.send({ t: 'settings', ...bad });
       assert.equal(admin.last('error').code, 'badMessage', JSON.stringify(bad));
     }
@@ -816,5 +832,54 @@ describe('server: bots', () => {
     admin.send({ t: 'restart' });
     assert.equal(botsOf(game).length, 2);
     assert.deepEqual(botsOf(game).map((p) => p.name).sort(), ['Bot 1', 'Bot 2']);
+  });
+
+  test('new bots get their skills by the /admin weights', () => {
+    const { game, admin } = newGame({ bots: 24, botWeight1: 0, botWeight2: 0, botWeight3: 1 });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    game.tickOnce();
+    const skillsOf = () => botsOf(game).map((p) => display.last('state').botSkills[p.id]);
+    assert.deepEqual([...new Set(skillsOf())], [3]);
+    admin.send({ t: 'settings', botWeight1: 1, botWeight2: 1, botWeight3: 1 });
+    admin.send({ t: 'restart' });
+    game.tickOnce();
+    assert.deepEqual([...new Set(skillsOf())].sort(), [1, 2, 3]); // 24 bots: all three show up
+    // Only the bots: people get no skill.
+    phone(game, 'Anna');
+    game.tickOnce();
+    assert.equal(Object.keys(display.last('state').botSkills).length, botsOf(game).length);
+  });
+
+  test('settings saved with the old single bot skill keep it as the only weight', () => {
+    const old = createGame({ log: quiet, savedSettings: { config: {}, settings: { botSkill: 3, bots: 4 } } });
+    assert.deepEqual([old.settings.botWeight1, old.settings.botWeight2, old.settings.botWeight3], [0, 0, 1]);
+    assert.equal(old.settings.bots, 4);
+    assert.equal('botSkill' in old.settings, false);
+    // Weights saved too: they win.
+    const both = createGame({ log: quiet, savedSettings: { config: {}, settings: { botSkill: 3, botWeight1: 2, botWeight2: 0, botWeight3: 0 } } });
+    assert.deepEqual([both.settings.botWeight1, both.settings.botWeight2, both.settings.botWeight3], [2, 0, 0]);
+  });
+});
+
+describe('bot skill weights', () => {
+  const share = (settings, n = 6000) => {
+    const random = seeded(8);
+    const counts = { 1: 0, 2: 0, 3: 0 };
+    for (let i = 0; i < n; i++) counts[pickBotSkill(settings, random)]++;
+    return [1, 2, 3].map((k) => counts[k] / n);
+  };
+  const near = (got, want) => got.every((v, i) => Math.abs(v - want[i]) < 0.03);
+
+  test('skills come up in proportion to their weights', () => {
+    const got = share({ botWeight1: 1, botWeight2: 2, botWeight3: 1 });
+    assert.ok(near(got, [0.25, 0.5, 0.25]), `${got}`);
+    assert.deepEqual(share({ botWeight1: 0, botWeight2: 0, botWeight3: 4 }), [0, 0, 1]);
+    assert.deepEqual(share({ botWeight1: 0, botWeight2: 7, botWeight3: 0 }), [0, 1, 0]);
+  });
+
+  test('all weights at 0: each skill as likely', () => {
+    const got = share({ botWeight1: 0, botWeight2: 0, botWeight3: 0 });
+    assert.ok(near(got, [1 / 3, 1 / 3, 1 / 3]), `${got}`);
   });
 });

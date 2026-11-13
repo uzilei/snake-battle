@@ -10,6 +10,7 @@ import { CHICKEN_RULES } from '/shared/chicken.js';
 import { BADGER_RULES } from '/shared/badger.js';
 import { FRUIT_CODES } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
+import { BOT_SKILL_TWEMOJI } from '/shared/bots.js';
 
 const T = STRINGS.display;
 const $ = (id) => document.getElementById(id);
@@ -51,6 +52,8 @@ const ITEM_IMAGES = {
   badger: loadImage(`/twemoji/${BADGER_RULES.twemoji}.svg`),
   warning: loadImage(`/twemoji/${BADGER_RULES.warningTwemoji}.svg`),
   ...Object.fromEntries(HATS.map((h) => [`hat-${h.id}`, loadImage(`/twemoji/${h.twemoji}.svg`)])),
+  // A bot's skill, by its name: 🐣 / ⚔️ / ☠️.
+  ...Object.fromEntries(Object.entries(BOT_SKILL_TWEMOJI).map(([k, code]) => [`skill-${k}`, loadImage(`/twemoji/${code}.svg`)])),
 };
 // A random fruit out of the ones in use (only 🍎 when none is).
 function randomFruit(enabled) {
@@ -994,15 +997,22 @@ function drawNames(labels, cell, size) {
   ctx.fillStyle = '#ffffff';
   const maxWidth = Math.max(cell * 5, 90 * dpr);
   for (const l of labels) {
-    const text = truncate(l.name, maxWidth, font);
-    const half = ctx.measureText(text).width / 2 + 3 * dpr;
+    // A bot's skill emoji goes in front of its name; the two are centered together.
+    const icon = l.skill ? ITEM_IMAGES[`skill-${l.skill}`] : null;
+    const iconW = icon?.ready ? Math.round(fontPx * 1.15) : 0;
+    const iconGap = iconW ? Math.round(fontPx * 0.25) : 0;
+    const text = truncate(l.name, maxWidth - iconW - iconGap, font);
+    const textW = ctx.measureText(text).width;
+    const half = (iconW + iconGap + textW) / 2 + 3 * dpr;
     const x = clamp(l.x, half, size - half); // keep names on screen at the edges
     const gap = l.r + fontPx * 0.62;
     // Above the head when there's no room below (the bottom row, or a head
     // that's mid-way through a wrap at the bottom edge).
     const y = l.y + gap + fontPx / 2 > size ? l.y - gap : l.y + gap;
-    ctx.strokeText(text, x, y);
-    ctx.fillText(text, x, y);
+    const tx = x + (iconW + iconGap) / 2; // the text's center
+    if (iconW) ctx.drawImage(icon.img, tx - textW / 2 - iconGap - iconW, y - iconW / 2, iconW, iconW);
+    ctx.strokeText(text, tx, y);
+    ctx.fillText(text, tx, y);
   }
   ctx.restore();
 }
@@ -1108,20 +1118,41 @@ function applyShake(now) {
 // kills the killer has this round, the bigger and hotter it gets.
 const KILL_POPUP_MS = 1500;
 const KILL_TIERS = ['#ffffff', '#ffe066', '#ffa726', '#ff5252', '#e040fb']; // fill per kill number
-const killPopups = []; // { x, y, n, text, color, start, tilt, end }
+// Killing the leader in kills or length (the death's takedown) adds a second
+// text below, with the same tilt, that drops instead of rising.
+const TAKEDOWN_FILL = { streak: '#4de3ff', mvp: '#ffd700' };
+const TAKEDOWN_DELAY_MS = 140; // lands just after the KILL!
+const killPopups = []; // { x, y, n, text, color, start, tilt, end, takedown? }
 
 function killText(n) {
   const names = STRINGS.display.killPopups;
   return n <= names.length ? names[n - 1] : fmt(STRINGS.display.killPopupMore, { n });
 }
 
-function addKillPopup(x, y, n, color, now) {
-  // Kills close together: the older popups nearby make way, fading out fast.
+function addKillPopup(x, y, n, color, now, takedown = null) {
+  // Kills close together: the older popups nearby make way, fading out fast
+  // (before this kill's own texts go in, so they don't).
   for (const p of killPopups) {
     if (Math.abs(p.x - x) < 5 && Math.abs(p.y - y) < 3) p.end = Math.min(p.end, now + 200);
   }
   const side = Math.random() < 0.5 ? -1 : 1;
-  killPopups.push({ x, y, n, text: killText(n), color, start: now, tilt: side * (0.08 + Math.random() * 0.12), end: now + KILL_POPUP_MS });
+  const tilt = side * (0.08 + Math.random() * 0.12);
+  killPopups.push({ x, y, n, text: killText(n), color, start: now, tilt, end: now + KILL_POPUP_MS });
+  if (takedown && TAKEDOWN_FILL[takedown]) {
+    const start = now + TAKEDOWN_DELAY_MS;
+    killPopups.push({ x, y, n: 2, text: STRINGS.display.takedowns[takedown], color, start, tilt, end: start + KILL_POPUP_MS, takedown });
+    // Its own burst, falling.
+    const fill = TAKEDOWN_FILL[takedown];
+    for (let i = 0; i < 26 && particles.length < MAX_PARTICLES; i++) {
+      const a = Math.PI * (0.15 + Math.random() * 0.7); // downward fan
+      const v = 4 + Math.random() * 5;
+      particles.push({
+        x: x + 0.5, y: y + 1, vx: Math.cos(a) * v, vy: Math.sin(a) * v, born: start,
+        life: 700 + Math.random() * 500, r: 0.12 + Math.random() * 0.12, color: i % 2 ? fill : '#ffffff', star: true, spin: Math.random() * Math.PI,
+      });
+    }
+    rings.push({ x, y, color: fill, start, ms: 600, r0: 0.5, r1: 2.6, width: 0.2 });
+  }
   const hot = KILL_TIERS[Math.min(n, KILL_TIERS.length) - 1];
   const colors = ['#ffd54f', '#ffffff', color, hot];
   const tier = Math.min(n, 6);
@@ -1149,22 +1180,24 @@ function drawKillPopups(cell, size, now) {
       killPopups.splice(i, 1);
       continue;
     }
+    if (e < 0) continue; // a takedown text, not in yet
     const tier = Math.min(p.n, 6);
-    // Readable on any board: at least 3% of the board, a cell otherwise.
-    const fontPx = Math.round(Math.max(cell * 0.8, size * 0.03) * (1 + 0.22 * (tier - 1)));
+    // Readable on any board: at least 2% of the board, half a cell otherwise.
+    const fontPx = Math.round(Math.max(cell * 0.53, size * 0.02) * (1 + 0.22 * (tier - 1)));
     const font = `900 ${fontPx}px system-ui, "Segoe UI", Roboto, sans-serif`;
     const pop = easeOutBack(clamp(e / 0.16, 0, 1)); // 0 -> 1, overshooting
     const fade = Math.min(e < 0.65 ? 1 : 1 - (e - 0.65) / 0.35, (p.end - now) / 200); // making way: gone in 200 ms
-    const rise = cell * 0.9 * (1 - (1 - e) ** 2);
+    const rise = cell * 0.9 * (1 - (1 - e) ** 2); // up, or down for a takedown
     ctx.save();
     ctx.font = font;
     const w = ctx.measureText(p.text).width;
     const pad = fontPx * 0.4;
     const x = clamp((p.x + 0.5) * cell, w / 2 + pad, size - w / 2 - pad);
-    const y = clamp((p.y + 0.5) * cell - cell * 0.6 - rise, fontPx, size - fontPx);
+    const head = (p.y + 0.5) * cell;
+    const y = clamp(p.takedown ? head + cell * 0.8 + rise : head - cell * 0.6 - rise, fontPx, size - fontPx);
     ctx.translate(x, y);
     // From 3 kills on it shakes a little as it lands.
-    const wobble = tier >= 3 ? Math.sin((now - p.start) / 28) * 0.06 * (1 - clamp(e / 0.35, 0, 1)) : 0;
+    const wobble = tier >= 3 || p.takedown ? Math.sin((now - p.start) / 28) * 0.06 * (1 - clamp(e / 0.35, 0, 1)) : 0;
     ctx.rotate(p.tilt + wobble);
     ctx.scale(pop, pop);
     ctx.globalAlpha = clamp(fade, 0, 1);
@@ -1178,8 +1211,10 @@ function drawKillPopups(cell, size, now) {
     ctx.lineWidth = fontPx * 0.14;
     ctx.strokeStyle = p.color;
     ctx.strokeText(p.text, 0, 0);
-    const fill = p.n > KILL_TIERS.length ? `hsl(${((now - p.start) / 4) % 360}, 100%, 70%)` : KILL_TIERS[p.n - 1];
-    if (tier >= 3) {
+    const fill = p.takedown
+      ? TAKEDOWN_FILL[p.takedown]
+      : p.n > KILL_TIERS.length ? `hsl(${((now - p.start) / 4) % 360}, 100%, 70%)` : KILL_TIERS[p.n - 1];
+    if (tier >= 3 || p.takedown) {
       ctx.shadowColor = fill;
       ctx.shadowBlur = fontPx * 0.5;
     }
@@ -1426,8 +1461,8 @@ function onState(msg) {
         if (fx.deathParticles && snake) burst(snake, now);
         if (fx.killPopups && snake && ev.killNo) {
           const head = snake.segments[0];
-          addKillPopup(head.x, head.y, ev.killNo, colorOf(ev.killerId), now);
-          if (fx.screenShake && ev.killNo >= 3) shakeStart = now;
+          addKillPopup(head.x, head.y, ev.killNo, colorOf(ev.killerId), now, ev.takedown ?? null);
+          if (fx.screenShake && (ev.killNo >= 3 || ev.takedown)) shakeStart = now;
         }
         // The killer winks, with a little sparkle by its head.
         const killer = ev.killerId && s.snakes.find((x) => x.id === ev.killerId);
@@ -1491,7 +1526,7 @@ function drawBoard(msg, now, dt) {
   for (const s of state.snakes) {
     if (!s.alive) continue;
     const head = drawSnake(s, prevSnakes.get(s.id), t, cell, n, now, animFor(s), frame, msg.hats?.[s.id] ?? null);
-    if (head) labels.push({ ...head, name: names.get(s.id) ?? '' });
+    if (head) labels.push({ ...head, name: names.get(s.id) ?? '', skill: msg.botSkills?.[s.id] ?? null });
     if (head) heads.set(s.id, head);
     if (head && s.effect) badges.push({ ...head, effect: s.effect });
   }
