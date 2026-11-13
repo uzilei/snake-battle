@@ -64,6 +64,15 @@ function fruitAt(a) {
   if (!fruits.has(k)) fruits.set(k, randomFruit(latest?.fruits));
   return fruits.get(k);
 }
+// Whether the fruit or power-up of `kind` ('apple', or the power-up type) at
+// a cell is drawn mirrored: picked at random when it appears, kept until it's
+// eaten (like its fruit). Creatures face where they go instead.
+const itemKey = (kind, x, y) => `${kind}:${x},${y}`;
+function flipAt(kind, x, y) {
+  const k = itemKey(kind, x, y);
+  if (!flips.has(k)) flips.set(k, Math.random() < 0.5);
+  return flips.get(k);
+}
 // 🐀 or 🐁, fixed per rat (a hash of its id, so it never changes mid-run).
 const ratSprite = (id) => ((Math.imul(Number(id) | 0, 0x9e3779b1) >>> 16) & 1 ? 'mouse' : 'rat');
 
@@ -270,14 +279,14 @@ const creatureSprite = (type, px, frozen) => (frozen ? frozenSprite(type, px) : 
 const remainingNow = (ms, now) => Math.max(0, ms - (now - tickAt));
 
 function boardItems(state, now) {
-  const items = state.apples.map((a) => ({ type: 'apple', sprite: fruitAt(a), x: a.x, y: a.y }));
-  for (const p of state.powerUps ?? []) items.push({ type: p.type, x: p.x, y: p.y, power: true });
+  const items = state.apples.map((a) => ({ type: 'apple', sprite: fruitAt(a), x: a.x, y: a.y, flip: flipAt('apple', a.x, a.y) }));
+  for (const p of state.powerUps ?? []) items.push({ type: p.type, x: p.x, y: p.y, power: true, flip: flipAt(p.type, p.x, p.y) });
   // A bomb is one big sprite over its whole block, centered on (x, y).
   for (const b of state.bombs ?? []) {
-    items.push({ type: 'bomb', x: b.x, y: b.y, size: POWER_UP_RULES.bombSize, power: true, remainingMs: remainingNow(b.remainingMs, now) });
+    items.push({ type: 'bomb', x: b.x, y: b.y, size: POWER_UP_RULES.bombSize, power: true, remainingMs: remainingNow(b.remainingMs, now), flip: flipAt('bomb', b.x, b.y) });
   }
   // An eaten item stays until the (interpolated) head has reached it.
-  for (const e of eaten) if (now < e.until) items.push({ type: e.item ?? 'apple', sprite: e.sprite, x: e.x, y: e.y, power: Boolean(e.item) });
+  for (const e of eaten) if (now < e.until) items.push({ type: e.item ?? 'apple', sprite: e.sprite, x: e.x, y: e.y, power: Boolean(e.item), flip: e.flip });
   return items;
 }
 
@@ -316,7 +325,14 @@ function drawItems(items, cell, now) {
     const y = (it.y + 0.5) * cell - size / 2;
     const img = sprite(it.sprite ?? it.type, px);
     ctx.globalAlpha = alpha;
-    if (img) ctx.drawImage(img, x, y, size, size);
+    if (img && it.flip) {
+      // Mirrored round its own center.
+      ctx.save();
+      ctx.translate(x + size / 2, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, -size / 2, y, size, size);
+      ctx.restore();
+    } else if (img) ctx.drawImage(img, x, y, size, size);
     else {
       ctx.fillStyle = it.type === 'apple' ? '#e53935' : '#ffd54a';
       disc((it.x + 0.5) * cell, (it.y + 0.5) * cell, span * 0.38 * scale);
@@ -1068,6 +1084,7 @@ const diedAt = new Map(); // id -> when it died (for the fade)
 let eaten = []; // { x, y, color, until, item?, sprite? }
 let flights = []; // { x, y, id, color, start, sprite }: apples a magnet is pulling into a mouth
 let fruits = new Map(); // "x,y" -> which fruit sprite the plain apple there is drawn as
+let flips = new Map(); // itemKey -> whether that fruit or power-up is drawn mirrored
 // Rats slide from cell to cell over the moveEveryTicks ticks a step takes.
 // facing: 1 = as the emoji is drawn (left), -1 = mirrored (right).
 let rats = new Map(); // id -> { from, to, start, ms, facing }
@@ -1182,6 +1199,16 @@ function onState(msg) {
       const k = `${a.x},${a.y}`;
       fruits.set(k, oldFruits.get(k) ?? randomFruit(msg.fruits));
     }
+    // Each fruit and power-up keeps its mirroring; a new one gets a random one.
+    const oldFlips = sameRound ? flips : new Map();
+    flips = new Map();
+    const keepFlip = (kind, x, y) => {
+      const k = itemKey(kind, x, y);
+      flips.set(k, oldFlips.get(k) ?? Math.random() < 0.5);
+    };
+    for (const a of s.apples) keepFlip('apple', a.x, a.y);
+    for (const p of s.powerUps ?? []) keepFlip(p.type, p.x, p.y);
+    for (const b of s.bombs ?? []) keepFlip('bomb', b.x, b.y);
     const oldRats = rats;
     rats = new Map();
     for (const r of s.rats ?? []) {
@@ -1229,7 +1256,8 @@ function onState(msg) {
         }
         // A bomb goes off at once (its x, y is the block's center).
         const fruit = ev.item ? undefined : oldFruits.get(`${ev.x},${ev.y}`);
-        if (ev.magnet) flights.push({ x: ev.x, y: ev.y, id: ev.id, color: colorOf(ev.id), start: now, sprite: fruit });
+        const flip = oldFlips.get(itemKey(ev.item ?? 'apple', ev.x, ev.y));
+        if (ev.magnet) flights.push({ x: ev.x, y: ev.y, id: ev.id, color: colorOf(ev.id), start: now, sprite: fruit, flip });
         else if (ev.item === 'rat') {
           // It slides on from wherever it was drawn into the head's cell.
           const old = oldRats.get(ev.ratId);
@@ -1237,7 +1265,7 @@ function onState(msg) {
         } else if (ev.item === 'chicken') {
           const old = oldChickens.get(ev.chickenId);
           if (old) eatenRats.push({ ...ratStep(old, ev, s.gridSize, now, msg.tickMs * EAT_AT), color: colorOf(ev.id), sprite: 'chicken' });
-        } else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item, sprite: fruit });
+        } else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item, sprite: fruit, flip });
         if (ev.item === 'bomb') {
           if (fx.screenShake) shakeStart = now;
           if (fx.deathParticles) explosion(ev.x, ev.y, now);
@@ -1653,7 +1681,7 @@ function drawFlights(heads, cell, n, now, fx) {
     ctx.save();
     ctx.translate((f.x + (tx - f.x) * k + 0.5) * cell, (f.y + (ty - f.y) * k + 0.5) * cell);
     ctx.scale(scale, scale);
-    drawItems([{ type: 'apple', sprite: f.sprite, x: -0.5, y: -0.5 }], cell, now);
+    drawItems([{ type: 'apple', sprite: f.sprite, x: -0.5, y: -0.5, flip: f.flip }], cell, now);
     ctx.restore();
     return true;
   });
