@@ -575,6 +575,7 @@ function drawSnake(s, prev, t, cell, n, now, anim = null, frame = null) {
 // down the body after each bite. Every snake has its own random timers, so
 // they don't blink or lick in step.
 const BLINK_MS = 150;
+const WINK_MS = 400; // after a kill: one eye shuts, stays shut a moment, opens
 const BLINK_EVERY_MS = [2000, 6000];
 const TONGUE_MS = 300;
 const TONGUE_EVERY_MS = [2500, 7000];
@@ -591,6 +592,8 @@ function animOf(id, now) {
     a = {
       blinkAt: now + between([300, BLINK_EVERY_MS[1]]),
       blinkStart: -Infinity,
+      winkStart: -Infinity,
+      winkSide: 1, // which eye winks: -1 or 1
       tongueAt: now + between([800, TONGUE_EVERY_MS[1]]),
       tongueStart: -Infinity,
       look: null, // where the pupils point: a vector of length <= 1, in screen space
@@ -636,7 +639,7 @@ function facePose(s, a, headPx, travel, cell, now, frame) {
   if (!s.alive) {
     a.head = null;
     a.bumps = [];
-    return { angle: a.heading ?? Math.atan2(v[1], v[0]), look: a.look ?? { x: 0, y: 0 }, blink: 0, tongue: -1, mouth: 0, dead: true };
+    return { angle: a.heading ?? Math.atan2(v[1], v[0]), look: a.look ?? { x: 0, y: 0 }, blink: 0, wink: 0, winkSide: 1, tongue: -1, mouth: 0, dead: true };
   }
   const head = { x: headPx.x / cell - 0.5, y: headPx.y / cell - 0.5 };
   a.head = head;
@@ -691,6 +694,7 @@ function facePose(s, a, headPx, travel, cell, now, frame) {
     a.tongueAt = now + between(TONGUE_EVERY_MS);
   }
   const sinceBlink = now - a.blinkStart;
+  const sinceWink = now - a.winkStart;
   const sinceTongue = now - a.tongueStart;
   return {
     angle: a.heading,
@@ -698,6 +702,9 @@ function facePose(s, a, headPx, travel, cell, now, frame) {
     blink: sinceBlink < BLINK_MS ? Math.sin((Math.PI * sinceBlink) / BLINK_MS) : 0,
     tongue: sinceTongue < TONGUE_MS ? sinceTongue / TONGUE_MS : -1,
     mouth: a.mouth < 0.01 ? 0 : a.mouth,
+    // Shuts in the first 20%, stays shut, opens in the last 20%.
+    wink: sinceWink >= 0 && sinceWink < WINK_MS ? clamp(Math.min(sinceWink, WINK_MS - sinceWink) / (WINK_MS * 0.2), 0, 1) : 0,
+    winkSide: a.winkSide,
     dead: false,
   };
 }
@@ -705,7 +712,7 @@ function facePose(s, a, headPx, travel, cell, now, frame) {
 // The face with the animations off: big eyes looking ahead, nothing moving.
 function stillPose(dir) {
   const angle = Math.atan2(dir.y, dir.x);
-  return { angle, look: { x: Math.cos(angle) * 0.6, y: Math.sin(angle) * 0.6 }, blink: 0, tongue: -1, mouth: 0, dead: false };
+  return { angle, look: { x: Math.cos(angle) * 0.6, y: Math.sin(angle) * 0.6 }, blink: 0, wink: 0, winkSide: 1, tongue: -1, mouth: 0, dead: false };
 }
 
 // The head at (hx, hy) px, drawn in the head's own frame: +x is
@@ -813,14 +820,15 @@ function drawFace(hx, hy, pose, look, headR, cell) {
     } else {
       ctx.fillStyle = '#111111';
       disc(ex + lx * eyeR * 0.4, ey + ly * eyeR * 0.4, eyeR * 0.55);
-      if (pose.blink > 0) {
+      const shut = Math.max(pose.blink, k === pose.winkSide ? pose.wink : 0);
+      if (shut > 0) {
         // Eyelids in the darker body color, closing from the front and back.
         ctx.save();
         ctx.beginPath();
         ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
         ctx.clip();
         ctx.fillStyle = look.dark;
-        const lid = eyeR * pose.blink * 1.02;
+        const lid = eyeR * shut * 1.02;
         ctx.fillRect(ex - eyeR, ey - eyeR, lid, eyeR * 2);
         ctx.fillRect(ex + eyeR - lid, ey - eyeR, lid, eyeR * 2);
         ctx.restore();
@@ -975,7 +983,8 @@ function drawEffects(cell, now, dt) {
     p.vy *= drag;
     ctx.globalAlpha = 1 - e * e;
     ctx.fillStyle = p.color;
-    disc(p.x * cell, p.y * cell, p.r * cell * (1 - 0.5 * e));
+    if (p.star) star(p.x * cell, p.y * cell, p.r * cell * (1 - 0.3 * e) * (0.75 + 0.25 * Math.sin((now - p.born) / 40)), p.spin + (now - p.born) / 300);
+    else disc(p.x * cell, p.y * cell, p.r * cell * (1 - 0.5 * e));
   }
   ctx.globalAlpha = 1;
 }
@@ -1035,6 +1044,29 @@ function explosion(x, y, now) {
   flashes.push({ x, y, size: POWER_UP_RULES.bombSize, start: now, ms: 220 });
   rings.push({ x, y, color: '#fff3c4', start: now, ms: 620, r0: reach, r1: reach + 2.6, width: 0.4 });
   rings.push({ x, y, color: '#ff7043', start: now + 90, ms: 650, r0: reach, r1: reach + 2, width: 0.25 });
+}
+
+// A handful of small twinkling stars thrown up around a head (a kill).
+function sparkle(c, now) {
+  const colors = ['#fff8c4', '#ffe066', '#ffffff', '#ffd23f'];
+  for (let i = 0; i < 12 && particles.length < MAX_PARTICLES; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = 1.2 + Math.random() * 2.2;
+    const d = 0.35 + Math.random() * 0.35;
+    particles.push({ x: c.x + 0.5 + Math.cos(a) * d, y: c.y + 0.5 + Math.sin(a) * d, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 0.8, born: now, life: 500 + Math.random() * 350, r: 0.12 + Math.random() * 0.12, color: colors[i % colors.length], star: true, spin: Math.random() * Math.PI });
+  }
+}
+
+// A four-pointed star of radius r at (x, y) px, turned by `angle`.
+function star(x, y, r, angle) {
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = angle + (i * Math.PI) / 4;
+    const d = i % 2 ? r * 0.32 : r;
+    ctx.lineTo(x + Math.cos(a) * d, y + Math.sin(a) * d);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 // A bomb that ran out: a small grey puff of smoke.
@@ -1121,6 +1153,14 @@ function onState(msg) {
         diedAt.set(ev.id, now);
         const snake = s.snakes.find((x) => x.id === ev.id);
         if (fx.deathParticles && snake) burst(snake, now);
+        // The killer winks, with a little sparkle by its head.
+        const killer = ev.killerId && s.snakes.find((x) => x.id === ev.killerId);
+        if (fx.snakeAnimations && killer?.alive) {
+          const a = animOf(killer.id, now);
+          a.winkStart = now;
+          a.winkSide = Math.random() < 0.5 ? -1 : 1;
+          sparkle(killer.segments[0], now);
+        }
       } else if (ev.type === 'headOn') {
         if (fx.screenShake) shakeStart = now;
       }

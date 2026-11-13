@@ -143,7 +143,7 @@ export const STRINGS = Object.freeze({
     deathParticles: 'Esplosione di particelle quando un serpente muore',
     appleRings: 'Anello quando si mangia una mela',
     screenShake: 'Scossa dello schermo negli scontri frontali',
-    snakeAnimations: 'Animazioni dei serpenti (sguardo, battito di ciglia, lingua, bocca, boccone che scende)',
+    snakeAnimations: 'Animazioni dei serpenti (sguardo, battito di ciglia, lingua, bocca, boccone che scende, occhiolino dopo un’eliminazione)',
     fruitsTitle: 'Frutta',
     fruitsHint: 'Le mele compaiono come uno di questi frutti, a caso. Solo grafica: vale per le mele nuove. Nessuno selezionato = tutte 🍎.',
     fruitsAll: 'Tutti',
