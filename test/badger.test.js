@@ -237,6 +237,64 @@ describe('badger movement', () => {
     assert.deepEqual([badger(e).x, badger(e).y], [8, 10]);
   });
 
+  test('a fresh direction every 20-40 ticks, which may be the same one again', () => {
+    assert.equal(BADGER_RULES.turnMinTicks, 20);
+    assert.equal(BADGER_RULES.turnMaxTicks, 40);
+    const seen = new Set();
+    let kept = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const e = createEngine({
+        config: { gridSize: 40, appleCount: 0, ratChance: 0, spawnShieldSec: 0, badgerEverySec: 0, tickMs: 100 },
+        random: seeded(seed),
+      });
+      e.addPlayer('z', 'z');
+      e.tick();
+      e._debug.setSnake('z', [[38, 38], [38, 37], [38, 36]], 'left');
+      e._debug.setEffect('z', 'ghost', 1e9);
+      // In the middle of the board, its timer running out on the next tick.
+      e._debug.setBadger([20, 20], { dir: 'left', turnAt: e.getState().tick + 1, remainingMs: 1e9 });
+      const tick = e.getState().tick + 1;
+      e._debug.setSnake('z', [[38, 38], [38, 37], [38, 36]], 'left');
+      e.tick();
+      const wait = e._debug.badgerTimers().turnAt - tick;
+      assert.ok(wait >= 20 && wait <= 40, `next pick in ${wait} ticks`);
+      seen.add(wait);
+      assert.notEqual(badger(e).dir, 'right'); // never straight back
+      if (badger(e).dir === 'left') kept++;
+    }
+    assert.ok(seen.size > 5, 'the timer hardly varies');
+    assert.ok(kept > 0, 'it never kept going the same way');
+  });
+
+  test('touching a wall, its next pick is away from it', () => {
+    const picks = (at, dir, timerOut) => {
+      const out = new Set();
+      for (let seed = 1; seed <= 20; seed++) {
+        const e = createEngine({
+          config: { gridSize: 20, appleCount: 0, ratChance: 0, spawnShieldSec: 0, badgerEverySec: 0, tickMs: 100 },
+          random: seeded(seed),
+        });
+        e.addPlayer('z', 'z');
+        e.tick();
+        e._debug.setSnake('z', [[10, 10], [10, 11], [10, 12]], 'up');
+        e._debug.setEffect('z', 'ghost', 1e9);
+        const tick = e.getState().tick;
+        e._debug.setBadger(at, { dir, turnAt: timerOut ? tick + 1 : tick + 1000, remainingMs: 1e9 });
+        e.tick();
+        out.add(badger(e).dir);
+      }
+      return [...out].sort();
+    };
+    // Running into the left wall: straight back out, never along it.
+    assert.deepEqual(picks([2, 10], 'left', false), ['right']);
+    // Along the bottom wall when its timer runs out: up, off it.
+    assert.deepEqual(picks([10, 18], 'right', true), ['up']);
+    // Into the top-right corner: away from both walls.
+    assert.deepEqual(picks([17, 1], 'up', false), ['down', 'left']);
+    // Off the walls the pick is free: not only one way.
+    assert.ok(picks([10, 10], 'up', true).length > 1);
+  });
+
   test('never leaves the board or wraps, even with wrap-around walls', () => {
     const e = setup(far, { wrapWalls: true });
     e._debug.setBadger([2, 1], { dir: 'left', remainingMs: 1e9 }); // in the top-left corner

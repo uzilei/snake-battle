@@ -1329,10 +1329,21 @@ export function createEngine({ config, random = Math.random } = {}) {
     if (spawnBadger()) events.push({ type: 'badgerSpawn', x: badger.x, y: badger.y });
   }
 
+  // The ways away from the walls its block touches ([] off the walls).
+  function awayFromWalls(b) {
+    const out = [];
+    if (b.x - B_REACH_X === 0) out.push('right');
+    if (b.x + B_REACH_X === gridSize - 1) out.push('left');
+    if (b.y - B_REACH_Y === 0) out.push('down');
+    if (b.y + B_REACH_Y === gridSize - 1) out.push('up');
+    return out;
+  }
+
   // Every moveEveryTicks ticks, one cell on: straight ahead until its turn
   // timer runs out, or at once when blocked (leaving the board, a bomb or a
-  // portal end). It turns back only when that's the only way; boxed in, it
-  // stays put.
+  // portal end). Then it picks at random among the free ways: away from a
+  // wall it touches if it can, else any but back (straight on included),
+  // back only when that's the only way; boxed in, it stays put.
   function moveBadger() {
     const b = badger;
     if (!isActive(b) || tickCount < b.moveAt) return;
@@ -1342,8 +1353,9 @@ export function createEngine({ config, random = Math.random } = {}) {
     let pick = tickCount < b.turnAt && options.includes(b.dir) ? b.dir : null;
     if (!pick) {
       b.turnAt = tickCount + badgerTurnIn();
+      const away = awayFromWalls(b).filter((dir) => options.includes(dir));
       const onward = options.filter((dir) => dir !== OPPOSITE[b.dir]);
-      const pool = onward.length ? onward : options;
+      const pool = away.length ? away : onward.length ? onward : options;
       if (!pool.length) return;
       pick = pool[randInt(pool.length)];
     }
@@ -1630,6 +1642,10 @@ export function createEngine({ config, random = Math.random } = {}) {
     // tick) and keeps going straight until tick `turnAt`, when free.
     setBadger([x, y], { dir = 'left', warningMs = 0, remainingMs = cfg.badgerLifetimeSec * 1000, moveAt = tickCount + 1, turnAt = tickCount + 1000 } = {}) {
       badger = { id: nextObjectId++, x, y, dir, warningMs, remainingMs, lifetimeMs: remainingMs, moveAt: warningMs > 0 ? Infinity : moveAt, turnAt: warningMs > 0 ? Infinity : turnAt, since: tickCount, passing: new Set() };
+    },
+    // When the badger next moves and next picks a direction (ticks).
+    badgerTimers() {
+      return badger ? { moveAt: badger.moveAt, turnAt: badger.turnAt } : null;
     },
     clearBadger() {
       removeBadger();

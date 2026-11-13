@@ -9,10 +9,10 @@ export const BADGER_RULES = Object.freeze({
   height: 3,
   warningMs: 2000, // the warning before it becomes active; it does nothing meanwhile
   moveEveryTicks: 4, // a quarter of a snake's speed
-  // A fresh random direction after this many ticks (both included), or at
-  // once when the way ahead is blocked.
+  // A fresh random direction (which may be the same one again) after this
+  // many ticks (both included), or at once when the way ahead is blocked.
   turnMinTicks: 20,
-  turnMaxTicks: 100,
+  turnMaxTicks: 40,
   headClearance: 3, // a new badger's block is at least this many steps from every snake head
   blinkMs: 3000, // /display blinks it during its last 3 s, like a bomb
 });
