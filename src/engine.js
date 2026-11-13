@@ -149,7 +149,10 @@ export function createEngine({ config, random = Math.random } = {}) {
   let apples = [];
   let bombs = []; // { x, y, remainingMs, since }: (x, y) is the center of a 3x3 block; on top of appleCount, despawn
   let projectiles = []; // { id, x, y, dir, ownerId }
-  let portals = []; // { id, ends: [{x,y}, {x,y}], remainingMs, since }: two-way, both ends alike
+  // { id, ends: [{x,y}, {x,y}], remainingMs, since, closing }: two-way, both
+  // ends alike. A closing pair has run out but a snake is still on its way
+  // through: nothing can enter it, and it goes once no snake spans it.
+  let portals = [];
   let nextObjectId = 1; // ids for projectiles, portals, creatures and badgers (for /display)
   // The honey badger, at most one: { id, x, y, dir, warningMs, remainingMs,
   // lifetimeMs, moveAt, turnAt, since }, (x, y) the center of its block.
@@ -336,21 +339,22 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // Keeps the apple count in line with cfg.appleCount (applies live).
-  // Power-ups and creatures take an apple's place and count toward it. Extra apples count
-  // towards the total too, so no new apple spawns while the board already
-  // holds appleCount or more. Lowering appleCount trims the newest regular
-  // items (apples or power-ups) down to it; extras are never removed.
+  // Power-ups and creatures take an apple's place and count toward it. Extra
+  // apples (corpse and feast) don't: the regular items stay at appleCount
+  // however many extras are on the board. Lowering appleCount trims the
+  // newest regular items (apples or power-ups) down to it; extras are never
+  // removed.
   function syncApples() {
-    let excess = apples.filter((a) => !isExtra(a)).length - cfg.appleCount;
-    for (let i = apples.length - 1; i >= 0 && excess > 0; i--) {
+    let regular = apples.filter((a) => !isExtra(a)).length;
+    for (let i = apples.length - 1; i >= 0 && regular > cfg.appleCount; i--) {
       if (!isExtra(apples[i])) {
         apples.splice(i, 1);
-        excess--;
+        regular--;
       }
     }
-    if (apples.length >= cfg.appleCount) return;
+    if (regular >= cfg.appleCount) return;
     const occupied = occupiedCells();
-    while (apples.length < cfg.appleCount) {
+    while (regular < cfg.appleCount) {
       const apple = spawnApple(occupied);
       if (!apple) break;
       // A creature that would start under the badger stays a plain apple.
@@ -361,6 +365,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         apples.push(type ? { ...apple, type } : apple);
       }
       occupied.add(cellKey(apple.x, apple.y));
+      regular++;
     }
   }
 
@@ -606,7 +611,29 @@ export function createEngine({ config, random = Math.random } = {}) {
     bombs = tick(bombs);
     // Where each one ran out (its block's center), for /display's fizzle.
     for (const b of before) if (!bombs.includes(b)) events.push({ type: 'bombExpired', x: b.x, y: b.y });
-    portals = tick(portals);
+    // A pair that runs out while a snake is still split across it closes
+    // instead, until the last segment is through.
+    portals = portals.filter((p) => {
+      if (p.since !== tickCount && !p.closing) p.remainingMs -= cfg.tickMs;
+      if (p.remainingMs > 0) return true;
+      p.remainingMs = 0;
+      p.closing = true;
+      return spansPortal(p);
+    });
+  }
+
+  // Whether a living snake has two consecutive segments split across the
+  // pair: one on an end, the next beside the other end (where it went in).
+  function spansPortal(p) {
+    for (const s of aliveSnakes()) {
+      const segs = s.segments;
+      for (let i = 0; i + 1 < segs.length; i++) {
+        const k = p.ends.findIndex((c) => c.x === segs[i].x && c.y === segs[i].y);
+        if (k === -1 || travelDir(segs[i + 1], segs[i])) continue; // not on an end, or walked onto it
+        if (travelDir(segs[i + 1], p.ends[1 - k])) return true;
+      }
+    }
+    return false;
   }
 
   // The cell one step from `from` in `dir`: wrapped when walls wrap, possibly
@@ -624,6 +651,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
   function throughPortal(cell) {
     for (const portal of portals) {
+      if (portal.closing) continue;
       const i = portal.ends.findIndex((c) => c.x === cell.x && c.y === cell.y);
       if (i !== -1) return { cell: { ...portal.ends[1 - i] }, portal };
     }
@@ -1699,7 +1727,12 @@ export function createEngine({ config, random = Math.random } = {}) {
       creaturesFrozen: creaturesFrozen(),
       bombs: bombs.map((b) => ({ x: b.x, y: b.y, remainingMs: b.remainingMs })),
       projectiles: projectiles.map((p) => ({ id: p.id, x: p.x, y: p.y, dir: p.dir, ownerId: p.ownerId })),
-      portals: portals.map((p) => ({ id: p.id, ends: p.ends.map((c) => ({ x: c.x, y: c.y })), remainingMs: p.remainingMs })),
+      portals: portals.map((p) => ({
+        id: p.id,
+        ends: p.ends.map((c) => ({ x: c.x, y: c.y })),
+        remainingMs: p.remainingMs,
+        closing: Boolean(p.closing),
+      })),
       // (x, y) is the center of its width x height block.
       badger: badger
         ? {

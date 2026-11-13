@@ -35,6 +35,11 @@ export const BOT_BRAIN = Object.freeze({
   fleeRadius: 3, // cells (Manhattan)
   ghostSafeMs: 2000, // a ghost with more than this left ignores danger
   mistakeChance: Object.freeze({ 1: 0.25, 2: 0.08, 3: 0 }), // per skill: ignore step 2, pick a random safe move
+  // Reaction time per skill: a bot re-decides every this many of its moves.
+  // In between it keeps going, but sees certain death one move ahead
+  // reflexChance of the time.
+  thinkEvery: Object.freeze({ 1: 3, 2: 2, 3: 1 }),
+  reflexChance: 0.85,
 });
 
 // Food values: what a bot would rather eat.
@@ -54,6 +59,7 @@ const NEVER = 0x7fff; // never free (in `freeAt`)
  */
 export function createBotBrain({ random = Math.random, onError = () => {} } = {}) {
   let nodesUsed = 0; // in the latest think(), for tests and /health
+  const waits = new Map(); // id -> moves left before it re-decides (0: now)
 
   /**
    * @param {object} state engine.getState()
@@ -66,14 +72,23 @@ export function createBotBrain({ random = Math.random, onError = () => {} } = {}
   function think(state, ids, { skill = 2, bombMode = 'cut' } = {}) {
     nodesUsed = 0;
     const out = new Map();
-    if (state.phase !== 'playing' || !ids.length) return out;
+    if (state.phase !== 'playing' || !ids.length) {
+      waits.clear(); // every round starts with a fresh decision
+      return out;
+    }
     const board = buildBoard(state);
     let budget = BOT_BRAIN.nodeBudget;
+    const every = BOT_BRAIN.thinkEvery[skill] ?? 1;
     for (const id of ids) {
       const me = board.snakes.get(id);
       if (!me || !me.alive || !board.movesNext(me)) continue;
+      const wait = waits.get(id) ?? 0;
+      waits.set(id, wait > 0 ? wait - 1 : every - 1);
+      // Between decisions only a reflex, and not always.
+      const reflex = wait > 0;
+      if (reflex && random() >= BOT_BRAIN.reflexChance) continue;
       try {
-        const { dir, nodes } = decide(board, me, { skill, bombMode, budget, random });
+        const { dir, nodes } = decide(board, me, { skill, bombMode, budget, random, reflex });
         budget -= nodes;
         nodesUsed += nodes;
         if (dir) out.set(id, dir);
@@ -172,6 +187,7 @@ function buildBoard(state) {
 
   const portalExit = new Map();
   for (const p of state.portals ?? []) {
+    if (p.closing) continue; // can't be entered
     const [a, b] = p.ends;
     portalExit.set(key(a.x, a.y), b);
     portalExit.set(key(b.x, b.y), a);
@@ -227,7 +243,9 @@ function buildBoard(state) {
 
 // ---- one bot ----
 
-function decide(board, me, { skill, bombMode, budget, random }) {
+// With `reflex` it only turns away from certain death straight ahead (dir
+// null: keep going).
+function decide(board, me, { skill, bombMode, budget, random, reflex = false }) {
   const { key, step } = board;
   const myIndex = board.order.indexOf(me);
   const scissors = me.effect === 'scissors';
@@ -302,6 +320,12 @@ function decide(board, me, { skill, bombMode, budget, random }) {
     moves.push({ dir, cell, tier, space: 0, flee: 0, hunt: 0 });
   }
   const best = Math.min(...moves.map((m) => m.tier));
+  if (reflex) {
+    const ahead = moves.find((m) => m.dir === me.dir);
+    if ((ahead && ahead.tier < DEADLY) || best === DEADLY) return { dir: null, nodes };
+    const ways = moves.filter((m) => m.tier === best);
+    return { dir: ways[Math.floor(random() * ways.length)].dir, nodes };
+  }
   // Every move is deadly: at least not a wall (another snake might move).
   if (best === DEADLY) return { dir: (moves.find((m) => m.cell) ?? moves[0]).dir, nodes };
   const options = moves.filter((m) => m.tier === best); // each with a cell: walls are deadly

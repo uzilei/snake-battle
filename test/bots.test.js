@@ -333,11 +333,53 @@ describe('bot brain: skill', () => {
   });
 
   test('skill 1 sometimes ignores the danger and picks any safe move', () => {
-    const brain = createBotBrain({ random: seeded(7) });
+    // A fresh brain each time, so every call is a full decision (not a reflex).
+    const random = seeded(7);
     const state = scene().getState();
     let risky = 0;
-    for (let i = 0; i < 400; i++) if (brain.think(state, ['a'], { skill: 1 }).get('a') === 'right') risky++;
+    for (let i = 0; i < 400; i++) if (createBotBrain({ random }).think(state, ['a'], { skill: 1 }).get('a') === 'right') risky++;
     assert.ok(risky > 10 && risky < 100, `risky ${risky}`); // about 25% x 1/3
+  });
+});
+
+describe('bot brain: reaction time', () => {
+  // Food up and to the right: a fresh decision turns up; straight on is safe.
+  const lure = () => {
+    const e = setup({ a: [row(10, 5, 3), 'right'], ...far });
+    e._debug.setApples([[5, 7]]);
+    return e;
+  };
+
+  for (const [skill, pattern] of [[1, 'up - - up - - up'], [2, 'up - up - up - up'], [3, 'up up up up up up up']]) {
+    test(`skill ${skill} re-decides every ${BOT_BRAIN.thinkEvery[skill]} moves: ${pattern}`, () => {
+      const brain = createBotBrain({ random: seeded(5), onError: (err) => { throw err; } });
+      const state = lure().getState();
+      const got = Array.from({ length: 7 }, () => brain.think(state, ['a'], { skill }).get('a') ?? '-');
+      assert.equal(got.join(' '), pattern);
+    });
+  }
+
+  test('between decisions it still turns away from certain death most of the time', () => {
+    const state = setup({ a: [row(10, 19, 17), 'right'], ...far }).getState(); // facing the wall
+    const random = seeded(11);
+    let saved = 0;
+    for (let i = 0; i < 400; i++) {
+      const brain = createBotBrain({ random });
+      brain.think(state, ['a'], { skill: 1 }); // the decision
+      const reflex = brain.think(state, ['a'], { skill: 1 }).get('a'); // in between
+      assert.notEqual(reflex, 'right');
+      if (reflex) saved++;
+    }
+    const share = saved / 400;
+    assert.ok(share > 0.75 && share < 0.95, `reflex ${share}`); // 85%
+  });
+
+  test('a new round starts with a fresh decision', () => {
+    const brain = createBotBrain({ random: seeded(5) });
+    const e = lure();
+    assert.equal(brain.think(e.getState(), ['a'], { skill: 1 }).get('a'), 'up');
+    brain.think({ ...e.getState(), phase: 'intermission' }, ['a'], { skill: 1 });
+    assert.equal(brain.think(e.getState(), ['a'], { skill: 1 }).get('a'), 'up');
   });
 });
 

@@ -1160,6 +1160,45 @@ describe('portal', () => {
     assert.deepEqual(e.getState().portals, []);
   });
 
+  test('running out mid-traversal it stays, closing: nothing can enter it, and it goes once the tail is through', () => {
+    const e = setup({ a: [[[7, 5], [6, 5], [5, 5]], 'right'], b: [[[8, 3], [8, 2], [8, 1]], 'down'], ...far }, { tickMs: 100 });
+    e._debug.addPortal([8, 5], [12, 12], 100); // runs out this tick
+    e.tick();
+    assert.deepEqual(cells(e, 'a'), [[12, 12], [7, 5], [6, 5]]);
+    assert.deepEqual(e.getState().portals.map((p) => [p.closing, p.remainingMs]), [[true, 0]]);
+    e.tick(); // b steps onto the closing end: no teleport
+    assert.deepEqual(head(e, 'b'), [8, 5]);
+    assert.deepEqual(events(e, 'teleport'), []);
+    assert.deepEqual(cells(e, 'a'), [[13, 12], [12, 12], [7, 5]]); // still split across it
+    assert.equal(e.getState().portals[0].closing, true);
+    e.tick(); // a's tail is through
+    assert.deepEqual(cells(e, 'a'), [[14, 12], [13, 12], [12, 12]]);
+    assert.deepEqual(e.getState().portals, []);
+  });
+
+  test('a closing portal still blocks item spawning on its ends', () => {
+    // z fills rows 0-6 of a 10 x 10 board, heading down: fewer free cells
+    // than appleCount, so every free cell gets an apple.
+    const z = [];
+    for (let y = 6; y >= 0; y--) for (let i = 0; i < 10; i++) z.push([(6 - y) % 2 ? 9 - i : i, y]);
+    const e = setup({ a: [[[2, 9], [1, 9], [0, 9]], 'right'], z: [z, 'down'] }, { gridSize: 10, tickMs: 100 });
+    e._debug.addPortal([3, 9], [6, 8], 100);
+    e.tick();
+    e.updateConfig({ appleCount: 30 });
+    e.tick();
+    const s = e.getState();
+    assert.equal(s.portals[0].closing, true);
+    assert.ok(s.apples.length > 20);
+    assert.equal(s.apples.some((c) => c.x === 3 && c.y === 9), false);
+  });
+
+  test('an expiring portal nobody is in goes at once', () => {
+    const e = setup({ a: [[[3, 3], [2, 3], [1, 3]], 'right'], ...far }, { tickMs: 100 });
+    e._debug.addPortal([8, 5], [12, 12], 100);
+    e.tick();
+    assert.deepEqual(e.getState().portals, []);
+  });
+
   test('projectiles ignore portals', () => {
     const e = setup(far);
     e._debug.addPortal([6, 8], [15, 15]);
@@ -1277,8 +1316,9 @@ describe('feast', () => {
     const feast = e.getState().apples.filter((c) => c.feast);
     assert.equal(feast.length, 10);
     for (const c of feast) assert.ok(Math.abs(c.x - 6) + Math.abs(c.y - 5) <= 2);
-    // They're extras, like dead-snake apples: they stop new regular spawns.
-    assert.equal(e.getState().apples.length, 10);
+    // They're extras, like dead-snake apples: on top of appleCount, so the
+    // eaten power-up is still replaced by a regular apple.
+    assert.equal(e.getState().apples.filter((c) => !c.feast).length, 1);
   });
 
   test('on a nearly full board it places what fits', () => {

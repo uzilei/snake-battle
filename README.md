@@ -29,7 +29,7 @@ Names are cleaned the same way on /play and on the server (`src/shared/names.js`
 
 Swipes are queued (up to 3) and one turn is applied per tick. A queued turn that would put the head straight into the snake's own body (not counting a tail that moves away) is skipped and the snake goes straight on, so one swipe too many isn't suicide; going straight into your own body still kills. Other snakes and walls get no such protection.
 
-The game rules (dead snakes become apples, wrap-around walls) are /admin toggles, off by default, applied from the next round. So are two extra win conditions on top of "last snake alive", which always applies; when several are on, whichever triggers first ends the round:
+The game rules (dead snakes become apples, wrap-around walls) are /admin toggles, off by default, applied from the next round. Extra apples (from dead snakes and the 🍗 feast) come on top of the number of apples: the regular items stay at that number however many extras there are, and extras are never removed when it's lowered. So are two extra win conditions on top of "last snake alive", which always applies; when several are on, whichever triggers first ends the round:
 
 - **Time limit** (`roundTimeLimitSec`): when it runs out, the longest living snake wins, or the one with the most kills this round (ties broken by length), as chosen on /admin. A full tie is a draw. /display shows the remaining time and flashes it in the last 10 seconds.
 - **Target length** (`targetLength`): the first snake to reach it wins at once. If several reach it on the same tick the longest wins; a full tie is a draw.
@@ -75,7 +75,7 @@ Off by default. "Power-up attivi" on /admin turns them on from the next round; t
 | 🧲 | Magnet | For 5 s, every apple (regular or extra) within 3 cells flies straight into the mouth and is eaten. Power-ups and bombs aren't pulled. |
 | 🧊 | Freeze | For 3 s, every other snake moves only every second tick. Rats, chickens and the badger move half as often too, and are tinted blue like the frozen snakes. |
 | ✂️ | Scissors | For 8 s, the next time it runs into a body (another snake's or its own), it cuts that snake there instead of dying. A cut leaving fewer than 3 segments kills: it counts as a kill when it was another snake, and as no kill when it was yourself. Head-ons and heads are unaffected. |
-| 🌀 | Portal | A two-way pair for 8 s: one end where it was eaten, the other somewhere safe with 3 free cells ahead. The eater's head goes through at once; after that, any head entering either end comes out of the other, same direction, and the body follows. Projectiles ignore portals. |
+| 🌀 | Portal | A two-way pair for 8 s: one end where it was eaten, the other somewhere safe with 3 free cells ahead. The eater's head goes through at once; after that, any head entering either end comes out of the other, same direction, and the body follows. If it runs out while a snake is still on its way through, it stays, closing: dim and still on /display, nothing can enter it (a head moving onto an end just moves there), and it goes once the tail is through. Items still can't spawn on its ends. Projectiles ignore portals. |
 | 🍗 | Feast | 10 extra apples on the free cells around the eater. |
 | 🛡️ | Shield | For 10 s, survives the next hit (wall, body, head-on or projectile): the shield pops and the snake is a ghost for 1 s. At a wall it turns aside instead. |
 
@@ -160,7 +160,7 @@ Computer players, so an empty booth still has something going on. Off by default
   3. **Hunt:** go for the best food it can reach, chickens and rats first. With scissors, it goes after another snake's body or the badger.
   4. **Wander.**
 - **Effects:** a ghost with more than 2 s left ignores 1 and 2 (walls still count). A golden snake checks both cells it covers.
-- **Skill:** at skill 1 (often) and 2 (rarely) a bot sometimes ignores step 2 and picks any safe move. At skill 3 it never does.
+- **Skill:** at skill 1 (often) and 2 (rarely) a bot sometimes ignores step 2 and picks any safe move. At skill 3 it never does. Skill also sets the reaction time: a bot decides again every 3 of its moves at skill 1, every 2 at skill 2 and every move at skill 3. In between it keeps going, but 85% of the time still turns away from certain death right ahead. A new round starts with a fresh decision.
 - **Cost:** the work per tick has a fixed budget, so many bots can't slow the game down. 24 bots on an 80×80 board take well under a millisecond per tick on average; `/health` reports it under `bots`.
 
 ## Pages

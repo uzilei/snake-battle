@@ -652,26 +652,29 @@ describe('corpse apples', () => {
     assert.equal(e.getState().apples.length, 2 + 3);
   });
 
-  test('replacement spawning never pushes the total above appleCount', () => {
+  test('extra apples do not count toward appleCount: the regular ones stay at appleCount', () => {
     const e = kill({ corpseApples: true, appleCount: 2 });
     e._debug.setApples([[16, 15], [0, 0]]); // c eats (16,15) this tick
     e.tick();
-    // 1 regular + 3 corpse apples = 4 >= 2, so the eaten one is not replaced.
-    assert.equal(e.getState().apples.length, 4);
-    // b eats the corpse apples one by one.
+    const count = () => {
+      const apples = e.getState().apples;
+      return [apples.filter((a) => !a.corpse).length, apples.filter((a) => a.corpse).length];
+    };
+    // 3 corpse apples, and the eaten regular one is still replaced.
+    assert.deepEqual(count(), [2, 3]);
+    // b eats the corpse apples one by one; the regular ones stay at 2.
     e._debug.setSnake('b', [[6, 3], [6, 2], [6, 1]], 'down');
     e._debug.setSnake('c', [[15, 15], [14, 15], [13, 15]], 'right');
     e.setDirection('b', 'left'); // (5,3)
     e.tick();
+    assert.deepEqual(count(), [2, 3]);
     e.setDirection('b', 'down'); // (5,4) corpse
     e.tick();
     e.setDirection('b', 'left'); // (4,4) corpse
     e.tick();
-    assert.equal(e.getState().apples.length, 2); // 1 regular + 1 corpse: still nothing new
-    e.tick(); // (3,4), the last corpse apple: total 1 < 2, so one regular apple spawns
-    const apples = e.getState().apples;
-    assert.equal(apples.length, 2);
-    assert.equal(apples.filter((a) => a.corpse).length, 0);
+    assert.deepEqual(count(), [2, 1]);
+    e.tick(); // (3,4), the last corpse apple
+    assert.deepEqual(count(), [2, 0]);
   });
 
   test('lowering appleCount removes regular apples only', () => {

@@ -344,11 +344,12 @@ function drawItems(items, cell, now) {
 // ---- portals ----
 // Both ends drawn as swirling rings in a hue of their own, joined by a faint
 // dashed line so the pair reads as one; they fade out during their last
-// seconds.
+// seconds. A closing pair (run out, a snake still on its way through) is
+// drawn dim and still until it goes.
 function drawPortals(portals, cell, now) {
   for (const p of portals) {
     const left = remainingNow(p.remainingMs, now);
-    const alpha = Math.min(1, left / POWER_UP_RULES.portalFadeMs);
+    const alpha = p.closing ? 0.35 : Math.min(1, left / POWER_UP_RULES.portalFadeMs);
     if (alpha <= 0) continue;
     const hue = (p.id * 137.5) % 360;
     const color = (a) => `hsla(${hue}, 90%, 65%, ${a})`;
@@ -365,7 +366,7 @@ function drawPortals(portals, cell, now) {
     ctx.setLineDash([]);
     for (const c of ends) {
       // Two-way: both ends look the same.
-      const spin = now / 400;
+      const spin = p.closing ? 0 : now / 400;
       const glow = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, cell * 0.7);
       glow.addColorStop(0, color(0.55));
       glow.addColorStop(1, color(0));
