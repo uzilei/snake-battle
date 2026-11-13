@@ -237,6 +237,19 @@ describe('badger movement', () => {
     assert.deepEqual([badger(e).x, badger(e).y], [8, 10]);
   });
 
+  test('freeze slows it: a cell every 8 ticks while any snake has freeze', () => {
+    const e = setup(far);
+    e._debug.setEffect('z', 'freeze', 5000);
+    e._debug.setBadger([10, 10], { dir: 'left' });
+    e.tick();
+    assert.deepEqual([badger(e).x, badger(e).y, badger(e).stepTicks], [9, 10, 8]);
+    assert.equal(e.getState().creaturesFrozen, true);
+    for (let i = 0; i < 7; i++) e.tick();
+    assert.equal(badger(e).x, 9);
+    e.tick();
+    assert.equal(badger(e).x, 8);
+  });
+
   test('a fresh direction every 20-40 ticks, which may be the same one again', () => {
     assert.equal(BADGER_RULES.turnMinTicks, 20);
     assert.equal(BADGER_RULES.turnMaxTicks, 40);

@@ -240,6 +240,26 @@ function sprite(type, px) {
   return spriteCache.get(key);
 }
 
+// The same sprite tinted icy blue, like a frozen snake (creatures slowed by
+// freeze). Cached alongside the plain ones.
+function frozenSprite(type, px) {
+  const plain = sprite(type, px);
+  if (!plain) return null;
+  const key = `${type}:${px}:frozen`;
+  if (!spriteCache.has(key)) {
+    const c = document.createElement('canvas');
+    c.width = c.height = px;
+    const g = c.getContext('2d');
+    g.drawImage(plain, 0, 0);
+    g.globalCompositeOperation = 'source-atop'; // only where the sprite is
+    g.fillStyle = 'rgba(159, 228, 255, 0.55)';
+    g.fillRect(0, 0, px, px);
+    spriteCache.set(key, c);
+  }
+  return spriteCache.get(key);
+}
+const creatureSprite = (type, px, frozen) => (frozen ? frozenSprite(type, px) : sprite(type, px));
+
 // Time left on something the server counts down, as of now (the state is
 // one tick old by the end of the tick).
 const remainingNow = (ms, now) => Math.max(0, ms - (now - tickAt));
@@ -1156,7 +1176,7 @@ function onState(msg) {
       const old = oldRats.get(r.id);
       if (!old) rats.set(r.id, { from: r, to: r, start: now, ms: 1, facing: r.dir === 'right' ? -1 : 1 });
       else if (old.to.x === r.x && old.to.y === r.y) rats.set(r.id, old);
-      else rats.set(r.id, ratStep(old, r, s.gridSize, now, msg.tickMs * RAT_RULES.moveEveryTicks));
+      else rats.set(r.id, ratStep(old, r, s.gridSize, now, msg.tickMs * (r.stepTicks ?? RAT_RULES.moveEveryTicks)));
     }
     // Where the badger was drawn until now (for its burst or puff if it's gone).
     const oldBadger = badgerAnim;
@@ -1168,7 +1188,7 @@ function onState(msg) {
     } else if (oldBadger.to.x !== b.x || oldBadger.to.y !== b.y) {
       const dx = b.x - oldBadger.to.x;
       const facing = dx > 0 ? -1 : dx < 0 ? 1 : oldBadger.facing;
-      badgerAnim = { id: b.id, from: badgerDrawnAt, to: { x: b.x, y: b.y }, start: now, ms: Math.max(1, msg.tickMs * BADGER_RULES.moveEveryTicks), facing };
+      badgerAnim = { id: b.id, from: badgerDrawnAt, to: { x: b.x, y: b.y }, start: now, ms: Math.max(1, msg.tickMs * (b.stepTicks ?? BADGER_RULES.moveEveryTicks)), facing };
     }
     tickKey = key;
     tickAt = now;
@@ -1259,8 +1279,9 @@ function drawBoard(msg, now, dt) {
   drawPortals(state.portals ?? [], cell, now);
   const items = boardItems(state, now);
   drawItems(items, cell, now);
-  drawRats(cell, n, now, msg.effects);
-  drawBadger(state.badger, cell, now);
+  const frozen = Boolean(state.creaturesFrozen);
+  drawRats(cell, n, now, msg.effects, frozen);
+  drawBadger(state.badger, cell, now, frozen);
 
   // What the snake faces react to: food (not bombs) as drawn right now, and
   // the other heads where they were last drawn.
@@ -1321,9 +1342,9 @@ function ratStep(old, to, n, now, ms) {
   return { from, to: { x: to.x, y: to.y }, start: now, ms: Math.max(1, ms), facing };
 }
 
-function drawRat(x, y, facing, cell, n, id) {
+function drawRat(x, y, facing, cell, n, id, frozen) {
   const px = Math.max(1, Math.round(cell * 0.9));
-  const img = sprite(ratSprite(id), px);
+  const img = creatureSprite(ratSprite(id), px, frozen);
   // Partly off one edge (wrapping in): also drawn on the other side.
   const xs = [x, ...(x < 0 ? [x + n] : x > n - 1 ? [x - n] : [])];
   const ys = [y, ...(y < 0 ? [y + n] : y > n - 1 ? [y - n] : [])];
@@ -1349,10 +1370,10 @@ function drawRat(x, y, facing, cell, n, id) {
   }
 }
 
-function drawRats(cell, n, now, fx) {
+function drawRats(cell, n, now, fx, frozen) {
   for (const [id, r] of rats) {
     const at = ratAt(r, now);
-    drawRat(at.x, at.y, r.facing, cell, n, id);
+    drawRat(at.x, at.y, r.facing, cell, n, id, frozen);
   }
   eatenRats = eatenRats.filter((r) => {
     if (now >= r.start + r.ms) {
@@ -1360,7 +1381,7 @@ function drawRats(cell, n, now, fx) {
       return false;
     }
     const at = ratAt(r, now);
-    drawRat(at.x, at.y, r.facing, cell, n, r.id);
+    drawRat(at.x, at.y, r.facing, cell, n, r.id, frozen);
     return true;
   });
 }
@@ -1399,7 +1420,7 @@ function dangerOutline(cx, cy, w, h, cell, now) {
 // On and off, for something about to go.
 const blinkAlpha = (now) => (Math.floor(now / 140) % 2 === 0 ? 1 : 0.25);
 
-function drawBadger(b, cell, now) {
+function drawBadger(b, cell, now, frozen) {
   if (!b || !badgerAnim) return;
   const at = ratAt(badgerAnim, now);
   const w = b.width * cell;
@@ -1431,7 +1452,7 @@ function drawBadger(b, cell, now) {
   if (remainingNow(b.remainingMs, now) < BADGER_RULES.blinkMs) ctx.globalAlpha = blinkAlpha(now);
   dangerOutline(cx, cy, w, h, cell, now);
   const px = Math.max(1, Math.round(w * 0.98));
-  const img = sprite('badger', px);
+  const img = creatureSprite('badger', px, frozen);
   ctx.translate(cx, cy);
   if (img) {
     ctx.scale(badgerAnim.facing, 1);

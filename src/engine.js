@@ -373,6 +373,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       from: null, // the cell it last moved off, so it doesn't turn straight back
       left: null, // the cell it left during the current sub-step, if any
       moveAt: tickCount + RAT_RULES.moveEveryTicks,
+      stepTicks: RAT_RULES.moveEveryTicks, // the interval set at its last move (for /display's slide)
       turnAt: tickCount + ratTurnIn(),
     };
   }
@@ -538,6 +539,14 @@ export function createEngine({ config, random = Math.random } = {}) {
     for (const o of players.values()) if (o !== p && o.status === 'alive' && effectOf(o, 'freeze')) return true;
     return false;
   }
+
+  // Freeze slows the creatures too: while any living snake has it, rats and
+  // the badger move half as often (their move interval doubles).
+  function creaturesFrozen() {
+    for (const p of players.values()) if (p.status === 'alive' && effectOf(p, 'freeze')) return true;
+    return false;
+  }
+  const creatureInterval = (ticks) => ticks * (creaturesFrozen() ? 2 : 1);
 
   function setEffect(p, type, durationMs) {
     p.snake.effect = { type, remainingMs: durationMs, durationMs, since: tickCount };
@@ -880,7 +889,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // ---- rats ----
-  // Every moveEveryTicks ticks a rat runs one cell on, at the start of the
+  // Every moveEveryTicks ticks (twice that while freeze slows creatures) a
+  // rat runs one cell on, at the start of the
   // tick's first sub-step (before the snakes, against the board as it is).
   // It picks a fresh random direction when its timer (turnMinTicks to
   // turnMaxTicks) runs out, or at once when the cell ahead is a wall (it
@@ -897,7 +907,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     const blocked = occupiedCells(); // includes every rat, kept current below
     for (const r of rats) {
       if (tickCount < r.moveAt) continue;
-      r.moveAt = tickCount + RAT_RULES.moveEveryTicks;
+      r.stepTicks = creatureInterval(RAT_RULES.moveEveryTicks);
+      r.moveAt = tickCount + r.stepTicks;
       const options = Object.keys(DIRECTIONS)
         .map((dir) => ({ dir, cell: nextCell(r, dir) }))
         .filter(({ cell }) => inBounds(cell.x, cell.y) && !blocked.has(cellKey(cell.x, cell.y)));
@@ -1304,7 +1315,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         badger.warningMs -= cfg.tickMs;
         if (badger.warningMs <= 0) {
           badger.warningMs = 0;
-          badger.moveAt = tickCount + BADGER_RULES.moveEveryTicks;
+          badger.moveAt = tickCount + creatureInterval(BADGER_RULES.moveEveryTicks);
           badger.turnAt = tickCount + badgerTurnIn();
           events.push({ type: 'badgerActive', x: badger.x, y: badger.y });
           badgerEatsRats(); // any that ran under it during the warning
@@ -1339,7 +1350,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     return out;
   }
 
-  // Every moveEveryTicks ticks, one cell on: straight ahead until its turn
+  // Every moveEveryTicks ticks (twice that under freeze), one cell on:
+  // straight ahead until its turn
   // timer runs out, or at once when blocked (leaving the board, a bomb or a
   // portal end). Then it picks at random among the free ways: away from a
   // wall it touches if it can, else any but back (straight on included),
@@ -1347,7 +1359,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   function moveBadger() {
     const b = badger;
     if (!isActive(b) || tickCount < b.moveAt) return;
-    b.moveAt = tickCount + BADGER_RULES.moveEveryTicks;
+    b.stepTicks = creatureInterval(BADGER_RULES.moveEveryTicks);
+    b.moveAt = tickCount + b.stepTicks;
     const blockers = badgerBlockers();
     const options = Object.keys(DIRECTIONS).filter((dir) => blockFree(b.x + DIRECTIONS[dir].x, b.y + DIRECTIONS[dir].y, blockers));
     let pick = tickCount < b.turnAt && options.includes(b.dir) ? b.dir : null;
@@ -1540,7 +1553,11 @@ export function createEngine({ config, random = Math.random } = {}) {
         .filter((a) => !a.type)
         .map((a) => (a.corpse ? { x: a.x, y: a.y, corpse: true } : a.feast ? { x: a.x, y: a.y, feast: true } : { x: a.x, y: a.y })),
       powerUps: apples.filter((a) => a.type && a.type !== 'rat').map((a) => ({ x: a.x, y: a.y, type: a.type })),
-      rats: apples.filter((a) => a.type === 'rat').map((a) => ({ id: a.id, x: a.x, y: a.y, dir: a.dir })),
+      // stepTicks: the ticks its last step takes (doubled by freeze), for
+      // /display's slide.
+      rats: apples.filter((a) => a.type === 'rat').map((a) => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, stepTicks: a.stepTicks })),
+      // Freeze is slowing the rats and the badger (/display tints them blue).
+      creaturesFrozen: creaturesFrozen(),
       bombs: bombs.map((b) => ({ x: b.x, y: b.y, remainingMs: b.remainingMs })),
       projectiles: projectiles.map((p) => ({ id: p.id, x: p.x, y: p.y, dir: p.dir, ownerId: p.ownerId })),
       portals: portals.map((p) => ({ id: p.id, ends: p.ends.map((c) => ({ x: c.x, y: c.y })), remainingMs: p.remainingMs })),
@@ -1553,6 +1570,7 @@ export function createEngine({ config, random = Math.random } = {}) {
             width: BADGER_RULES.width,
             height: BADGER_RULES.height,
             dir: badger.dir,
+            stepTicks: badger.stepTicks ?? BADGER_RULES.moveEveryTicks,
             warningMs: badger.warningMs,
             remainingMs: badger.remainingMs,
             lifetimeMs: badger.lifetimeMs,

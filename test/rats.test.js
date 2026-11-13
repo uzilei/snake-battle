@@ -63,6 +63,26 @@ describe('rat movement', () => {
     assert.equal(RAT_RULES.moveEveryTicks, 2);
   });
 
+  test('freeze slows it: a cell every 4 ticks while any snake has freeze, tinted on /display', () => {
+    const e = setup(far);
+    e._debug.addRat([5, 10], 'right');
+    e._debug.setEffect('y', 'freeze', 1600); // 8 ticks at 200 ms
+    const seen = [];
+    for (let i = 0; i < 12; i++) {
+      fill(e);
+      e.tick();
+      seen.push(rats(e)[0][0]);
+      if (i === 0) {
+        assert.equal(e.getState().creaturesFrozen, true);
+        assert.equal(e.getState().rats[0].stepTicks, 4);
+      }
+    }
+    // Moves on ticks 1, 5 and 9 (frozen), then the freeze is over: every 2.
+    assert.deepEqual(seen, [6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 9, 9]);
+    assert.equal(e.getState().creaturesFrozen, false);
+    assert.equal(e.getState().rats[0].stepTicks, 2);
+  });
+
   test(`picks a new random direction every ${RAT_RULES.turnMinTicks}-${RAT_RULES.turnMaxTicks} ticks`, () => {
     const gaps = new Set();
     const dirs = new Set();
