@@ -99,9 +99,10 @@ Rules and numbers live in `src/shared/rats.js`; the engine's `moveCreatures` doe
 Rarer food that flees. A new apple becomes a chicken with the "gallo" probability on /admin (2% by default, 0 = never), rolled when the rat roll fails. Like the rat's, the setting is saved, applies at once and doesn't depend on the power-up switch. Chickens take an apple's place and count toward the number of apples.
 
 - **Calm:** it moves exactly like a rat: one cell every second tick, a new random direction every 2–20 ticks or when blocked, wrapping with the walls, ignoring portals.
-- **Alerted:** a snake head (ghosts too) 2 grid steps away or closer alerts it. It then moves every tick, starting that very tick. Each move, 80% of the time it takes the free way that ends furthest from the nearest head (back where it came from included); otherwise it moves like a rat. It calms down once no head has come that close for 1 s.
+- **Alerted:** a threat 2 grid steps away or closer alerts it. Threats are snake heads (ghosts too) and every cell of the active badger's block (not during its warning). It then moves every tick, starting that very tick. Each move, 90% of the time it takes the free way that ends furthest from the nearest threat, head or badger cell, whichever is closer (back where it came from included); otherwise it moves like a rat. It calms down once no threat has come that close for 1 s.
 - **Eating:** caught exactly like a rat: a head entering its cell, or the chicken running into or out of the cell a head is entering. Ghosts catch it too. It grows the snake by 25 × "Crescita per mela", and a feast spawns round the eater, as if it had picked up 🍗. The 🍗 power-up itself is unchanged.
-- **Not affected:** the magnet doesn't pull it. A projectile (or a gun fired right next to it) kills it: nobody grows or scores, but the feast spawns where it died. The badger kills it like a rat, with no feast.
+- **Other deaths:** a projectile (or a gun fired right next to it) or the badger kills it. Nobody grows or scores, and a 🍗 feast power-up takes its place on the cell where it died; it still counts toward the number of apples. The same goes for any way of dying other than being eaten by a snake. /display shows a poof of feathers.
+- **Not affected:** the magnet doesn't pull it.
 - **/display:** 🐓, never rotated, mirrored while running right, sliding between cells, on the rats' green glow. While it's alerted a small ❗ pops up above it and bobs, and goes when it calms down.
 
 Rules and numbers live in `src/shared/chicken.js`.
@@ -124,7 +125,7 @@ There is never more than one badger on the board.
 
   A shield pops instead of any of these, and the badger never gives anyone a kill. Several snakes can be bitten at once. The badger bites before items are eaten, so a head can't eat its way out of it through a portal.
 - **Items:** ignored. Fruits and power-ups spawn and stay under it as usual.
-- **Rats and chickens:** a new apple that would become a rat or a chicken under the badger (warning included) stays a plain apple. A rat or chicken inside the active badger dies, whether it ran in, the badger moved onto it, or it was under the warning when the badger became active. Nobody grows or gets a kill, and a chicken leaves no feast.
+- **Rats and chickens:** a new apple that would become a rat or a chicken under the badger (warning included) stays a plain apple. A rat or chicken inside the active badger dies, whether it ran in, the badger moved onto it, or it was under the warning when the badger became active. Nobody grows or gets a kill, and a chicken leaves a 🍗 feast power-up in its place. Chickens flee the active badger like a snake head.
 - **Projectiles:** a projectile entering any of its cells (or that the badger steps onto, or a gun fired right next to it) kills the badger at once. That is a kill for the shooter, and the projectile is used up.
 - **/display:**
   - one big 🦡 over its block, never rotated, mirrored while heading right, sliding smoothly;

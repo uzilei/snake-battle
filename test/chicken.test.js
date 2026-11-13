@@ -107,7 +107,7 @@ describe('chicken movement', () => {
     assert.deepEqual(moved, [1, 1, 1, 1, 1, 1, 0, 1, 0, 1]);
   });
 
-  test('alerted, it flees 80% of the time: the free way that ends furthest from the nearest head', () => {
+  test('alerted, it flees 90% of the time: the free way that ends furthest from the nearest head', () => {
     // Facing down, towards the head 2 below; left and right are taken. A
     // flee goes up (3 steps from the head), a plain move down (1 step).
     let up = 0;
@@ -125,8 +125,62 @@ describe('chicken movement', () => {
       else if (y === 11) down++;
     }
     assert.equal(up + down, trials);
-    assert.equal(CHICKEN_RULES.fleeChance, 0.8);
-    assert.ok(up / trials > 0.72 && up / trials < 0.88, `fled ${up} of ${trials}`);
+    assert.equal(CHICKEN_RULES.fleeChance, 0.9);
+    assert.ok(up / trials > 0.84 && up / trials < 0.96, `fled ${up} of ${trials}`);
+  });
+
+  test('the active badger alerts it too: any cell of its block within 2 steps', () => {
+    // No head near. The badger's block (rows 12-14) is 2 below; left and
+    // right are taken. A flee goes up (3 steps from the block), a plain move
+    // down (1 step), at full speed from the first tick.
+    let up = 0;
+    let down = 0;
+    const trials = 200;
+    for (let seed = 1; seed <= trials; seed++) {
+      const e = setup(far, {}, seed);
+      e._debug.setApples([[9, 10], [11, 10]]);
+      e._debug.addChicken([10, 10], 'down', { moveAt: NEVER });
+      e._debug.setBadger([10, 13], { moveAt: NEVER });
+      fill(e);
+      e.tick();
+      const c = e.getState().chickens[0];
+      assert.equal(c.alerted, true);
+      assert.equal(c.x, 10);
+      if (c.y === 9) up++;
+      else if (c.y === 11) down++;
+    }
+    assert.equal(up + down, trials);
+    assert.ok(up / trials > 0.82 && up / trials < 0.97, `fled ${up} of ${trials}`);
+  });
+
+  test('a badger still in its warning, or further than 2 steps, does not alert it', () => {
+    for (const [at, warningMs] of [[[10, 13], 2000], [[10, 14], 0]]) {
+      const e = setup(far);
+      e._debug.addChicken([10, 10], 'down', { moveAt: NEVER });
+      e._debug.setBadger(at, { warningMs, moveAt: NEVER });
+      fill(e);
+      e.tick();
+      assert.deepEqual(chickens(e), [[10, 10]]);
+      assert.equal(e.getState().chickens[0].alerted, false);
+    }
+  });
+
+  test('it flees whichever threat is nearer, a head or a badger cell', () => {
+    // A head 2 above (heading away), the badger's block 3 below. Up ends 1
+    // from the head, down 2 from the block, left and right 3 from both: a
+    // flee goes left or right, never down. It faces up, so a plain move goes up.
+    let sideways = 0;
+    for (let seed = 1; seed <= 80; seed++) {
+      const e = setup({ a: [[[10, 8], [11, 8], [12, 8]], 'up'], ...far }, {}, seed);
+      e._debug.addChicken([10, 10], 'up');
+      e._debug.setBadger([10, 14], { moveAt: NEVER });
+      fill(e);
+      e.tick();
+      const [[x, y]] = chickens(e);
+      assert.ok((y === 10 && (x === 9 || x === 11)) || (x === 10 && y === 9), `seed ${seed}: ${x},${y}`);
+      if (y === 10) sideways++;
+    }
+    assert.ok(sideways > 60, `${sideways} of 80 fled sideways`);
   });
 
   test('with two heads near, it flees from the nearer one', () => {
@@ -201,6 +255,8 @@ describe('catching chickens', () => {
     // The nearest free cells to the head: none further than 3 steps.
     for (const c of feast) assert.ok(steps(c, { x: 6, y: 5 }) <= 3, `feast apple at ${c.x},${c.y}`);
     assert.deepEqual(events(e, 'pickup'), []);
+    assert.deepEqual(e.getState().powerUps, []); // no feast power-up: that's for chickens that die otherwise
+    assert.deepEqual(events(e, 'chickenDied'), []);
   });
 
   test('cornered, it is caught', () => {
@@ -256,7 +312,7 @@ describe('catching chickens', () => {
 });
 
 describe('chickens, projectiles and the badger', () => {
-  test('a projectile kills it: nobody grows or scores, and the feast lands where it died', () => {
+  test('a projectile kills it: nobody grows or scores; a feast power-up takes its place', () => {
     const e = setup(far);
     e._debug.addProjectile([5, 10], 'right', 'y');
     e._debug.addChicken([7, 10], 'up', { moveAt: NEVER });
@@ -267,10 +323,10 @@ describe('chickens, projectiles and the badger', () => {
     assert.ok(events(e, 'projectileEnd').some((ev) => ev.hit && ev.x === 7 && ev.y === 10));
     assert.ok(s.players.every((p) => p.kills === 0));
     assert.ok(s.snakes.every((sn) => sn.pendingGrowth === 0));
-    const feast = feastApples(e);
-    assert.equal(feast.length, POWER_UP_RULES.feastApples);
-    assert.ok(feast.some((c) => c.x === 7 && c.y === 10));
-    for (const c of feast) assert.ok(steps(c, { x: 7, y: 10 }) <= 2, `feast apple at ${c.x},${c.y}`);
+    assert.deepEqual(s.powerUps, [{ x: 7, y: 10, type: 'feast' }]);
+    // It counts toward appleCount (1): no apple spawned to replace the chicken.
+    assert.deepEqual(s.apples, []);
+    assert.deepEqual(events(e, 'chickenDied').map((ev) => [ev.x, ev.y, ev.cause]), [[7, 10, 'shot']]);
   });
 
   test('a gun fired right next to it kills it too', () => {
@@ -281,19 +337,28 @@ describe('chickens, projectiles and the badger', () => {
     fill(e);
     e.tick();
     assert.deepEqual(chickens(e), []);
-    assert.equal(feastApples(e).length, POWER_UP_RULES.feastApples);
+    assert.deepEqual(e.getState().powerUps, [{ x: 7, y: 5, type: 'feast' }]);
+    assert.deepEqual(feastApples(e), []);
   });
 
-  test('the badger kills it like a rat: no feast', () => {
+  test('the badger kills it: nobody grows; a feast power-up takes its place', () => {
     const e = setup(far);
     e._debug.addChicken([10, 10], 'up', { moveAt: NEVER });
     e._debug.setBadger([10, 10], { moveAt: NEVER });
     fill(e);
     e.tick();
     assert.deepEqual(chickens(e), []);
-    assert.deepEqual(events(e, 'chickenCaught').map((ev) => [ev.x, ev.y]), [[10, 10]]);
+    // Under the badger it is alerted and takes a step first, still inside.
+    const [ev] = events(e, 'chickenDied');
+    assert.equal(ev.cause, 'badger');
+    assert.ok(Math.abs(ev.x - 10) <= 2 && Math.abs(ev.y - 10) <= 1, `died at ${ev.x},${ev.y}`);
+    const feast = [{ x: ev.x, y: ev.y, type: 'feast' }];
+    assert.deepEqual(e.getState().powerUps, feast);
     assert.deepEqual(feastApples(e), []);
     assert.ok(e.getState().snakes.every((sn) => sn.pendingGrowth === 0));
+    // The power-up is an ordinary feast: the badger leaves it be.
+    e.tick();
+    assert.deepEqual(e.getState().powerUps, feast);
   });
 });
 

@@ -1254,8 +1254,9 @@ function onState(msg) {
         if (fx.screenShake) shakeStart = now;
       } else if (ev.type === 'ratCaught') {
         if (fx.deathParticles) sparks(ev.x, ev.y, now, 14, ['#bdbdbd', '#9e9e9e', '#ff5252']);
-      } else if (ev.type === 'chickenCaught') {
-        if (fx.deathParticles) sparks(ev.x, ev.y, now, 16, ['#ffffff', '#ffe0b2', '#ff5252']); // feathers
+      } else if (ev.type === 'chickenDied') {
+        // Shot or caught by the badger: a poof of feathers (a feast power-up takes its place).
+        if (fx.deathParticles) sparks(ev.x, ev.y, now, 16, ['#ffffff', '#ffe0b2', '#ff5252']);
       } else if (ev.type === 'projectileEnd') {
         if (fx.deathParticles) sparks(ev.x, ev.y, now, ev.hit ? 22 : 10, ['#fffde7', '#ffe082', '#ffb74d']);
         if (ev.hit && fx.screenShake) shakeStart = now;

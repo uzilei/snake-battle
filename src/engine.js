@@ -725,7 +725,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       const creature = creatureHitBy(x, y);
       if (creature !== -1) {
         events.push({ type: 'projectileEnd', x, y, hit: true });
-        return creatureShot(creature);
+        return creatureDies(creature, 'shot');
       }
       const other = projectiles.findIndex((o) => o.x === x && o.y === y);
       if (other !== -1) {
@@ -915,12 +915,13 @@ export function createEngine({ config, random = Math.random } = {}) {
   // rat. It never turns back to the cell it just left unless that's the only
   // way out, and it stays put when boxed in. Portals mean nothing to it.
   //
-  // A chicken moves the same way, with one difference: a snake head (any,
-  // ghosts too) within alertRadius grid steps alerts it. Alerted, it moves
-  // every alertMoveEveryTicks ticks (from that very tick), and each move
-  // it takes, with fleeChance, the free way that ends furthest from the
-  // nearest head (even back where it came from); otherwise it moves like a
-  // rat. It calms down once no head has been that close for calmAfterMs.
+  // A chicken moves the same way, with one difference: a threat within
+  // alertRadius grid steps alerts it. Threats are snake heads (any, ghosts
+  // too) and every cell of the active badger. Alerted, it moves every
+  // alertMoveEveryTicks ticks (from that very tick), and each move it takes,
+  // with fleeChance, the free way that ends furthest from the nearest threat
+  // (even back where it came from); otherwise it moves like a rat. It calms
+  // down once no threat has been that close for calmAfterMs.
   //
   // Eating happens in the snakes' item check: a creature that runs into the
   // cell a head is entering is eaten, and so is one leaving the cell a head
@@ -930,11 +931,13 @@ export function createEngine({ config, random = Math.random } = {}) {
     if (!creatures.length) return;
     const blocked = occupiedCells(); // includes every creature, kept current below
     const heads = aliveSnakes().map((s) => s.segments[0]);
-    const nearestHead = (c) => heads.reduce((min, h) => Math.min(min, distance(c, h)), Infinity);
+    const b = isActive(badger) ? badger : null;
+    const nearestThreat = (c) =>
+      heads.reduce((min, h) => Math.min(min, distance(c, h)), b ? stepsToBlock(c.x, c.y, b.x, b.y) : Infinity);
     for (const r of creatures) {
       const chicken = r.type === 'chicken';
       if (chicken) {
-        if (nearestHead(r) <= CHICKEN_RULES.alertRadius) {
+        if (nearestThreat(r) <= CHICKEN_RULES.alertRadius) {
           if (r.calmMs <= 0) r.moveAt = Math.min(r.moveAt, tickCount); // newly alerted: off at once
           r.calmMs = CHICKEN_RULES.calmAfterMs;
         } else if (r.calmMs > 0) r.calmMs -= cfg.tickMs;
@@ -949,7 +952,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         .filter(({ cell }) => inBounds(cell.x, cell.y) && !blocked.has(cellKey(cell.x, cell.y)));
       let pick = null;
       if (alerted && options.length && random() < CHICKEN_RULES.fleeChance) {
-        const away = options.map((o) => nearestHead(o.cell));
+        const away = options.map((o) => nearestThreat(o.cell));
         const most = Math.max(...away);
         const best = options.filter((o, i) => away[i] === most);
         pick = best[best.length > 1 ? randInt(best.length) : 0];
@@ -985,11 +988,19 @@ export function createEngine({ config, random = Math.random } = {}) {
     return apples.findIndex((a) => isCreature(a) && (on(a) || on(a.left)));
   }
 
-  // The creature apples[i] was shot: gone, nobody grows or scores. A chicken
-  // leaves its feast where it died.
-  function creatureShot(i) {
-    const [c] = apples.splice(i, 1);
-    if (c.type === 'chicken') spawnFeast(c);
+  // The creature apples[i] died, other than eaten by a snake (cause: 'shot'
+  // or 'badger'): nobody grows or scores. A rat is simply gone. A chicken
+  // leaves a feast power-up on its cell, in its place in the list, so it
+  // still counts toward appleCount.
+  function creatureDies(i, cause) {
+    const c = apples[i];
+    if (c.type === 'chicken') {
+      apples[i] = { x: c.x, y: c.y, type: 'feast' };
+      events.push({ type: 'chickenDied', chickenId: c.id, x: c.x, y: c.y, cause });
+      return;
+    }
+    apples.splice(i, 1);
+    if (cause === 'badger') events.push({ type: 'ratCaught', ratId: c.id, x: c.x, y: c.y });
   }
 
   // ---- one sub-step ----
@@ -1112,7 +1123,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         if (r === -1) continue;
         gone.add(n.pr);
         events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true });
-        creatureShot(r);
+        creatureDies(r, 'shot');
         continue;
       }
       gone.add(n.pr);
@@ -1432,16 +1443,13 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // A creature inside the active badger (it ran in, the badger moved onto
-  // it, or it was under the warning when the badger became active) is gone:
-  // nobody grows, nobody gets a kill, and a chicken leaves no feast.
+  // it, or it was under the warning when the badger became active) dies
+  // (see creatureDies): nobody grows or gets a kill.
   function badgerEatsCreatures() {
     if (!isActive(badger)) return;
-    apples = apples.filter((a) => {
-      if (!isCreature(a) || !badgerCovers(a.x, a.y)) return true;
-      if (a.type === 'rat') events.push({ type: 'ratCaught', ratId: a.id, x: a.x, y: a.y });
-      else events.push({ type: 'chickenCaught', chickenId: a.id, x: a.x, y: a.y });
-      return false;
-    });
+    for (let i = apples.length - 1; i >= 0; i--) {
+      if (isCreature(apples[i]) && badgerCovers(apples[i].x, apples[i].y)) creatureDies(i, 'badger');
+    }
   }
 
   // A projectile got it: gone at once, a kill for the shooter (if still in
