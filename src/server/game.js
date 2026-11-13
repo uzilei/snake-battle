@@ -14,7 +14,7 @@ import { SETTINGS_VERSION } from './settings-store.js';
 import { FRUIT_CODES } from '../shared/fruits.js';
 import { validHat, HAT_IDS } from '../shared/hats.js';
 import { cleanName } from '../shared/names.js';
-import { BOT_LIMITS, BOT_NAME_PATTERN, botName, botTarget } from '../shared/bots.js';
+import { BOT_LIMITS, BOT_NAME_PATTERN, MAX_SNAKES, botName, botTarget } from '../shared/bots.js';
 import { createBotBrain } from '../bot-brain.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
@@ -348,13 +348,7 @@ export function createGame({
     if (!now && state.phase !== PHASES.WAITING && !lastBreak) return;
     const people = state.players.filter((p) => !p.bot).length;
     const target = botTarget(settings, people);
-    // Leave: the highest numbers first.
-    const byNumber = [...bots].sort((a, b) => b[1] - a[1]);
-    while (bots.size > target) {
-      const [id] = byNumber.shift();
-      removeOwnedPlayer(id);
-      log(`[bots] ${id} left`);
-    }
+    while (bots.size > target) removeBot();
     // Join: each with the lowest free number.
     while (bots.size < target) {
       const used = new Set(bots.values());
@@ -370,6 +364,21 @@ export function createGame({
       owners.set(id, { client: null, slot: null, source: 'bot', session: null, hat });
       log(`[bots] ${id} joined as ${name}`);
     }
+  }
+
+  // The highest-numbered bot leaves.
+  function removeBot() {
+    const [id] = [...bots].sort((a, b) => b[1] - a[1])[0];
+    removeOwnedPlayer(id);
+    log(`[bots] ${id} left`);
+  }
+
+  // A person joining a board that already has 24 snakes: a bot leaves at
+  // once (even mid-round) and the person takes its place and color.
+  function makeRoomForPerson() {
+    const people = engine.getState().players.filter((p) => !p.bot).length;
+    if (people >= config.maxPlayers) return; // they won't get in anyway
+    if (bots.size && bots.size + people + 1 > MAX_SNAKES) removeBot();
   }
 
   function steerBots() {
@@ -466,6 +475,7 @@ export function createGame({
 
   function addOwnedPlayer(client, slot, name, source, session = null, hat = null) {
     if (client.owned.has(slot)) return { ok: true, already: true };
+    makeRoomForPerson();
     const id = `p${nextPlayerNumber++}`;
     const result = engine.addPlayer(id, name);
     if (!result.ok) return result;

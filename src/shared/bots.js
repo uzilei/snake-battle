@@ -9,7 +9,8 @@ export const BOT_LIMITS = Object.freeze({
 });
 
 // Bots and players together never go past this many (the player colors):
-// beyond it, bots only fill up to the bot count, as in fill mode.
+// a person joining a full board makes a bot leave at once, and between
+// rounds bots only fill up to the bot count, as in fill mode.
 export const MAX_SNAKES = 24;
 
 // "Bot 3". A person can't pick a name like this, so a name that looks like

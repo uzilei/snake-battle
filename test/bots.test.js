@@ -503,6 +503,43 @@ describe('server: bots', () => {
     assert.deepEqual(botsOf(game).map((p) => p.name), ['Bot 1']);
   });
 
+  test('a person joining 24 snakes mid-round: a bot leaves at once and they take its color', () => {
+    const { game } = newGame({ bots: 24 });
+    game.tickOnce();
+    assert.equal(game.engine.getState().phase, 'playing');
+    assert.equal(botsOf(game).length, 24);
+    const anna = phone(game, 'Anna');
+    const players = game.engine.getState().players;
+    assert.equal(botsOf(game).length, 23);
+    assert.ok(!players.some((p) => p.name === 'Bot 24'), 'the highest number leaves');
+    const colors = players.map((p) => p.colorIndex);
+    assert.equal(new Set(colors).size, colors.length, 'a color twice');
+    assert.ok(colors.every((c) => c < 24), JSON.stringify(colors));
+    assert.equal(anna.last('joined').colorIndex, 23);
+    // A second person: another bot goes. The next round keeps it that way.
+    phone(game, 'Luca');
+    assert.equal(botsOf(game).length, 22);
+    for (let i = 0; i < 400 && game.engine.getState().round === 1; i++) game.tickOnce();
+    game.tickOnce();
+    assert.equal(botsOf(game).length, 22);
+    const all = game.engine.getState().players.map((p) => p.colorIndex);
+    assert.equal(new Set(all).size, all.length);
+  });
+
+  test('below 24, or when the person is turned away, no bot leaves mid-round', () => {
+    const { game } = newGame({ bots: 10 });
+    game.tickOnce();
+    phone(game, 'Anna');
+    assert.equal(botsOf(game).length, 10);
+    const full = newGame({ bots: 24 }).game;
+    full.engine.updateConfig({ maxPlayers: 1 });
+    full.tickOnce();
+    phone(full, 'Anna'); // takes the one place a person has (a bot makes room)
+    assert.equal(botsOf(full).length, 23);
+    assert.equal(phone(full, 'Luca').last('error').code, 'full');
+    assert.equal(botsOf(full).length, 23);
+  });
+
   test('bots are not counted for maxPlayers', () => {
     const { game } = newGame({ bots: 3 });
     game.engine.updateConfig({ maxPlayers: 1 });
