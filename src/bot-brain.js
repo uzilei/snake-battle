@@ -1,0 +1,417 @@
+// Bot brain: picks a direction for each computer-controlled snake.
+//
+// Pure and browser-safe, like the engine, but it knows nothing of the
+// engine's internals: it reads only what getState() returns (plus the live
+// bomb mode) and its answer goes back through setDirection, like any input.
+//
+// Each bot that will move this tick weighs its (up to) three moves, in
+// priority order:
+//   1. Survive: never a move that dies next tick when another one doesn't,
+//      and not one into a pocket too small for the snake.
+//   2. Flee: keep away from heads that would win (or tie) a head-on, the
+//      badger and bombs.
+//   3. Hunt: the best food it can reach (chickens and rats first), or, with
+//      scissors, another snake's body or the badger.
+//   4. Wander: straight on while there's room.
+// A ghost with time to spare skips 1 and 2 (walls still count). Lower skill
+// sometimes ignores 2 and picks any safe move.
+//
+// Work is bounded: one shared board per tick, small capped searches per bot,
+// and a node budget for the whole tick, after which the remaining bots only
+// do the cheap safety check.
+
+import { DIRECTIONS } from './engine.js';
+import { POWER_UP_RULES } from './shared/powerups.js';
+import { BADGER_RULES } from './shared/badger.js';
+
+const DIRS = Object.keys(DIRECTIONS);
+const OPPOSITE = Object.freeze({ up: 'down', down: 'up', left: 'right', right: 'left' });
+
+export const BOT_BRAIN = Object.freeze({
+  nodeBudget: 60000, // search nodes per tick, shared by every bot
+  spaceCap: 150, // a flood fill stops counting here
+  spaceExtra: 20, // and wants room for the snake's length plus this many cells
+  huntNodes: 1500, // nodes per bot's food search
+  fleeRadius: 3, // cells (Manhattan)
+  ghostSafeMs: 2000, // a ghost with more than this left ignores danger
+  mistakeChance: Object.freeze({ 1: 0.25, 2: 0.08, 3: 0 }), // per skill: ignore step 2, pick a random safe move
+});
+
+// Food values: what a bot would rather eat.
+const VALUE = Object.freeze({ chicken: 6, rat: 4, powerUp: 2, apple: 1, target: 5 });
+
+// Danger tiers of a move: 0 safe, 1 survivable but bad (a bomb that only
+// cuts, a hit a shield takes), 2 deadly.
+const SAFE = 0;
+const BAD = 1;
+const DEADLY = 2;
+const NEVER = 0x7fff; // never free (in `freeAt`)
+
+/**
+ * @param {object} [options]
+ * @param {() => number} [options.random]
+ * @param {(err: Error) => void} [options.onError] a bot's decision failed (it goes straight on)
+ */
+export function createBotBrain({ random = Math.random, onError = () => {} } = {}) {
+  let nodesUsed = 0; // in the latest think(), for tests and /health
+
+  /**
+   * @param {object} state engine.getState()
+   * @param {string[]} ids the bots to steer
+   * @param {object} [opts]
+   * @param {number} [opts.skill] 1-3
+   * @param {'cut'|'kill'} [opts.bombMode]
+   * @returns {Map<string, string>} id -> direction, for bots that move this tick
+   */
+  function think(state, ids, { skill = 2, bombMode = 'cut' } = {}) {
+    nodesUsed = 0;
+    const out = new Map();
+    if (state.phase !== 'playing' || !ids.length) return out;
+    const board = buildBoard(state);
+    let budget = BOT_BRAIN.nodeBudget;
+    for (const id of ids) {
+      const me = board.snakes.get(id);
+      if (!me || !me.alive || !board.movesNext(me)) continue;
+      try {
+        const { dir, nodes } = decide(board, me, { skill, bombMode, budget, random });
+        budget -= nodes;
+        nodesUsed += nodes;
+        if (dir) out.set(id, dir);
+      } catch (err) {
+        // A brain bug must never stop the game: this bot just goes straight on.
+        onError(err);
+      }
+    }
+    return out;
+  }
+
+  return { think, nodesUsed: () => nodesUsed };
+}
+
+// ---- the board, built once per tick ----
+
+function buildBoard(state) {
+  const n = state.gridSize;
+  const size = n * n;
+  const wrap = Boolean(state.rules?.wrapWalls);
+  const key = (x, y) => y * n + x;
+  const inBounds = (x, y) => x >= 0 && y >= 0 && x < n && y < n;
+  const nextTick = state.tick + 1;
+
+  const snakes = new Map();
+  for (const s of state.snakes) {
+    const ghostMs = s.effect?.type === 'ghost' ? s.effect.remainingMs : 0;
+    snakes.set(s.id, {
+      id: s.id,
+      alive: s.alive,
+      segments: s.segments,
+      head: s.segments[0],
+      dir: s.dir,
+      length: s.segments.length,
+      pendingGrowth: s.pendingGrowth,
+      effect: s.effect?.type ?? null,
+      ghostMs,
+      frozen: s.frozen,
+    });
+  }
+  // A frozen snake sits out every odd tick (as in the engine).
+  const movesNext = (s) => !(s.frozen && nextTick % 2 === 1);
+
+  // freeAt[cell]: in how many moves a snake segment there will be gone (0:
+  // free now). A segment i from the head of a snake of length L leaves after
+  // L - i of that snake's moves, later if it's growing or sitting out.
+  const freeAt = new Int16Array(size);
+  const owner = new Int16Array(size).fill(-1); // index into `order`, for "own body"
+  const segIndex = new Int16Array(size);
+  const order = [...snakes.values()];
+  order.forEach((s, si) => {
+    if (!s.alive || s.ghostMs > 0) return; // nothing collides with a ghost
+    const L = s.length;
+    const delay = s.pendingGrowth + (movesNext(s) ? 0 : 1);
+    s.segments.forEach((c, i) => {
+      if (!inBounds(c.x, c.y)) return;
+      const k = key(c.x, c.y);
+      const t = Math.min(NEVER - 1, L - i + delay);
+      if (t > freeAt[k]) {
+        freeAt[k] = t;
+        owner[k] = si;
+        segIndex[k] = i;
+      }
+    });
+  });
+
+  // Deadly no matter what: projectiles' next two cells, the active badger.
+  const deadly = new Uint8Array(size);
+  for (const p of state.projectiles ?? []) {
+    const d = DIRECTIONS[p.dir];
+    for (let i = 1; i <= 2; i++) {
+      const x = p.x + d.x * i;
+      const y = p.y + d.y * i;
+      if (inBounds(x, y)) deadly[key(x, y)] = 1;
+    }
+  }
+  const badger = state.badger;
+  const bx = badger ? (badger.width - 1) / 2 : 0;
+  const by = badger ? (badger.height - 1) / 2 : 0;
+  const badgerActive = Boolean(badger) && badger.warningMs <= 0;
+  const inBadger = (x, y) => Boolean(badger) && Math.abs(x - badger.x) <= bx && Math.abs(y - badger.y) <= by;
+  // Distance from a cell to the badger's block (Chebyshev, 0 inside).
+  const badgerDistance = (x, y) =>
+    badger ? Math.max(0, Math.abs(x - badger.x) - bx) + Math.max(0, Math.abs(y - badger.y) - by) : Infinity;
+
+  const bombReach = (POWER_UP_RULES.bombSize - 1) / 2;
+  const bombs = state.bombs ?? [];
+  const inBomb = (x, y) => bombs.some((b) => Math.abs(x - b.x) <= bombReach && Math.abs(y - b.y) <= bombReach);
+
+  // Food: cell -> value.
+  const food = new Map();
+  for (const a of state.apples) food.set(key(a.x, a.y), VALUE.apple);
+  for (const p of state.powerUps ?? []) food.set(key(p.x, p.y), VALUE.powerUp);
+  for (const r of state.rats ?? []) food.set(key(r.x, r.y), VALUE.rat);
+  for (const c of state.chickens ?? []) food.set(key(c.x, c.y), VALUE.chicken);
+
+  const portalExit = new Map();
+  for (const p of state.portals ?? []) {
+    const [a, b] = p.ends;
+    portalExit.set(key(a.x, a.y), b);
+    portalExit.set(key(b.x, b.y), a);
+  }
+
+  // One step as the engine takes it: wrapped or into a wall (null), then
+  // through a portal end.
+  function step(from, dir) {
+    const d = DIRECTIONS[dir];
+    let x = from.x + d.x;
+    let y = from.y + d.y;
+    if (wrap) {
+      x = (x + n) % n;
+      y = (y + n) % n;
+    } else if (!inBounds(x, y)) return null;
+    const exit = portalExit.get(key(x, y));
+    return exit ? { x: exit.x, y: exit.y } : { x, y };
+  }
+
+  // Manhattan distance, the short way round when walls wrap.
+  function distance(a, b) {
+    let dx = Math.abs(a.x - b.x);
+    let dy = Math.abs(a.y - b.y);
+    if (wrap) {
+      dx = Math.min(dx, n - dx);
+      dy = Math.min(dy, n - dy);
+    }
+    return dx + dy;
+  }
+
+  return {
+    n,
+    size,
+    key,
+    step,
+    distance,
+    snakes,
+    order,
+    movesNext,
+    freeAt,
+    owner,
+    segIndex,
+    deadly,
+    badger,
+    badgerActive,
+    inBadger,
+    badgerDistance,
+    bombs,
+    inBomb,
+    food,
+  };
+}
+
+// ---- one bot ----
+
+function decide(board, me, { skill, bombMode, budget, random }) {
+  const { key, step } = board;
+  const myIndex = board.order.indexOf(me);
+  const scissors = me.effect === 'scissors';
+  const shield = me.effect === 'shield';
+  const golden = me.effect === 'golden';
+  const carefree = me.ghostMs > BOT_BRAIN.ghostSafeMs; // ignores steps 1 and 2
+  const ghostNow = me.ghostMs > 0; // its next move passes through anything but walls
+  let nodes = 0;
+  const left = () => budget - nodes;
+
+  // How bad entering `cell` on move `t` (1 = this move) is.
+  function danger(cell, t, canCut) {
+    if (!cell) return DEADLY; // a wall
+    if (ghostNow && t === 1) return SAFE;
+    const k = key(cell.x, cell.y);
+    let tier = SAFE;
+    if (board.deadly[k]) tier = DEADLY;
+    if (board.badgerActive && board.inBadger(cell.x, cell.y)) tier = Math.max(tier, canCut ? SAFE : DEADLY);
+    if (board.freeAt[k] > t) {
+      // A segment still there when the head arrives. Scissors cut it, unless
+      // it's its own or the head of a snake that isn't moving.
+      const own = board.owner[k] === myIndex;
+      const body = board.segIndex[k] >= 1 || board.movesNext(board.order[board.owner[k]]);
+      tier = Math.max(tier, canCut && !own && body ? SAFE : DEADLY);
+    }
+    if (board.inBomb(cell.x, cell.y)) {
+      const drop = Math.max(1, Math.round(me.length * POWER_UP_RULES.bombShrink));
+      const kills = bombMode === 'kill' || me.length - drop < POWER_UP_RULES.minLength;
+      tier = Math.max(tier, kills ? DEADLY : BAD);
+    }
+    if (tier === DEADLY && shield) tier = BAD; // the shield takes it
+    return tier;
+  }
+
+  // Free cells reachable from `start` (entered on move 1), up to `cap`,
+  // counting segments that will have left by the time they're reached.
+  function space(start, cap) {
+    const seen = new Set([key(start.x, start.y)]);
+    let frontier = [start];
+    let count = 1;
+    for (let t = 2; frontier.length && count < cap; t++) {
+      const next = [];
+      for (const c of frontier) {
+        for (const d of DIRS) {
+          if (count >= cap || nodes >= left()) break;
+          nodes++;
+          const to = step(c, d);
+          if (!to) continue;
+          const k = key(to.x, to.y);
+          if (seen.has(k) || board.freeAt[k] > t || board.deadly[k]) continue;
+          if (board.badgerActive && board.inBadger(to.x, to.y)) continue;
+          seen.add(k);
+          next.push(to);
+          count++;
+        }
+      }
+      frontier = next;
+    }
+    return count;
+  }
+
+  // The moves: not straight back.
+  const moves = [];
+  for (const dir of DIRS) {
+    if (dir === OPPOSITE[me.dir]) continue;
+    const cell = step(me.head, dir);
+    let tier = carefree ? (cell ? SAFE : DEADLY) : danger(cell, 1, scissors);
+    if (golden && cell && tier < DEADLY && !carefree) {
+      // A golden snake moves twice: the second cell, straight on, too.
+      tier = Math.max(tier, danger(step(cell, dir), 1, false));
+    }
+    moves.push({ dir, cell, tier, space: 0, flee: 0, hunt: 0 });
+  }
+  const best = Math.min(...moves.map((m) => m.tier));
+  // Every move is deadly: at least not a wall (another snake might move).
+  if (best === DEADLY) return { dir: (moves.find((m) => m.cell) ?? moves[0]).dir, nodes };
+  const options = moves.filter((m) => m.tier === best); // each with a cell: walls are deadly
+  if (options.length === 1) return { dir: options[0].dir, nodes };
+
+  // Out of budget: the cheap answer, straight on if it's among the best.
+  if (left() <= 0) return { dir: (options.find((m) => m.dir === me.dir) ?? options[0]).dir, nodes };
+
+  // 1. Room: a pocket smaller than the snake is a trap.
+  const want = Math.min(me.length + BOT_BRAIN.spaceExtra, BOT_BRAIN.spaceCap);
+  for (const m of options) {
+    m.space = carefree ? want : space(m.cell, want);
+    m.trapped = m.space < Math.min(me.length, want);
+  }
+
+  // 2. Flee: heads that win or tie a head-on, the badger, bombs.
+  const threats = carefree
+    ? []
+    : [...board.snakes.values()].filter((s) => s !== me && s.alive && s.ghostMs <= 0 && s.length <= me.length);
+  const R = BOT_BRAIN.fleeRadius;
+  for (const m of options) {
+    if (carefree) break;
+    for (const s of threats) {
+      const d = board.distance(m.cell, s.head);
+      if (d <= R) m.flee += (R + 1 - d) * (d <= 1 ? 4 : 1); // right next to it: it could move there
+    }
+    if (board.badger && !scissors) {
+      const d = board.badgerDistance(m.cell.x, m.cell.y);
+      if (d <= R) m.flee += (R + 1 - d) * 2;
+    }
+    for (const b of board.bombs) {
+      const d = Math.max(0, Math.abs(m.cell.x - b.x) - 1) + Math.max(0, Math.abs(m.cell.y - b.y) - 1);
+      if (d <= 1) m.flee += 2 - d;
+    }
+  }
+
+  // 3. Hunt: a breadth-first search from the safe moves, best value / distance.
+  const target = hunt(board, me, options.filter((m) => !m.trapped), {
+    scissors,
+    myIndex,
+    cap: Math.min(BOT_BRAIN.huntNodes, Math.max(0, left())),
+    count: (k) => (nodes += k),
+  });
+  if (target) for (const m of options) if (m.dir === target.dir) m.hunt = target.score;
+
+  // A mistake (lower skill): any move that's safe and roomy.
+  const roomy = options.filter((m) => !m.trapped);
+  if (!carefree && roomy.length && random() < (BOT_BRAIN.mistakeChance[skill] ?? 0)) {
+    return { dir: roomy[Math.floor(random() * roomy.length)].dir, nodes };
+  }
+
+  // Trapped moves only when every move is; then the roomiest.
+  const score = (m) =>
+    (m.trapped ? -1e6 + m.space * 100 : 0) - m.flee * 10 + m.hunt * 30 + (m.dir === me.dir ? 1 : 0) + m.space * 0.01;
+  options.sort((a, b) => score(b) - score(a));
+  return { dir: options[0].dir, nodes };
+}
+
+// The best target reachable from the first moves `starts`: { dir, score }.
+function hunt(board, me, starts, { scissors, myIndex, cap, count }) {
+  if (!starts.length || cap <= 0) return null;
+  const { key, step } = board;
+  const seen = new Set();
+  let frontier = [];
+  for (const m of starts) {
+    const k = key(m.cell.x, m.cell.y);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    frontier.push({ cell: m.cell, dir: m.dir });
+  }
+  const valueAt = (c, k) => {
+    let v = board.food.get(k) ?? 0;
+    if (scissors) {
+      const o = board.owner[k];
+      if (o >= 0 && o !== myIndex && board.segIndex[k] >= 1) v = Math.max(v, VALUE.target);
+      if (board.badgerActive && board.inBadger(c.x, c.y)) v = Math.max(v, VALUE.target);
+    }
+    return v;
+  };
+  let best = null;
+  let used = 0;
+  for (let t = 1; frontier.length && used < cap; t++) {
+    const next = [];
+    for (const f of frontier) {
+      const k = key(f.cell.x, f.cell.y);
+      const v = valueAt(f.cell, k);
+      if (v > 0) {
+        const score = v / t;
+        if (!best || score > best.score) best = { dir: f.dir, score };
+      }
+      // Don't search past a target (the body or badger it would hit).
+      if (scissors && v === VALUE.target) continue;
+      for (const d of DIRS) {
+        if (used >= cap) break;
+        used++;
+        const to = step(f.cell, d);
+        if (!to) continue;
+        const tk = key(to.x, to.y);
+        if (seen.has(tk) || board.deadly[tk]) continue;
+        const blocked = board.freeAt[tk] > t + 1; // entered on move t + 1
+        const target = scissors && valueAt(to, tk) === VALUE.target;
+        if ((blocked || (board.badgerActive && board.inBadger(to.x, to.y))) && !target) continue;
+        seen.add(tk);
+        next.push({ cell: to, dir: f.dir });
+      }
+    }
+    frontier = next;
+    // Nothing further can beat the best so far by much: stop early.
+    if (best && best.score >= VALUE.chicken / (t + 1)) break;
+  }
+  count(used);
+  return best;
+}

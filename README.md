@@ -143,6 +143,25 @@ There is never more than one badger on the board.
 
 Rules and numbers live in `src/shared/badger.js`.
 
+## Bots 🤖
+
+Computer players, so an empty booth still has something going on. Off by default: the "Numero di bot" slider on /admin is 0.
+
+- **Settings** (saved): the number of bots (0–24), "Riempi" (fill mode) and their skill (1–3, default 2).
+  - **Fill mode:** the bots only fill up to that number and step aside as people join. With 4: 1 phone gives 3 bots, and 4 or more phones give none.
+  - **The 24-snake limit:** bots and people together never go past 24. Beyond that, the bots fall back to fill mode, whatever the switch says.
+- **Joining and leaving:** bots join and leave only between rounds (or at a round restart). They are named "Bot 1", "Bot 2"… and marked 🤖 on the scoreboard and on /admin. People can't pick a name like "Bot 3". Bots don't count toward "Giocatori massimi", nor toward the "fewer than 2 players: show how to join" rule of the automatic side column.
+- **Records:** bots are never recorded on the global leaderboard. A person's kills of bots, and wins against them, count as usual.
+- **Rounds:** a round where only bots are left alive ends at once, with no winner, as soon as a person is waiting to join.
+- **The brain** (`src/bot-brain.js`) runs on the server before each tick. It reads the same state /display gets and steers through `setDirection`, like a phone. In order of priority:
+  1. **Survive:** never a move that dies next tick if another doesn't, nor one into a pocket smaller than itself. A portal is judged by where it comes out.
+  2. **Flee:** keep away from the heads of snakes as long or shorter (the ones that win or tie a head-on), from the badger and from bombs.
+  3. **Hunt:** go for the best food it can reach, chickens and rats first. With scissors, it goes after another snake's body or the badger.
+  4. **Wander.**
+- **Effects:** a ghost with more than 2 s left ignores 1 and 2 (walls still count). A golden snake checks both cells it covers.
+- **Skill:** at skill 1 (often) and 2 (rarely) a bot sometimes ignores step 2 and picks any safe move. At skill 3 it never does.
+- **Cost:** the work per tick has a fixed budget, so many bots can't slow the game down. 24 bots on an 80×80 board take well under a millisecond per tick on average; `/health` reports it under `bots`.
+
 ## Pages
 
 - `/display`: fullscreen view for the monitor. Double-click to toggle fullscreen. When "keyboard players" is enabled on /admin, WASD and the arrow keys control two local players.
@@ -157,10 +176,16 @@ Rules and numbers live in `src/shared/badger.js`.
 npm test
 ```
 
-Load test (16 simulated phones for 5 minutes with every gameplay toggle on, power-ups included, malformed messages, disconnects, then a hard kill and restart). It runs its own server on 127.0.0.1 with its data in a temp folder, so it never touches `records.json`, `banned-words.json` or `config.json`:
+Load test (16 simulated phones, named Phone01…, for 5 minutes with every gameplay toggle on, power-ups included, malformed messages, disconnects, then a hard kill and restart). It runs its own server on 127.0.0.1 with its data in a temp folder, so it never touches `records.json`, `banned-words.json` or `config.json`:
 
 ```bash
 node loadtest.js --minutes 5 --bots 16
+```
+
+`--server-bots N` adds the server's own bots (with `--fill` for fill mode) and `--tick-ms N` sets the speed. For example, 24 bots at the fastest speed:
+
+```bash
+node loadtest.js --minutes 1 --bots 0 --server-bots 24 --tick-ms 50
 ```
 
 ## Credits

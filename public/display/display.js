@@ -1735,7 +1735,7 @@ function updateLeaderboard(state) {
       swatch.style.background = playerColor(p.colorIndex);
       const name = document.createElement('span');
       name.className = 'name';
-      name.textContent = p.name; // textContent: names come from clients
+      name.textContent = p.bot ? `🤖 ${p.name}` : p.name; // textContent: names come from clients
       const status = document.createElement('span');
       status.className = 'status';
       status.textContent = T[p.status] ?? '';

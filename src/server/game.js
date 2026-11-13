@@ -14,6 +14,8 @@ import { SETTINGS_VERSION } from './settings-store.js';
 import { FRUIT_CODES } from '../shared/fruits.js';
 import { validHat } from '../shared/hats.js';
 import { cleanName } from '../shared/names.js';
+import { BOT_LIMITS, BOT_NAME_PATTERN, botName, botTarget } from '../shared/bots.js';
+import { createBotBrain } from '../bot-brain.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
 // (most wins, most kills, highest score), shown only when it is enabled.
@@ -47,12 +49,13 @@ export function resolveSidePanel(mode, state, recordsOn = false) {
   if (mode === 'join') return 'join';
   if (mode === 'records') return recordsOn ? 'records' : 'leaderboard';
   if (mode === 'leaderboard') return recordsOn && betweenRounds ? 'records' : 'leaderboard';
-  if (state.players.length < 2) return 'join';
+  if (state.players.filter((p) => !p.bot).length < 2) return 'join'; // bots don't count
   if (state.phase === PHASES.INTERMISSION) return recordsOn ? 'records' : 'join';
   return 'leaderboard';
 }
 
 const isBoolean = (v) => typeof v === 'boolean';
+const inLimits = ({ min, max }) => (v) => Number.isInteger(v) && v >= min && v <= max;
 // Every /admin setting and what it accepts.
 const SETTING_RULES = Object.freeze({
   sidePanel: (v) => SIDE_PANEL_MODES.includes(v),
@@ -61,6 +64,9 @@ const SETTING_RULES = Object.freeze({
   leaderboardStat: (v) => LEADERBOARD_STATS.includes(v),
   displayButtons: isBoolean,
   hats: isBoolean,
+  bots: inLimits(BOT_LIMITS.bots),
+  botFill: isBoolean,
+  botSkill: inLimits(BOT_LIMITS.botSkill),
   ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, isBoolean])),
   badgerName: (v) => typeof v === 'string' && v.length <= 200,
   // The fruits apples may be drawn as: any subset of the list, no repeats.
@@ -134,6 +140,9 @@ const defaultSettings = () => ({
   displayButtons: false, // mouse cursor and side panel buttons on /display
   hats: true, // /display draws the hats players picked on /play
   badgerName: '', // drawn under the honey badger, like a boss name
+  bots: BOT_LIMITS.bots.default, // computer players (0 = none)
+  botFill: false, // bots only fill up to `bots`, making room for people
+  botSkill: BOT_LIMITS.botSkill.default,
   ...EFFECT_DEFAULTS,
   fruits: [...FRUIT_CODES], // every fruit in use
 });
@@ -149,6 +158,7 @@ export function createGame({
 } = {}) {
   const config = createDefaultConfig();
   const engine = createEngine({ config, random });
+  const brain = createBotBrain({ random, onError: (err) => log(`[bots] think failed: ${err.stack ?? err}`) });
   const settings = defaultSettings();
 
   // Restore what /admin set before the last restart. Every value goes through
@@ -285,7 +295,7 @@ export function createGame({
     try {
       const played = [...track.best.values()];
       const changed = records.recordRound({
-        winner: winnerId ? (track.best.get(winnerId)?.name ?? null) : null,
+        winner: winnerId ? (track.best.get(winnerId)?.name ?? null) : null, // null for a bot (not tracked)
         kills: played.map(({ name, kills }) => ({ name, kills })),
         lengths: played.map(({ name, length }) => ({ name, length })),
       });
@@ -309,7 +319,7 @@ export function createGame({
     }
     if (track.done) return;
     for (const p of state.players) {
-      if (p.status === 'queued') continue;
+      if (p.status === 'queued' || p.bot) continue; // bots are never recorded
       const best = track.best.get(p.id);
       track.best.set(p.id, {
         name: p.name,
@@ -320,8 +330,55 @@ export function createGame({
     if (state.phase === PHASES.INTERMISSION || state.phase === PHASES.WAITING) commitRound(state.winnerId);
   }
 
+  // ---- bots -------------------------------------------------------------------
+  // Computer players: engine players with { bot: true }, owned by no client.
+  // They join and leave only between rounds (or at a restart); the brain
+  // steers them right before each tick.
+  const bots = new Map(); // playerId -> number in its name
+  let nextBotId = 1;
+  const thinkStats = { samples: [] }; // ms per think, last TICK_WINDOW
+
+  // `now`: whatever the phase (right before a restart, which respawns
+  // everyone; a bot added mid-round would only be queued).
+  function syncBots({ now = false } = {}) {
+    const state = engine.getState();
+    if (!now && state.phase !== PHASES.WAITING && state.phase !== PHASES.INTERMISSION) return;
+    const people = state.players.filter((p) => !p.bot).length;
+    const target = botTarget(settings, people);
+    // Leave: the highest numbers first.
+    const byNumber = [...bots].sort((a, b) => b[1] - a[1]);
+    while (bots.size > target) {
+      const [id] = byNumber.shift();
+      removeOwnedPlayer(id);
+      log(`[bots] ${id} left`);
+    }
+    // Join: each with the lowest free number.
+    while (bots.size < target) {
+      const used = new Set(bots.values());
+      let n = 1;
+      while (used.has(n)) n++;
+      const id = `b${nextBotId++}`;
+      const name = botName(n);
+      if (!engine.addPlayer(id, name, { bot: true }).ok) break;
+      bots.set(id, n);
+      owners.set(id, { client: null, slot: null, source: 'bot', session: null, hat: null });
+      log(`[bots] ${id} joined as ${name}`);
+    }
+  }
+
+  function steerBots() {
+    if (!bots.size) return;
+    const started = performance.now();
+    const dirs = brain.think(engine.getState(), [...bots.keys()], { skill: settings.botSkill, bombMode: config.bombMode });
+    for (const [id, dir] of dirs) engine.setDirection(id, dir, { replace: true });
+    thinkStats.samples.push(performance.now() - started);
+    if (thinkStats.samples.length > TICK_WINDOW) thinkStats.samples.shift();
+  }
+
   function tickOnce() {
     if (!paused) {
+      syncBots();
+      steerBots();
       engine.tick();
       observeRound();
     }
@@ -346,11 +403,17 @@ export function createGame({
     const iv = tickStats.intervals;
     const round1 = (n) => Math.round(n * 10) / 10;
     const mean = iv.length ? iv.reduce((a, b) => a + b, 0) / iv.length : null;
+    const think = thinkStats.samples;
     return {
       phase: state.phase,
       round: state.round,
       paused,
-      players: state.players.length,
+      players: state.players.filter((p) => !p.bot).length, // people only
+      bots: {
+        count: bots.size,
+        thinkMeanMs: think.length ? round1(think.reduce((a, b) => a + b, 0) / think.length) : null,
+        thinkMaxMs: think.length ? round1(Math.max(...think)) : null,
+      },
       alive: state.players.filter((p) => p.status === 'alive').length,
       connections: clients.size,
       tick: {
@@ -404,16 +467,17 @@ export function createGame({
   function removeOwnedPlayer(id) {
     const owner = owners.get(id);
     if (owner) {
-      owner.client.owned.delete(owner.slot);
+      owner.client?.owned.delete(owner.slot);
       owners.delete(id);
     }
+    bots.delete(id); // a kicked bot (the next sync may bring one back)
     return engine.removePlayer(id);
   }
 
   function kick(id) {
     const owner = owners.get(id);
     if (!removeOwnedPlayer(id)) return false;
-    if (owner) safeSend(owner.client, { t: 'kicked', slot: owner.slot });
+    if (owner?.client) safeSend(owner.client, { t: 'kicked', slot: owner.slot });
     log(`[game] ${id} kicked by admin`);
     return true;
   }
@@ -422,6 +486,7 @@ export function createGame({
   // `ownId` is excluded from the uniqueness check (a reconnecting player).
   function nameProblem(name, ownId) {
     if (!name) return 'nameEmpty';
+    if (BOT_NAME_PATTERN.test(name)) return 'nameTaken'; // reserved for bots
     if (wordList.matches(name)) return 'nameProfane';
     const key = nameKey(name);
     const taken = engine.getState().players.some((p) => p.id !== ownId && nameKey(p.name) === key);
@@ -553,6 +618,7 @@ export function createGame({
         break;
       case 'restart':
         observeRound(); // capture the lengths reached so far
+        syncBots({ now: true }); // a restart is between rounds too
         engine.restartRound();
         observeRound();
         log('[admin] round restarted');

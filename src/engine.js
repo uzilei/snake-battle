@@ -127,7 +127,9 @@ export function createEngine({ config, random = Math.random } = {}) {
   const cfg = config ?? {};
   Object.assign(cfg, { ...createDefaultConfig(), ...sanitizeConfig(cfg) });
 
-  // id -> { id, name, colorIndex, status: 'queued' | 'alive' | 'dead', snake, kills }
+  // id -> { id, name, colorIndex, status: 'queued' | 'alive' | 'dead', snake, kills, bot }
+  // `bot`: a computer player. It doesn't count toward maxPlayers, and a round
+  // with nobody but bots left alive ends as soon as a person is waiting.
   // Map preserves join order, which keeps spawning deterministic.
   const players = new Map();
 
@@ -520,6 +522,10 @@ export function createEngine({ config, random = Math.random } = {}) {
     // Solo round: ends when the snake dies, or as soon as someone is waiting
     // to join, so a lone player can't block the queue indefinitely.
     if (solo && (alivePlayers.length === 0 || [...players.values()].some((p) => p.status === 'queued'))) {
+      return endRound(null, 'lastAlive');
+    }
+    // Only bots left alive and a person waiting: no point making them watch.
+    if (alivePlayers.every((p) => p.bot) && [...players.values()].some((p) => !p.bot && p.status === 'queued')) {
       return endRound(null, 'lastAlive');
     }
     // Extra win conditions. A solo round can end through them too, but never
@@ -1560,13 +1566,15 @@ export function createEngine({ config, random = Math.random } = {}) {
 
   // ---- public API ---------------------------------------------------------
 
-  function addPlayer(id, name) {
+  // A bot ({ bot: true }) neither counts toward nor is held back by maxPlayers.
+  function addPlayer(id, name, { bot = false } = {}) {
     if (players.has(id)) return { ok: false, reason: 'duplicate' };
-    if (players.size >= cfg.maxPlayers) return { ok: false, reason: 'full' };
+    const people = [...players.values()].filter((p) => !p.bot).length;
+    if (!bot && people >= cfg.maxPlayers) return { ok: false, reason: 'full' };
     const used = new Set([...players.values()].map((p) => p.colorIndex));
     let colorIndex = 0;
     while (used.has(colorIndex)) colorIndex++;
-    const p = { id, name: String(name), colorIndex, status: 'queued', snake: null, kills: 0 };
+    const p = { id, name: String(name), colorIndex, status: 'queued', snake: null, kills: 0, bot: Boolean(bot) };
     players.set(id, p);
     // The round hasn't really started during the countdown: join it now.
     if (phase === PHASES.COUNTDOWN) spawnInto(p, occupiedCells(), snakeCells());
@@ -1577,10 +1585,14 @@ export function createEngine({ config, random = Math.random } = {}) {
     return players.delete(id);
   }
 
-  function setDirection(id, dir) {
+  // With `replace`, the turns queued so far are dropped first: for an input
+  // that decides afresh before every move (a bot). Going straight on then
+  // just leaves the queue empty.
+  function setDirection(id, dir, { replace = false } = {}) {
     const p = players.get(id);
     if (!p || p.status !== 'alive') return false;
     if (typeof dir !== 'string' || !Object.hasOwn(DIRECTIONS, dir)) return false;
+    if (replace) p.snake.dirQueue = [];
     // Turns are buffered so quick sequences (zigzags, U-turns) aren't lost.
     // Each queued turn is validated against the one before it, so every tick
     // turns at most 90 degrees and the snake can never reverse into its neck.
@@ -1682,6 +1694,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         status: p.status,
         length: p.snake ? p.snake.segments.length : 0,
         kills: p.kills,
+        bot: p.bot,
       })),
       snakes: [...players.values()]
         .filter((p) => p.snake)

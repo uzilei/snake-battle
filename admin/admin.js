@@ -6,6 +6,7 @@ import { playerColor } from '/shared/colors.js';
 import { WEIGHTED_POWER_UPS, weightKey } from '/shared/powerups.js';
 import { FRUITS, FRUIT_CODES, APPLE_FRUIT } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
+import { BOT_LIMITS } from '/shared/bots.js';
 
 const A = STRINGS.admin;
 const $ = (id) => document.getElementById(id);
@@ -30,6 +31,9 @@ const SLIDERS = [
   { key: 'targetLength', step: 1, parent: 'sliders-target' },
   { key: 'powerUpChance', step: 5, parent: 'sliders-powerups' },
   { key: 'bombsPerMinute', step: 1, parent: 'sliders-powerups' },
+  // Server settings, not engine config.
+  { key: 'bots', step: 1, parent: 'sliders-bots', kind: 'settings' },
+  { key: 'botSkill', step: 1, parent: 'sliders-bots', kind: 'settings' },
   // One weight slider per power-up, generated from the shared list.
   ...WEIGHTED_POWER_UPS.map((p) => ({
     key: weightKey(p.type),
@@ -67,6 +71,8 @@ $('powerups-hint').textContent = A.powerUpsHint;
 $('h-weights').textContent = A.weightsTitle;
 $('weights-hint').textContent = A.weightsHint;
 $('h-effects').textContent = A.effects;
+$('h-bots').textContent = A.botsTitle;
+$('bots-hint').textContent = A.botsHint;
 $('effects-hint').textContent = A.effectsHint;
 
 // Engine rules go through 'config'; the records and effects toggles are server settings.
@@ -79,6 +85,7 @@ const RULE_TOGGLES = {
   targetLengthWin: 'config',
   powerUps: 'config',
   leaderboard: 'settings',
+  botFill: 'settings',
   deathParticles: 'settings',
   appleRings: 'settings',
   screenShake: 'settings',
@@ -217,8 +224,8 @@ const sliderEls = {};
 let slidersBuilt = false;
 
 function buildSliders(limits) {
-  for (const { key, step, parent = 'sliders', label: text } of SLIDERS) {
-    const lim = limits[key];
+  for (const { key, step, parent = 'sliders', label: text, kind = 'config' } of SLIDERS) {
+    const lim = kind === 'settings' ? BOT_LIMITS[key] : limits[key];
     if (!lim) continue;
     const wrap = document.createElement('div');
     wrap.className = 'slider';
@@ -239,11 +246,12 @@ function buildSliders(limits) {
     input.addEventListener('input', () => {
       output.textContent = input.value;
       clearTimeout(timer);
-      timer = setTimeout(() => send({ t: 'config', values: { [key]: Number(input.value) } }), 80);
+      const value = Number(input.value);
+      timer = setTimeout(() => send(kind === 'settings' ? { t: 'settings', [key]: value } : { t: 'config', values: { [key]: value } }), 80);
     });
     wrap.append(label, input, output, range);
     $(parent).append(wrap);
-    sliderEls[key] = { input, output };
+    sliderEls[key] = { input, output, kind };
     if (key === 'badgerHealth') $(parent).append(badgerNameField());
   }
   slidersBuilt = true;
@@ -283,11 +291,12 @@ function update(msg) {
   $('round').textContent = msg.round > 0 ? `${A.round} ${msg.round}` : '';
   $('btn-pause').textContent = msg.paused ? A.resume : A.pause;
 
-  for (const [key, { input, output }] of Object.entries(sliderEls)) {
+  for (const [key, { input, output, kind }] of Object.entries(sliderEls)) {
     // Don't fight the user while they're dragging.
     if (document.activeElement === input) continue;
-    input.value = msg.config[key];
-    output.textContent = msg.config[key];
+    const value = kind === 'settings' ? msg.settings[key] : msg.config[key];
+    input.value = value;
+    output.textContent = value;
   }
   if (document.activeElement !== $('side-panel')) $('side-panel').value = msg.settings.sidePanel;
   const badgerName = $('s-badgerName');
@@ -346,7 +355,7 @@ function renderPlayers(players) {
       const kills = document.createElement('td');
       kills.textContent = p.status === 'queued' ? '–' : String(p.kills ?? 0);
       const source = document.createElement('td');
-      source.textContent = p.source === 'keyboard' ? A.sourceKeyboard : A.sourcePhone;
+      source.textContent = { keyboard: A.sourceKeyboard, bot: A.sourceBot }[p.source] ?? A.sourcePhone;
       const hat = document.createElement('td');
       const h = HATS.find((x) => x.id === p.hat);
       hat.textContent = h ? h.emoji : '–';

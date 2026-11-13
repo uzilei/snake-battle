@@ -1,4 +1,8 @@
-// Load test: node loadtest.js [--minutes 5] [--bots 16]
+// Load test: node loadtest.js [--minutes 5] [--bots 16] [--server-bots 0] [--fill] [--tick-ms 200]
+//
+//   --bots         phone clients (named Phone01, Phone02...)
+//   --server-bots  the server's own bots (the /admin "bots" setting), --fill
+//                  for fill mode; --tick-ms sets the speed
 //
 // Starts a real server in a child process on 127.0.0.1, with its records and
 // banned-word files in a fresh temp folder (never the project's own files) and
@@ -59,9 +63,12 @@ async function runServer(dir) {
 async function main() {
   const minutes = Number(arg('minutes', 5));
   const botCount = Number(arg('bots', 16));
+  const serverBots = Number(arg('server-bots', 0));
+  const fill = args.includes('--fill');
+  const tickMs = arg('tick-ms', null);
   const durationMs = minutes * 60_000;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snake-loadtest-'));
-  console.log(`Load test: ${botCount} bots for ${minutes} min, data in ${dir}`);
+  console.log(`Load test: ${botCount} phones, ${serverBots} server bots${fill ? ' (fill)' : ''} for ${minutes} min, data in ${dir}`);
 
   const logLines = [];
   let server = await startServer(dir, logLines);
@@ -86,11 +93,12 @@ async function main() {
     bombsPerMinute: 10,
     ratChance: 30, // rats too
     chickenChance: 20, // and chickens
+    ...(tickMs ? { tickMs: Number(tickMs) } : {}),
   };
   const admin = await openAdmin(base, wsBase);
   admin.ws.send(JSON.stringify({ t: 'config', values: wanted }));
-  admin.ws.send(JSON.stringify({ t: 'settings', leaderboard: true }));
-  await waitFor(() => admin.last?.settings.leaderboard && admin.last.config.wrapWalls, 3000, 'admin settings');
+  admin.ws.send(JSON.stringify({ t: 'settings', leaderboard: true, bots: serverBots, botFill: fill }));
+  await waitFor(() => admin.last?.settings.leaderboard && admin.last.config.wrapWalls && admin.last.settings.bots === serverBots, 3000, 'admin settings');
   const configAfterSetup = JSON.stringify(admin.last.config);
 
   // Display: counts rounds by how they ended, and shares the board with the
@@ -173,7 +181,7 @@ async function main() {
   server = await startServer(dir, logLines);
   const restartedSnapshot = (await server.ask('snapshot')).snapshot;
   const survived = JSON.stringify(restartedSnapshot) === JSON.stringify(snapshot);
-  const rejoin = await rejoinCheck(`ws://127.0.0.1:${server.port}`, bots[0]);
+  const rejoin = await rejoinCheck(`ws://127.0.0.1:${server.port}`, bots[0] ?? { name: 'Phone01', session: 'loadtest-session-0000' }); // a new phone if none ran
   server.kill();
   await server.exited;
 
@@ -181,6 +189,8 @@ async function main() {
   report({
     minutes,
     botCount,
+    serverBots,
+    fill,
     wanted,
     configUnchanged: configAfterSetup === configAtEnd,
     rounds,
@@ -315,7 +325,7 @@ function chooseDir(state, id) {
 }
 
 function createBot(index, wsBase, stats, board) {
-  const name = `Bot${String(index + 1).padStart(2, '0')}`;
+  const name = `Phone${String(index + 1).padStart(2, '0')}`; // "Bot 1"... are the server's bots
   const session = `loadtest-session-${String(index).padStart(4, '0')}`;
   let ws = null;
   let running = false;
@@ -444,6 +454,11 @@ function checkRecordsFile(dir, snapshot) {
   const problems = [];
   const file = path.join(dir, 'records.json');
   let data = null;
+  const nothingRecorded = ['wins', 'kills', 'score'].every((s) => !snapshot[s]?.length);
+  if (!fs.existsSync(file) && nothingRecorded) {
+    // Only server bots played: nothing to record, so no file was written.
+    return { ok: true, problems, counts: { wins: 0, kills: 0, score: 0 }, data };
+  }
   try {
     data = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (err) {
@@ -464,7 +479,8 @@ function checkRecordsFile(dir, snapshot) {
         if (seen.has(e.name)) problems.push(`${stat}: duplicate name ${e.name}`);
         seen.add(e.name);
         if (!Number.isInteger(e[field]) || e[field] <= 0) problems.push(`${stat}: bad value for ${e.name}`);
-        if (!/^Bot\d\d$/.test(e.name)) problems.push(`${stat}: unexpected name ${JSON.stringify(e.name)}`);
+        // Only phones: a server bot ("Bot 3") must never be recorded.
+        if (!/^Phone\d\d$/.test(e.name)) problems.push(`${stat}: unexpected name ${JSON.stringify(e.name)}`);
       }
     }
     if (JSON.stringify(data) !== JSON.stringify(snapshot)) problems.push('file differs from the server memory');
@@ -480,6 +496,7 @@ const EXPECTED_LOG = [
   /^\[ws\] Max payload size exceeded$/, // the oversized messages
   /^\[auth\] admin login from /,
   /^\[admin\] config /,
+  /^\[bots\] b\d+ (joined as Bot \d+|left)$/,
   /^\[words\] created banned-words\.json from the starter list$/,
 ];
 
@@ -507,7 +524,7 @@ function report(r) {
 
   const line = (label, value) => console.log(`  ${label.padEnd(26)} ${value}`);
   console.log('\n==== Load test report ====');
-  line('duration', `${r.minutes} min, ${r.botCount} bots`);
+  line('duration', `${r.minutes} min, ${r.botCount} phones, ${r.serverBots} server bots${r.fill ? ' (fill)' : ''}`);
   line('settings', JSON.stringify(r.wanted) + ' + global leaderboard');
   line('crashes', r.crashes.length ? JSON.stringify(r.crashes) : 'none');
   line('tick errors', tickErrors);
@@ -529,6 +546,11 @@ function report(r) {
   line('tick: actual average', `${actualMs.toFixed(2)} ms over ${ticks} ticks (drift ${(((actualMs - tickMs) / tickMs) * 100).toFixed(2)}%)`);
   line('tick: 100-tick means', `${Math.min(...means)} .. ${Math.max(...means)} ms`);
   line('tick: worst interval', `${worst} ms`);
+  const thinks = h.map((x) => x.bots?.thinkMeanMs).filter((x) => typeof x === 'number');
+  const botCounts = h.map((x) => x.bots?.count ?? 0);
+  line('server bots playing', `${Math.min(...botCounts)} .. ${Math.max(...botCounts)}`);
+  line('bot think: 100-tick means', thinks.length ? `${Math.min(...thinks)} .. ${Math.max(...thinks)} ms` : 'n/a');
+  line('bot think: worst', `${Math.max(0, ...h.map((x) => x.bots?.thinkMaxMs ?? 0))} ms`);
   line('heap after GC', `${mb(m0.heapUsed)} MB -> ${mb(m1.heapUsed)} MB`);
   line('rss', `${mb(m0.rss)} MB -> ${mb(m1.rss)} MB`);
   line('heap samples (MB)', r.memory.map((x) => mb(x.heapUsed)).join(' '));

@@ -100,6 +100,8 @@ export const STRINGS = Object.freeze({
     tooManyAttempts: 'Troppi tentativi. Riprova tra {s} secondi.',
   },
 
+  botName: 'Bot {n}', // computer players: "Bot 1", "Bot 2"...
+
   // ---- /admin ------------------------------------------------------------
   admin: {
     title: 'Pannello di controllo',
@@ -137,7 +139,14 @@ export const STRINGS = Object.freeze({
     badgerHealth: 'Vita del tasso 🦡: colpi di forbici ✂️ per eliminarlo (un proiettile lo elimina sempre)',
     badgerName: 'Nome del tasso 🦡, scritto sopra di lui come un boss (vuoto = nessun nome)',
     badgerNamePlaceholder: 'Nessun nome',
-    maxPlayers: 'Giocatori massimi',
+    maxPlayers: 'Giocatori massimi (i bot 🤖 non contano)',
+    botsTitle: 'Bot 🤖',
+    botsHint:
+      'Serpenti guidati dal computer, per non lasciare lo schermo vuoto. Entrano ed escono solo tra un round e l’altro. Non finiscono mai nella classifica globale. Bot e giocatori insieme non superano 24: oltre, i bot lasciano il posto come in «Riempi».',
+    bots: 'Numero di bot (0 = nessuno)',
+    botFill:
+      'Riempi: i bot completano i posti fino al numero scelto e lasciano il posto a chi si unisce (es. 4: con 1 telefono 3 bot, con 4 o più nessuno)',
+    botSkill: 'Abilità dei bot (1 = fanno errori, 3 = mai)',
     gridSize: 'Dimensione griglia (dal prossimo round)',
     intermissionMs: 'Pausa tra i round (ms)',
     countdownMs: 'Conto alla rovescia prima del round (ms, 0 = disattivato)',
@@ -261,6 +270,7 @@ export const STRINGS = Object.freeze({
     colHat: 'Cappello',
     sourcePhone: 'Telefono',
     sourceKeyboard: 'Tastiera',
+    sourceBot: 'Bot 🤖',
     kick: 'Espelli',
     confirmKick: 'Espellere {name}?',
     playerStatus: { alive: 'In gioco', dead: 'Eliminato', queued: 'In attesa' },
