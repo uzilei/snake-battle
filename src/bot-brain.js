@@ -35,11 +35,13 @@ export const BOT_BRAIN = Object.freeze({
   fleeRadius: 3, // cells (Manhattan)
   ghostSafeMs: 2000, // a ghost with more than this left ignores danger
   mistakeChance: Object.freeze({ 1: 0.25, 2: 0.08, 3: 0 }), // per skill: ignore step 2, pick a random safe move
-  // Reaction time per skill: a bot re-decides every this many of its moves.
-  // In between it keeps going, but sees certain death one move ahead
-  // reflexChance of the time. Each bot starts a round at a random point of
-  // its countdown, so they don't all re-decide on the same tick.
-  thinkEvery: Object.freeze({ 1: 3, 2: 2, 3: 1 }),
+  // Reaction time per skill: after each decision a bot waits a random 0 to
+  // this many of its moves before the next one (rolled afresh every time, so
+  // it can't fall into step with a loop it is running, like circling an
+  // apple). In between it keeps going, but sees certain death one move ahead
+  // reflexChance of the time. Each bot starts a round with a fresh roll, so
+  // they don't all re-decide on the same tick.
+  thinkWait: Object.freeze({ 1: 3, 2: 2, 3: 0 }),
   reflexChance: 0.85,
 });
 
@@ -80,15 +82,16 @@ export function createBotBrain({ random = Math.random, onError = () => {} } = {}
     }
     const board = buildBoard(state);
     let budget = BOT_BRAIN.nodeBudget;
-    const every = BOT_BRAIN.thinkEvery[skill] ?? 1;
+    const maxWait = BOT_BRAIN.thinkWait[skill] ?? 0;
+    const roll = () => (maxWait > 0 ? Math.floor(random() * (maxWait + 1)) : 0);
     for (const id of ids) {
       const me = board.snakes.get(id);
       if (!me || !me.alive || !board.movesNext(me)) continue;
-      // First move this round: somewhere in the countdown (0: decide now).
-      const wait = waits.get(id) ?? (every > 1 ? Math.floor(random() * every) : 0);
-      waits.set(id, wait > 0 ? wait - 1 : every - 1);
+      // First move this round: a fresh roll too (0: decide now).
+      const wait = waits.get(id) ?? roll();
       // Between decisions only a reflex, and not always.
       const reflex = wait > 0;
+      waits.set(id, reflex ? wait - 1 : roll());
       if (reflex && random() >= BOT_BRAIN.reflexChance) continue;
       try {
         const { dir, nodes } = decide(board, me, { skill, bombMode, budget, random, reflex });
