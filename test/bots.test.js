@@ -90,6 +90,15 @@ describe('engine: bot players', () => {
     assert.equal(player(e, 'h').status, 'alive');
   });
 
+  test('people spawn first: on a board too small for everyone, a bot waits', () => {
+    const e = createEngine({ config: { gridSize: 10, appleCount: 0 }, random: seeded(4) });
+    for (let i = 1; i <= 40; i++) e.addPlayer(`b${i}`, `Bot ${i}`, { bot: true });
+    e.addPlayer('h', 'Human');
+    e.tick();
+    assert.equal(player(e, 'h').status, 'alive');
+    assert.ok(e.getState().players.some((p) => p.bot && p.status === 'queued'));
+  });
+
   test('a round of bots only plays on; so does one with a person alive while another waits', () => {
     const e = setup({ a: [row(5, 5, 3), 'right'], b: [row(10, 5, 3), 'right'] });
     for (let i = 0; i < 5; i++) e.tick();
@@ -251,11 +260,20 @@ describe('bot brain: flee and hunt', () => {
     assert.equal(player(e, 'a').status, 'alive');
   });
 
-  test('with scissors the badger is a target too', () => {
+  test('with scissors the badger is a target too, and it hits it', () => {
     const e = setup({ a: [row(10, 5, 3), 'right'], ...far });
     e._debug.setBadger([5, 15], { moveAt: 1e9 }); // y 14-16, below
     e._debug.setEffect('a', 'scissors', 8000);
     assert.equal(pick(e), 'down');
+    const brain = createBotBrain({ random: seeded(1) });
+    let hit = false;
+    for (let t = 0; t < 12 && !hit; t++) {
+      for (const [id, dir] of brain.think(e.getState(), ['a'], { skill: 3 })) e.setDirection(id, dir, { replace: true });
+      e.tick();
+      hit = events(e, 'badgerHit').some((ev) => ev.id === 'a');
+    }
+    assert.ok(hit, 'never hit the badger');
+    assert.equal(player(e, 'a').status, 'alive');
   });
 });
 
@@ -397,6 +415,45 @@ describe('server: bots', () => {
     assert.equal(game.health().bots.count, 3);
     assert.equal(typeof game.health().bots.thinkMeanMs, 'number');
     assert.equal(game.health().players, 0); // people only
+  });
+
+  test('the winner stays on the board through the intermission; bots leave at its end', () => {
+    const { game, admin } = newGame({ bots: 2 });
+    game.engine.updateConfig({ intermissionMs: 1000, tickMs: 200 });
+    game.tickOnce();
+    admin.send({ t: 'kick', id: 'b2' }); // gone mid-round: Bot 1 wins
+    game.tickOnce();
+    assert.equal(game.engine.getState().winnerId, 'b1');
+    admin.send({ t: 'settings', bots: 0 });
+    for (let i = 0; i < 3; i++) {
+      game.tickOnce();
+      assert.equal(game.engine.getState().phase, 'intermission');
+      assert.deepEqual(botsOf(game).map((p) => p.id), ['b1']); // the winner, still listed
+    }
+    game.tickOnce(); // the last one: they leave, nobody's left
+    game.tickOnce();
+    assert.equal(botsOf(game).length, 0);
+    assert.equal(game.engine.getState().phase, 'waiting');
+  });
+
+  test('a failing bot never stops the tick', () => {
+    const logs = [];
+    const game = createGame({ log: (l) => logs.push(l), random: seeded(3) });
+    Object.assign(game.settings, { bots: 2 });
+    game.tickOnce();
+    const tick = game.engine.getState().tick;
+    const real = game.engine.getState;
+    game.engine.getState = () => {
+      throw new Error('boom');
+    };
+    try {
+      assert.doesNotThrow(() => game.tickOnce());
+    } catch {
+      /* broadcast also reads the state */
+    }
+    game.engine.getState = real;
+    assert.ok(game.engine.getState().tick > tick, 'the engine ticked');
+    assert.ok(logs.some((l) => l.startsWith('[bots] failed')));
   });
 
   test('fill mode: bots step aside for people at the next round', () => {

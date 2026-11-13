@@ -469,7 +469,9 @@ export function createEngine({ config, random = Math.random } = {}) {
     participants = 0;
     const occupied = new Set();
     const others = []; // cells of the snakes spawned so far
-    for (const p of players.values()) {
+    // People first: on a crowded board it's a bot that waits for a turn.
+    const order = [...players.values()].sort((a, b) => Number(a.bot) - Number(b.bot));
+    for (const p of order) {
       p.kills = 0;
       if (!spawnInto(p, occupied, others)) {
         p.snake = null;

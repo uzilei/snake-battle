@@ -342,7 +342,10 @@ export function createGame({
   // everyone; a bot added mid-round would only be queued).
   function syncBots({ now = false } = {}) {
     const state = engine.getState();
-    if (!now && state.phase !== PHASES.WAITING && state.phase !== PHASES.INTERMISSION) return;
+    // During the intermission only on its last tick, so the winner (maybe a
+    // bot) stays on the scoreboard until then.
+    const lastBreak = state.phase === PHASES.INTERMISSION && state.intermissionRemainingMs <= config.tickMs;
+    if (!now && state.phase !== PHASES.WAITING && !lastBreak) return;
     const people = state.players.filter((p) => !p.bot).length;
     const target = botTarget(settings, people);
     // Leave: the highest numbers first.
@@ -377,8 +380,13 @@ export function createGame({
 
   function tickOnce() {
     if (!paused) {
-      syncBots();
-      steerBots();
+      try {
+        syncBots();
+        steerBots();
+      } catch (err) {
+        // The bots must never stop the game itself.
+        log(`[bots] failed: ${err.stack ?? err}`);
+      }
       engine.tick();
       observeRound();
     }

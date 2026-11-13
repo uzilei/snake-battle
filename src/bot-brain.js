@@ -272,7 +272,7 @@ function decide(board, me, { skill, bombMode, budget, random }) {
       const next = [];
       for (const c of frontier) {
         for (const d of DIRS) {
-          if (count >= cap || nodes >= left()) break;
+          if (count >= cap || nodes >= budget) break;
           nodes++;
           const to = step(c, d);
           if (!to) continue;
