@@ -333,11 +333,17 @@ describe('bot brain: skill', () => {
   });
 
   test('skill 1 sometimes ignores the danger and picks any safe move', () => {
-    // A fresh brain each time, so every call is a full decision (not a reflex).
+    // A fresh brain each time.
     const random = seeded(7);
     const state = scene().getState();
     let risky = 0;
-    for (let i = 0; i < 400; i++) if (createBotBrain({ random }).think(state, ['a'], { skill: 1 }).get('a') === 'right') risky++;
+    for (let i = 0; i < 400; i++) {
+      // The first direction a fresh brain gives within 3 moves: its decision.
+      const brain = createBotBrain({ random });
+      let dir;
+      for (let k = 0; k < 3 && !dir; k++) dir = brain.think(state, ['a'], { skill: 1 }).get('a');
+      if (dir === 'right') risky++;
+    }
     assert.ok(risky > 10 && risky < 100, `risky ${risky}`); // about 25% x 1/3
   });
 });
@@ -350,36 +356,70 @@ describe('bot brain: reaction time', () => {
     return e;
   };
 
-  for (const [skill, pattern] of [[1, 'up - - up - - up'], [2, 'up - up - up - up'], [3, 'up up up up up up up']]) {
-    test(`skill ${skill} re-decides every ${BOT_BRAIN.thinkEvery[skill]} moves: ${pattern}`, () => {
-      const brain = createBotBrain({ random: seeded(5), onError: (err) => { throw err; } });
-      const state = lure().getState();
-      const got = Array.from({ length: 7 }, () => brain.think(state, ['a'], { skill }).get('a') ?? '-');
-      assert.equal(got.join(' '), pattern);
+  // The calls (one per move) on which it decides afresh. Straight on is safe
+  // here, so in between it gives no direction at all.
+  const decisions = (brain, state, skill, moves) =>
+    Array.from({ length: moves }, () => brain.think(state, ['a'], { skill }).get('a'))
+      .map((dir, i) => (dir ? i : -1))
+      .filter((i) => i >= 0);
+
+  for (const skill of [1, 2, 3]) {
+    const every = BOT_BRAIN.thinkEvery[skill];
+    test(`skill ${skill} re-decides every ${every} moves, keeping its course in between`, () => {
+      for (const seed of [1, 2, 3, 4, 5, 6]) {
+        const brain = createBotBrain({ random: seeded(seed), onError: (err) => { throw err; } });
+        const state = lure().getState();
+        const got = decisions(brain, state, skill, every * 4);
+        assert.equal(got.length, 4, `seed ${seed}: ${got}`);
+        assert.ok(got[0] < every, `seed ${seed}: first at ${got[0]}`);
+        for (let i = 1; i < got.length; i++) assert.equal(got[i] - got[i - 1], every);
+      }
     });
   }
 
   test('between decisions it still turns away from certain death most of the time', () => {
     const state = setup({ a: [row(10, 19, 17), 'right'], ...far }).getState(); // facing the wall
     const random = seeded(11);
+    // Three moves at skill 1: one decision (always a turn) and two in between.
     let saved = 0;
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < 200; i++) {
       const brain = createBotBrain({ random });
-      brain.think(state, ['a'], { skill: 1 }); // the decision
-      const reflex = brain.think(state, ['a'], { skill: 1 }).get('a'); // in between
-      assert.notEqual(reflex, 'right');
-      if (reflex) saved++;
+      const dirs = [0, 1, 2].map(() => brain.think(state, ['a'], { skill: 1 }).get('a'));
+      for (const dir of dirs) assert.notEqual(dir, 'right');
+      saved += dirs.filter(Boolean).length - 1;
     }
     const share = saved / 400;
     assert.ok(share > 0.75 && share < 0.95, `reflex ${share}`); // 85%
   });
 
-  test('a new round starts with a fresh decision', () => {
+  test('each round every bot starts at a random point of its countdown', () => {
     const brain = createBotBrain({ random: seeded(5) });
     const e = lure();
-    assert.equal(brain.think(e.getState(), ['a'], { skill: 1 }).get('a'), 'up');
-    brain.think({ ...e.getState(), phase: 'intermission' }, ['a'], { skill: 1 });
-    assert.equal(brain.think(e.getState(), ['a'], { skill: 1 }).get('a'), 'up');
+    const firsts = new Set();
+    for (let round = 0; round < 40; round++) {
+      brain.think({ ...e.getState(), phase: 'intermission' }, ['a'], { skill: 1 }); // between rounds: reset
+      firsts.add(decisions(brain, e.getState(), 1, 3)[0]);
+    }
+    // Always within the first 3 moves, and not always on the same one.
+    assert.deepEqual([...firsts].sort(), [0, 1, 2]);
+  });
+
+  test('bots in one game spread their decisions over the ticks', () => {
+    // 12 bots, each with food up and to the right of its head.
+    const snakes = {};
+    const apples = [];
+    for (let i = 0; i < 12; i++) {
+      snakes[`b${i}`] = [row(1 + i, 5, 3), 'right'];
+      apples.push([7, 1 + i]);
+    }
+    const e = setup({ ...snakes, ...far });
+    e._debug.setApples(apples);
+    const ids = Object.keys(snakes);
+    const brain = createBotBrain({ random: seeded(9) });
+    const state = e.getState();
+    const perTick = [0, 1, 2].map(() => brain.think(state, ids, { skill: 1 }).size);
+    assert.equal(perTick.reduce((a, b) => a + b, 0) >= 12, true); // each decided once
+    assert.ok(Math.max(...perTick) < 12, `per tick ${perTick}`);
   });
 });
 

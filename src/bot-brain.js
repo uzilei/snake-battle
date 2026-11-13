@@ -37,7 +37,8 @@ export const BOT_BRAIN = Object.freeze({
   mistakeChance: Object.freeze({ 1: 0.25, 2: 0.08, 3: 0 }), // per skill: ignore step 2, pick a random safe move
   // Reaction time per skill: a bot re-decides every this many of its moves.
   // In between it keeps going, but sees certain death one move ahead
-  // reflexChance of the time.
+  // reflexChance of the time. Each bot starts a round at a random point of
+  // its countdown, so they don't all re-decide on the same tick.
   thinkEvery: Object.freeze({ 1: 3, 2: 2, 3: 1 }),
   reflexChance: 0.85,
 });
@@ -74,7 +75,7 @@ export function createBotBrain({ random = Math.random, onError = () => {} } = {}
     nodesUsed = 0;
     const out = new Map();
     if (state.phase !== 'playing' || !ids.length) {
-      waits.clear(); // every round starts with a fresh decision
+      waits.clear(); // a new countdown for every bot next round
       return out;
     }
     const board = buildBoard(state);
@@ -83,7 +84,8 @@ export function createBotBrain({ random = Math.random, onError = () => {} } = {}
     for (const id of ids) {
       const me = board.snakes.get(id);
       if (!me || !me.alive || !board.movesNext(me)) continue;
-      const wait = waits.get(id) ?? 0;
+      // First move this round: somewhere in the countdown (0: decide now).
+      const wait = waits.get(id) ?? (every > 1 ? Math.floor(random() * every) : 0);
       waits.set(id, wait > 0 ? wait - 1 : every - 1);
       // Between decisions only a reflex, and not always.
       const reflex = wait > 0;
