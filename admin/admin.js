@@ -17,6 +17,8 @@ const SLIDERS = [
   { key: 'appleCount', step: 1 },
   { key: 'growthPerApple', step: 1 },
   { key: 'ratChance', step: 1 },
+  { key: 'badgerEverySec', step: 30 },
+  { key: 'badgerLifetimeSec', step: 5 },
   { key: 'maxPlayers', step: 1 },
   { key: 'gridSize', step: 1 },
   { key: 'countdownMs', step: 500 },

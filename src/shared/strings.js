@@ -129,6 +129,9 @@ export const STRINGS = Object.freeze({
     appleCount: 'Numero di mele',
     growthPerApple: 'Crescita per mela',
     ratChance: 'Probabilità che una nuova mela sia un topo 🐀 che scappa e vale 4 mele (%, 0 = mai)',
+    badgerEverySec:
+      'Tasso del miele 🦡, il predatore: secondi in media tra un tasso e l’altro (s, il tempo esatto varia a caso; 0 = mai)',
+    badgerLifetimeSec: 'Quanto resta in campo il tasso del miele 🦡 (s)',
     maxPlayers: 'Giocatori massimi',
     gridSize: 'Dimensione griglia (dal prossimo round)',
     intermissionMs: 'Pausa tra i round (ms)',

@@ -94,6 +94,37 @@ Rare food that runs away. A new apple becomes a rat with the "topo" probability 
 
 Rules and numbers live in `src/shared/rats.js`; the engine's `moveRats` does the movement.
 
+## Honey badger 🦡
+
+A rare predator: a 5×3 block (5 wide, 3 tall) that never rotates. Two /admin sliders control it; both are saved and apply at once, and neither depends on the power-up switch:
+
+- **"Tasso del miele" (average seconds between badgers):** 120 by default, 30–600, or 0 for never. The real delay is random, between half and one and a half times the average, counted in seconds of play.
+- **"Quanto resta in campo" (lifetime):** 20 s by default, 5–120.
+
+There is never more than one badger on the board.
+
+- **Spawning:** fully on the board, clear of bombs and portal ends, with its whole block at least 3 steps from every snake head. Snake bodies and items may be under it. It first shows a 2 s warning, during which it does nothing. When its lifetime ends it fades out over its last second and goes in a grey puff the size of its block. A new round clears it.
+- **Movement:** like a rat but slower. It moves one cell every 4 ticks, straight on, and picks a random new direction after 20–100 ticks, or straight away when blocked. Blocked means any of its cells would leave the board (it never wraps, even with wrap-around walls) or land on a bomb or a portal end. Snakes and items don't block it. Bombs never spawn on it, and portal exits never open inside it.
+- **Snakes (new contact only):** each sub-step, a segment touches the badger only when it is newly inside the block, either because the head moved in from outside or because the badger moved onto that segment. Segments that were already inside are ignored until they leave. This covers a ghost passing through, a popped shield, or a body that was under the warning. Ghosts are never touched. For each snake with new contact, the one nearest the head counts:
+  - the head: the snake dies;
+  - any other segment: the snake is cut there, and the cut-off part follows "dead snakes become apples";
+  - if fewer than 3 segments would be left, the snake dies.
+
+  A shield pops instead of any of these, and the badger never gives anyone a kill. Several snakes can be bitten at once. The badger bites before items are eaten, so a head can't eat its way out of it through a portal.
+- **Items:** ignored. Fruits and power-ups spawn and stay under it as usual.
+- **Rats:** a new apple that would become a rat under the badger (warning included) stays a plain apple. A rat inside the active badger dies, whether it ran in, the badger moved onto it, or it was under the warning when the badger became active. Nobody grows or gets a kill.
+- **Projectiles:** a projectile entering any of its cells (or that the badger steps onto, or a gun fired right next to it) kills the badger at once. That is a kill for the shooter, and the projectile is used up.
+- **/display:**
+  - one big 🦡 over its block, never rotated, mirrored while heading right, sliding smoothly;
+  - while active, a red outline pulses round it;
+  - the warning is a dashed, pulsing red outline with ⚠️ in the middle;
+  - a shot badger goes off in a bomb's burst the size of its block, and the shooter winks;
+  - rats get a soft green glow, so green means eat and red means run.
+
+  The burst and the puff follow the particles toggle.
+
+Rules and numbers live in `src/shared/badger.js`.
+
 ## Pages
 
 - `/display`: fullscreen view for the monitor. Double-click to toggle fullscreen. When "keyboard players" is enabled on /admin, WASD and the arrow keys control two local players.

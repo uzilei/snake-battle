@@ -6,6 +6,7 @@ import { playerColor } from '/shared/colors.js';
 import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt } from '/shared/snake-path.js';
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
 import { RAT_RULES } from '/shared/rats.js';
+import { BADGER_RULES } from '/shared/badger.js';
 import { FRUIT_CODES } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
 
@@ -44,6 +45,8 @@ const ITEM_IMAGES = {
   ...Object.fromEntries(POWER_UPS.map((p) => [p.type, loadImage(`/twemoji/${p.twemoji}.svg`)])),
   rat: loadImage(`/twemoji/${RAT_RULES.twemoji}.svg`),
   mouse: loadImage(`/twemoji/${RAT_RULES.mouseTwemoji}.svg`),
+  badger: loadImage(`/twemoji/${BADGER_RULES.twemoji}.svg`),
+  warning: loadImage(`/twemoji/${BADGER_RULES.warningTwemoji}.svg`),
   ...Object.fromEntries(HATS.map((h) => [`hat-${h.id}`, loadImage(`/twemoji/${h.twemoji}.svg`)])),
 };
 // A random fruit out of the ones in use (only 🍎 when none is).
@@ -934,7 +937,7 @@ function drawNames(labels, cell, size) {
 // ---- effects (each behind an /admin toggle) ----
 const particles = []; // { x, y, vx, vy, born, life, r, color } in cells / seconds
 const rings = []; // { x, y, color, start, ms?, r0?, r1?, width? } (sizes in cells)
-const flashes = []; // { x, y, size, start, ms }: a white flash over a block of cells
+const flashes = []; // { x, y, w, h, start, ms }: a white flash over a w x h block of cells centered on (x, y)
 let shakeStart = -Infinity;
 
 function burst(s, now) {
@@ -969,10 +972,11 @@ function drawEffects(cell, now, dt) {
       flashes.splice(i, 1);
       continue;
     }
-    const half = (f.size / 2) * cell;
+    const hw = (f.w / 2) * cell;
+    const hh = (f.h / 2) * cell;
     ctx.globalAlpha = 0.85 * (1 - e) ** 2;
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect((f.x + 0.5) * cell - half, (f.y + 0.5) * cell - half, half * 2, half * 2);
+    ctx.fillRect((f.x + 0.5) * cell - hw, (f.y + 0.5) * cell - hh, hw * 2, hh * 2);
   }
   for (let i = rings.length - 1; i >= 0; i--) {
     const r = rings[i];
@@ -1040,6 +1044,8 @@ let fruits = new Map(); // "x,y" -> which fruit sprite the plain apple there is 
 // facing: 1 = as the emoji is drawn (left), -1 = mirrored (right).
 let rats = new Map(); // id -> { from, to, start, ms, facing }
 let eatenRats = []; // { from, to, start, ms, facing, color, id }: sliding into the mouth that ate them
+// The badger slides like a rat, a cell every moveEveryTicks ticks.
+let badgerAnim = null; // { id, from, to, start, ms, facing }
 const FLIGHT_MS = 200;
 
 // Small bright sparks, e.g. where a projectile ends.
@@ -1052,19 +1058,21 @@ function sparks(x, y, now, count, colors) {
 }
 
 // A bomb going off, centered on cell (x, y): a big fiery burst thrown out
-// from the whole block, a white flash on the block and a shockwave.
-function explosion(x, y, now) {
-  const reach = POWER_UP_RULES.bombSize / 2;
+// from the whole w x h block (the bomb's by default), a white flash on the
+// block and a shockwave.
+function explosion(x, y, now, w = POWER_UP_RULES.bombSize, h = w) {
+  const reach = Math.max(w, h) / 2;
+  const count = Math.round(120 * Math.sqrt((w * h) / POWER_UP_RULES.bombSize ** 2));
   const colors = ['#ff3d00', '#ff6d00', '#ff9100', '#ffc400', '#ffea00', '#d50000', '#ffffff'];
-  for (let i = 0; i < 120 && particles.length < MAX_PARTICLES; i++) {
-    const px = x + 0.5 + (Math.random() * 2 - 1) * reach;
-    const py = y + 0.5 + (Math.random() * 2 - 1) * reach;
+  for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
+    const px = x + 0.5 + (Math.random() * 2 - 1) * (w / 2);
+    const py = y + 0.5 + (Math.random() * 2 - 1) * (h / 2);
     // Outward from the center, a little scattered.
     const a = Math.atan2(py - y - 0.5, px - x - 0.5) + (Math.random() - 0.5) * 1.2;
     const v = 8 + Math.random() * 14;
     particles.push({ x: px, y: py, vx: Math.cos(a) * v, vy: Math.sin(a) * v, born: now, life: 650 + Math.random() * 650, r: 0.12 + Math.random() * 0.22, color: colors[i % colors.length] });
   }
-  flashes.push({ x, y, size: POWER_UP_RULES.bombSize, start: now, ms: 220 });
+  flashes.push({ x, y, w, h, start: now, ms: 220 });
   rings.push({ x, y, color: '#fff3c4', start: now, ms: 620, r0: reach, r1: reach + 2.6, width: 0.4 });
   rings.push({ x, y, color: '#ff7043', start: now + 90, ms: 650, r0: reach, r1: reach + 2, width: 0.25 });
 }
@@ -1092,15 +1100,26 @@ function star(x, y, r, angle) {
   ctx.fill();
 }
 
-// A bomb that ran out: a small grey puff of smoke.
-function fizzle(x, y, now) {
+// A bomb that ran out: a small grey puff of smoke. sx, sy stretch it for a
+// block that isn't a bomb's (1 = a bomb's size).
+function fizzle(x, y, now, sx = 1, sy = 1) {
   const colors = ['#9e9e9e', '#bdbdbd', '#757575', '#e0e0e0'];
-  for (let i = 0; i < 18 && particles.length < MAX_PARTICLES; i++) {
+  const count = Math.round(18 * sx * sy);
+  for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
     const a = Math.random() * Math.PI * 2;
     const v = 1.5 + Math.random() * 2.5;
-    particles.push({ x: x + 0.5 + Math.cos(a) * 0.4, y: y + 0.5 + Math.sin(a) * 0.4, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1, born: now, life: 550 + Math.random() * 400, r: 0.12 + Math.random() * 0.16, color: colors[i % colors.length] });
+    particles.push({ x: x + 0.5 + Math.cos(a) * 0.4 * sx, y: y + 0.5 + Math.sin(a) * 0.4 * sy, vx: Math.cos(a) * v * sx, vy: Math.sin(a) * v * sy - 1, born: now, life: 550 + Math.random() * 400, r: 0.12 + Math.random() * 0.16, color: colors[i % colors.length] });
   }
-  rings.push({ x, y, color: 'rgba(200, 200, 200, 0.8)', start: now, ms: 500, r0: 0.6, r1: 1.7, width: 0.1 });
+  const s = Math.max(sx, sy);
+  rings.push({ x, y, color: 'rgba(200, 200, 200, 0.8)', start: now, ms: 500, r0: 0.6 * s, r1: 1.7 * s, width: 0.1 });
+}
+
+// A snake that got a kill winks, with a little sparkle by its head.
+function wink(snake, now) {
+  const a = animOf(snake.id, now);
+  a.winkStart = now;
+  a.winkSide = Math.random() < 0.5 ? -1 : 1;
+  sparkle(snake.segments[0], now);
 }
 
 function onState(msg) {
@@ -1117,6 +1136,7 @@ function onState(msg) {
       flights = [];
       rats = new Map();
       eatenRats = [];
+      badgerAnim = null;
       anims.clear();
     }
     for (const id of anims.keys()) if (!s.snakes.some((x) => x.id === id)) anims.delete(id);
@@ -1134,6 +1154,18 @@ function onState(msg) {
       if (!old) rats.set(r.id, { from: r, to: r, start: now, ms: 1, facing: r.dir === 'right' ? -1 : 1 });
       else if (old.to.x === r.x && old.to.y === r.y) rats.set(r.id, old);
       else rats.set(r.id, ratStep(old, r, s.gridSize, now, msg.tickMs * RAT_RULES.moveEveryTicks));
+    }
+    // Where the badger was drawn until now (for its burst or puff if it's gone).
+    const oldBadger = badgerAnim;
+    const badgerDrawnAt = oldBadger ? ratAt(oldBadger, now) : null;
+    const b = s.badger;
+    if (!b) badgerAnim = null;
+    else if (!oldBadger || oldBadger.id !== b.id) {
+      badgerAnim = { id: b.id, from: { x: b.x, y: b.y }, to: { x: b.x, y: b.y }, start: now, ms: 1, facing: b.dir === 'right' ? -1 : 1 };
+    } else if (oldBadger.to.x !== b.x || oldBadger.to.y !== b.y) {
+      const dx = b.x - oldBadger.to.x;
+      const facing = dx > 0 ? -1 : dx < 0 ? 1 : oldBadger.facing;
+      badgerAnim = { id: b.id, from: badgerDrawnAt, to: { x: b.x, y: b.y }, start: now, ms: Math.max(1, msg.tickMs * BADGER_RULES.moveEveryTicks), facing };
     }
     tickKey = key;
     tickAt = now;
@@ -1163,6 +1195,21 @@ function onState(msg) {
         }
       } else if (ev.type === 'bombExpired') {
         if (fx.deathParticles && ev.x !== undefined) fizzle(ev.x, ev.y, now);
+      } else if (ev.type === 'badgerGone') {
+        // Its lifetime ran out: it has faded, and goes in a puff the size of its block.
+        const at = badgerDrawnAt ?? ev;
+        if (fx.deathParticles) fizzle(at.x, at.y, now, BADGER_RULES.width / POWER_UP_RULES.bombSize, BADGER_RULES.height / POWER_UP_RULES.bombSize);
+      } else if (ev.type === 'badgerKilled') {
+        // Shot: a bomb's burst, the size of its block. The shooter winks.
+        const at = badgerDrawnAt ?? ev;
+        if (fx.deathParticles) explosion(at.x, at.y, now, BADGER_RULES.width, BADGER_RULES.height);
+        if (fx.screenShake) shakeStart = now;
+        const shooter = ev.byId && s.snakes.find((x) => x.id === ev.byId);
+        if (fx.snakeAnimations && shooter?.alive) wink(shooter, now);
+      } else if (ev.type === 'badgerBite') {
+        if (fx.screenShake) shakeStart = now;
+      } else if (ev.type === 'ratCaught') {
+        if (fx.deathParticles) sparks(ev.x, ev.y, now, 14, ['#bdbdbd', '#9e9e9e', '#ff5252']);
       } else if (ev.type === 'projectileEnd') {
         if (fx.deathParticles) sparks(ev.x, ev.y, now, ev.hit ? 22 : 10, ['#fffde7', '#ffe082', '#ffb74d']);
         if (ev.hit && fx.screenShake) shakeStart = now;
@@ -1178,12 +1225,7 @@ function onState(msg) {
         if (fx.deathParticles && snake) burst(snake, now);
         // The killer winks, with a little sparkle by its head.
         const killer = ev.killerId && s.snakes.find((x) => x.id === ev.killerId);
-        if (fx.snakeAnimations && killer?.alive) {
-          const a = animOf(killer.id, now);
-          a.winkStart = now;
-          a.winkSide = Math.random() < 0.5 ? -1 : 1;
-          sparkle(killer.segments[0], now);
-        }
+        if (fx.snakeAnimations && killer?.alive) wink(killer, now);
       } else if (ev.type === 'headOn') {
         if (fx.screenShake) shakeStart = now;
       }
@@ -1215,6 +1257,7 @@ function drawBoard(msg, now, dt) {
   const items = boardItems(state, now);
   drawItems(items, cell, now);
   drawRats(cell, n, now, msg.effects);
+  drawBadger(state.badger, cell, now);
 
   // What the snake faces react to: food (not bombs) as drawn right now, and
   // the other heads where they were last drawn.
@@ -1284,6 +1327,12 @@ function drawRat(x, y, facing, cell, n, id) {
     for (const ay of ys) {
       ctx.save();
       ctx.translate((ax + 0.5) * cell, (ay + 0.5) * cell);
+      // A soft green glow: food (where the badger's red means danger).
+      const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, cell * 0.8);
+      glow.addColorStop(0, 'rgba(110, 255, 140, 0.42)');
+      glow.addColorStop(1, 'rgba(110, 255, 140, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(-cell * 0.8, -cell * 0.8, cell * 1.6, cell * 1.6);
       if (img) {
         ctx.scale(facing, 1);
         ctx.drawImage(img, -px / 2, -px / 2, px, px);
@@ -1310,6 +1359,73 @@ function drawRats(cell, n, now, fx) {
     drawRat(at.x, at.y, r.facing, cell, n, r.id);
     return true;
   });
+}
+
+// ---- the honey badger ----
+// One big 🦡 over its whole block, never rotated, mirrored when heading
+// right (the emoji faces left). Red means danger: during its warning the
+// block gets a dashed, pulsing red outline with ⚠️ in the middle; once
+// active, a glowing red outline pulses round it, and it fades out over its
+// last second.
+const BADGER_ART_TOP = 0.68; // where the badger's middle is in the emoji's square, from the top (it sits low)
+
+function blockPath(x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+  else ctx.rect(x, y, w, h);
+}
+
+function drawBadger(b, cell, now) {
+  if (!b || !badgerAnim) return;
+  const at = ratAt(badgerAnim, now);
+  const w = b.width * cell;
+  const h = b.height * cell;
+  const cx = (at.x + 0.5) * cell;
+  const cy = (at.y + 0.5) * cell;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 150);
+  const pad = cell * 0.08;
+  ctx.save();
+  if (b.warningMs > 0) {
+    ctx.globalAlpha = 0.45 + 0.55 * pulse;
+    blockPath(cx - w / 2 + pad, cy - h / 2 + pad, w - 2 * pad, h - 2 * pad, cell * 0.3);
+    ctx.fillStyle = 'rgba(255, 40, 40, 0.14)';
+    ctx.fill();
+    ctx.setLineDash([cell * 0.4, cell * 0.22]);
+    ctx.lineDashOffset = -now / 40; // the dashes crawl round
+    ctx.lineWidth = Math.max(2, cell * 0.13);
+    ctx.strokeStyle = '#ff2b2b';
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const px = Math.max(1, Math.round(h * 0.62));
+    const img = sprite('warning', px);
+    const size = px * (1 + 0.1 * pulse);
+    ctx.globalAlpha = 1;
+    if (img) ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+    ctx.restore();
+    return;
+  }
+  ctx.globalAlpha = clamp(remainingNow(b.remainingMs, now) / BADGER_RULES.fadeMs, 0, 1);
+  // The danger outline: a red glow and a pulsing red line just outside the block.
+  blockPath(cx - w / 2 - pad, cy - h / 2 - pad, w + 2 * pad, h + 2 * pad, cell * 0.35);
+  ctx.fillStyle = `rgba(255, 30, 30, ${0.1 + 0.08 * pulse})`;
+  ctx.fill();
+  ctx.shadowColor = 'rgba(255, 30, 30, 0.95)';
+  ctx.shadowBlur = cell * (0.35 + 0.45 * pulse);
+  ctx.lineWidth = Math.max(2, cell * (0.1 + 0.06 * pulse));
+  ctx.strokeStyle = `rgb(255, ${Math.round(40 + 70 * pulse)}, ${Math.round(40 + 30 * pulse)})`;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  const px = Math.max(1, Math.round(w * 0.98));
+  const img = sprite('badger', px);
+  ctx.translate(cx, cy);
+  if (img) {
+    ctx.scale(badgerAnim.facing, 1);
+    ctx.drawImage(img, -px / 2, -px * BADGER_ART_TOP, px, px);
+  } else {
+    ctx.fillStyle = '#5d4037';
+    ctx.fillRect(-w / 2 + pad, -h / 2 + pad, w - 2 * pad, h - 2 * pad);
+  }
+  ctx.restore();
 }
 
 // Magnet: each pulled apple flies from where it was into the (moving) mouth,
