@@ -100,10 +100,14 @@ function showLost(title, detail = '') {
   $('rejoin').disabled = false;
 }
 
-function showGame() {
+function applyColor() {
   const game = $('screen-game');
   game.style.setProperty('--player', playerColor(me.colorIndex));
   game.style.setProperty('--on-player', contrastText(me.colorIndex));
+}
+
+function showGame() {
+  applyColor();
   $('player-name').textContent = me.name; // textContent: names are user input
   setStatus(false);
   show('screen-game');
@@ -220,6 +224,11 @@ function onMe(msg) {
     lastDir = p.dir;
   }
   status = p.status;
+  // Colors can change between rounds (people get the first ones over bots).
+  if (Number.isInteger(p.colorIndex) && p.colorIndex !== me.colorIndex) {
+    me.colorIndex = p.colorIndex;
+    applyColor();
+  }
   setStatus(msg.paused);
 }
 

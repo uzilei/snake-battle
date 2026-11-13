@@ -1725,7 +1725,8 @@ const KILL_ICON = '/twemoji/1f3af.svg'; // 🎯: kills, in the scoreboard
 function updateLeaderboard(state, hats) {
   $('lb-round').textContent = state.round > 0 ? fmt(T.round, { n: state.round }) : '';
   const players = [...state.players].sort(
-    (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.length - a.length || a.name.localeCompare(b.name),
+    (a, b) =>
+      STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.length - a.length || Number(a.bot) - Number(b.bot) || a.name.localeCompare(b.name),
   );
   const list = $('lb-list');
   list.replaceChildren(

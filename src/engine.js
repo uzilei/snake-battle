@@ -469,9 +469,10 @@ export function createEngine({ config, random = Math.random } = {}) {
     participants = 0;
     const occupied = new Set();
     const others = []; // cells of the snakes spawned so far
-    // People first: on a crowded board it's a bot that waits for a turn.
-    const order = [...players.values()].sort((a, b) => Number(a.bot) - Number(b.bot));
-    for (const p of order) {
+    recolor();
+    // People first (see addPlayer): on a crowded board it's a bot that
+    // waits for a turn.
+    for (const p of players.values()) {
       p.kills = 0;
       if (!spawnInto(p, occupied, others)) {
         p.snake = null;
@@ -1568,7 +1569,8 @@ export function createEngine({ config, random = Math.random } = {}) {
 
   // ---- public API ---------------------------------------------------------
 
-  // A bot ({ bot: true }) neither counts toward nor is held back by maxPlayers.
+  // A bot ({ bot: true }) neither counts toward nor is held back by
+  // maxPlayers. Its color may be reassigned when a round starts (recolor).
   function addPlayer(id, name, { bot = false } = {}) {
     if (players.has(id)) return { ok: false, reason: 'duplicate' };
     const people = [...players.values()].filter((p) => !p.bot).length;
@@ -1578,9 +1580,35 @@ export function createEngine({ config, random = Math.random } = {}) {
     while (used.has(colorIndex)) colorIndex++;
     const p = { id, name: String(name), colorIndex, status: 'queued', snake: null, kills: 0, bot: Boolean(bot) };
     players.set(id, p);
+    if (!bot) {
+      // People come before bots in the player list (spawning, scoreboard ties, /admin).
+      const order = [...players.values()].sort((a, b) => Number(a.bot) - Number(b.bot));
+      players.clear();
+      for (const q of order) players.set(q.id, q);
+    }
     // The round hasn't really started during the countdown: join it now.
     if (phase === PHASES.COUNTDOWN) spawnInto(p, occupiedCells(), snakeCells());
     return { ok: true, colorIndex };
+  }
+
+  // With bots around, people get the first colors: anyone above them (who
+  // joined after the bots) moves down into a free one, the rest keep
+  // theirs; the bots take the colors after. Run as each round starts.
+  function recolor() {
+    const all = [...players.values()];
+    const people = all.filter((p) => !p.bot);
+    const bots = all.filter((p) => p.bot);
+    if (!bots.length) return;
+    const k = people.length;
+    const used = new Set(people.filter((p) => p.colorIndex < k).map((p) => p.colorIndex));
+    let next = 0;
+    for (const p of people) {
+      if (p.colorIndex < k) continue;
+      while (used.has(next)) next++;
+      p.colorIndex = next;
+      used.add(next);
+    }
+    bots.forEach((p, i) => (p.colorIndex = k + i));
   }
 
   function removePlayer(id) {

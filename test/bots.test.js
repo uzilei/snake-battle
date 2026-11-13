@@ -59,7 +59,28 @@ describe('engine: bot players', () => {
     assert.deepEqual(e.addPlayer('c', 'C'), { ok: false, reason: 'full' });
     assert.equal(e.addPlayer('b2', 'Bot 2', { bot: true }).ok, true);
     const players = e.getState().players;
-    assert.deepEqual(players.map((p) => [p.id, p.bot]), [['b1', true], ['a', false], ['b', false], ['b2', true]]);
+    // People first in the list, whenever they joined.
+    assert.deepEqual(players.map((p) => [p.id, p.bot]), [['a', false], ['b', false], ['b1', true], ['b2', true]]);
+  });
+
+  test('at each round start people take the first colors; those already below keep theirs', () => {
+    const e = createEngine({ config: { appleCount: 0 } });
+    e.addPlayer('a', 'A'); // 0
+    e.addPlayer('b1', 'Bot 1', { bot: true }); // 1
+    e.addPlayer('b2', 'Bot 2', { bot: true }); // 2
+    e.addPlayer('c', 'C'); // 3
+    e.addPlayer('d', 'D'); // 4
+    e.tick();
+    const colors = Object.fromEntries(e.getState().players.map((p) => [p.id, p.colorIndex]));
+    assert.deepEqual(colors, { a: 0, c: 1, d: 2, b1: 3, b2: 4 });
+    // Without bots nothing moves: a gap stays a gap.
+    const plain = createEngine({ config: { appleCount: 0 } });
+    plain.addPlayer('a', 'A');
+    plain.addPlayer('b', 'B');
+    plain.addPlayer('c', 'C');
+    plain.removePlayer('a');
+    plain.tick();
+    assert.deepEqual(plain.getState().players.map((p) => p.colorIndex), [1, 2]);
   });
 
   test('setDirection with replace drops the queued turns first', () => {
@@ -503,7 +524,7 @@ describe('server: bots', () => {
     assert.deepEqual(botsOf(game).map((p) => p.name), ['Bot 1']);
   });
 
-  test('a person joining 24 snakes mid-round: a bot leaves at once and they take its color', () => {
+  test('a person joining 24 snakes mid-round: the lowest-numbered bot leaves at once and they take its color', () => {
     const { game } = newGame({ bots: 24 });
     game.tickOnce();
     assert.equal(game.engine.getState().phase, 'playing');
@@ -511,19 +532,58 @@ describe('server: bots', () => {
     const anna = phone(game, 'Anna');
     const players = game.engine.getState().players;
     assert.equal(botsOf(game).length, 23);
-    assert.ok(!players.some((p) => p.name === 'Bot 24'), 'the highest number leaves');
+    assert.ok(!players.some((p) => p.name === 'Bot 1'), 'the lowest number leaves');
     const colors = players.map((p) => p.colorIndex);
     assert.equal(new Set(colors).size, colors.length, 'a color twice');
     assert.ok(colors.every((c) => c < 24), JSON.stringify(colors));
-    assert.equal(anna.last('joined').colorIndex, 23);
-    // A second person: another bot goes. The next round keeps it that way.
+    assert.equal(anna.last('joined').colorIndex, 0); // Bot 1's
+    assert.equal(players[0].name, 'Anna'); // first in the list
+    // A second person: Bot 2 goes.
     phone(game, 'Luca');
     assert.equal(botsOf(game).length, 22);
-    for (let i = 0; i < 400 && game.engine.getState().round === 1; i++) game.tickOnce();
+    assert.ok(!game.engine.getState().players.some((p) => p.name === 'Bot 2'));
+    // Next round (it ends at once: only bots alive, people waiting): the
+    // bots are renumbered 1-22 after the people, colors 2-23.
+    for (let i = 0; i < 10 && game.engine.getState().round === 1; i++) game.tickOnce();
+    const next = game.engine.getState();
+    assert.equal(next.round, 2);
+    assert.deepEqual(next.players.slice(0, 2).map((p) => [p.name, p.colorIndex]), [['Anna', 0], ['Luca', 1]]);
+    assert.deepEqual(botsOf(game).map((p) => p.name), Array.from({ length: 22 }, (_, i) => `Bot ${i + 1}`));
+    assert.deepEqual(botsOf(game).map((p) => p.colorIndex), Array.from({ length: 22 }, (_, i) => i + 2));
+  });
+
+  test('every round the bots are refreshed: renumbered, new ids, hats picked again', () => {
+    const { game, admin } = newGame({ bots: 6 });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
     game.tickOnce();
-    assert.equal(botsOf(game).length, 22);
-    const all = game.engine.getState().players.map((p) => p.colorIndex);
-    assert.equal(new Set(all).size, all.length);
+    const first = botsOf(game).map((p) => p.id);
+    const hatsOf = (ids) => ids.map((id) => display.last('state').hats?.[id] ?? null);
+    const firstHats = hatsOf(first);
+    admin.send({ t: 'kick', id: first[0] }); // a gap: Bot 1 gone
+    const pickedAgain = [];
+    for (let r = 0; r < 4; r++) {
+      admin.send({ t: 'restart' }); // the same settings
+      const ids = botsOf(game).map((p) => p.id);
+      assert.deepEqual(botsOf(game).map((p) => p.name), ['Bot 1', 'Bot 2', 'Bot 3', 'Bot 4', 'Bot 5', 'Bot 6']);
+      assert.ok(ids.every((id) => !first.includes(id)), 'the same bots stayed');
+      game.tickOnce();
+      pickedAgain.push(JSON.stringify(hatsOf(ids)));
+    }
+    assert.ok(pickedAgain.some((h) => h !== JSON.stringify(firstHats)), 'hats never changed');
+  });
+
+  test('people get the first colors: someone who joined after the bots moves down at the next round', () => {
+    const { game } = newGame({ bots: 3 });
+    game.tickOnce(); // Bot 1-3: colors 0-2
+    const anna = phone(game, 'Anna');
+    assert.equal(anna.last('joined').colorIndex, 3); // the free one, for now
+    for (let i = 0; i < 10 && game.engine.getState().round === 1; i++) game.tickOnce();
+    const s = game.engine.getState();
+    assert.equal(s.round, 2);
+    assert.deepEqual(s.players.map((p) => [p.name, p.colorIndex]), [['Anna', 0], ['Bot 1', 1], ['Bot 2', 2], ['Bot 3', 3]]);
+    // Her phone hears about it.
+    assert.equal(anna.last('me').players.self.colorIndex, 0);
   });
 
   test('below 24, or when the person is turned away, no bot leaves mid-round', () => {

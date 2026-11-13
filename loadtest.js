@@ -496,7 +496,7 @@ const EXPECTED_LOG = [
   /^\[ws\] Max payload size exceeded$/, // the oversized messages
   /^\[auth\] admin login from /,
   /^\[admin\] config /,
-  /^\[bots\] b\d+ (joined as Bot \d+|left)$/,
+  /^\[bots\] (\d+ this round|b\d+ left to make room)$/,
   /^\[words\] created banned-words\.json from the starter list$/,
 ];
 

@@ -340,6 +340,8 @@ export function createGame({
 
   // `now`: whatever the phase (right before a restart, which respawns
   // everyone; a bot added mid-round would only be queued).
+  // Every round the bots are refreshed: they all leave and the right number
+  // join again as Bot 1, Bot 2..., each with a newly picked hat.
   function syncBots({ now = false } = {}) {
     const state = engine.getState();
     // During the intermission only on its last tick, so the winner (maybe a
@@ -348,12 +350,9 @@ export function createGame({
     if (!now && state.phase !== PHASES.WAITING && !lastBreak) return;
     const people = state.players.filter((p) => !p.bot).length;
     const target = botTarget(settings, people);
-    while (bots.size > target) removeBot();
-    // Join: each with the lowest free number.
-    while (bots.size < target) {
-      const used = new Set(bots.values());
-      let n = 1;
-      while (used.has(n)) n++;
+    if (!target && !bots.size) return;
+    for (const id of [...bots.keys()]) removeOwnedPlayer(id);
+    for (let n = 1; n <= target; n++) {
       const id = `b${nextBotId++}`;
       const name = botName(n);
       if (!engine.addPlayer(id, name, { bot: true }).ok) break;
@@ -362,15 +361,15 @@ export function createGame({
       const choices = [null, ...HAT_IDS];
       const hat = choices[Math.floor(random() * choices.length)];
       owners.set(id, { client: null, slot: null, source: 'bot', session: null, hat });
-      log(`[bots] ${id} joined as ${name}`);
     }
+    log(`[bots] ${bots.size} this round`);
   }
 
-  // The highest-numbered bot leaves.
+  // The lowest-numbered bot leaves (the next round renumbers them).
   function removeBot() {
-    const [id] = [...bots].sort((a, b) => b[1] - a[1])[0];
+    const [id] = [...bots].sort((a, b) => a[1] - b[1])[0];
     removeOwnedPlayer(id);
-    log(`[bots] ${id} left`);
+    log(`[bots] ${id} left to make room`);
   }
 
   // A person joining a board that already has 24 snakes: a bot leaves at

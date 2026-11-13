@@ -143,7 +143,7 @@ export const STRINGS = Object.freeze({
     maxPlayers: 'Giocatori massimi (i bot 🤖 non contano)',
     botsTitle: 'Bot 🤖',
     botsHint:
-      'Serpenti guidati dal computer, per non lasciare lo schermo vuoto. Entrano ed escono solo tra un round e l’altro. Non finiscono mai nella classifica globale. Bot e giocatori insieme non superano 24: se si unisce qualcuno quando sono già 24, un bot esce subito per fargli posto.',
+      'Serpenti guidati dal computer, per non lasciare lo schermo vuoto. A ogni round vengono rinnovati (nomi e cappelli nuovi); i giocatori hanno sempre i primi colori. Non finiscono mai nella classifica globale. Bot e giocatori insieme non superano 24: se si unisce qualcuno quando sono già 24, un bot esce subito per fargli posto.',
     bots: 'Numero di bot (0 = nessuno)',
     botFill:
       'Riempi: i bot completano i posti fino al numero scelto e lasciano il posto a chi si unisce (es. 4: con 1 telefono 3 bot, con 4 o più nessuno)',
