@@ -152,6 +152,8 @@ h1 { margin: 0 0 3vh; font-size: 6vh; font-weight: 900; letter-spacing: 0.02em; 
 #lb-list.two-col .kills { font-size: 2.1vh; }
 #lb-list.two-col .swatch { width: 2.2vh; height: 2.2vh; }
 #lb-list.two-col .hat { display: none; } /* no room for it there */
+#lb-list .kills { display: inline-flex; align-items: center; gap: 0.25em; }
+#lb-list .kill-icon { width: 1.1em; height: 1.1em; }
 #lb-list.two-col .length { font-size: 3.8vh; }
 #lb-list.two-col .status { display: none; }
 #lb-list.tight { gap: 0.6vh 1.2vh; }

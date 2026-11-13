@@ -24,8 +24,9 @@ export const STRINGS = Object.freeze({
     keyboardWasd: 'Tastiera WASD',
     keyboardArrows: 'Tastiera Frecce',
     keyboardHint: 'Premi WASD o le frecce per giocare dalla tastiera',
-    // kills of the current round, next to the length in the scoreboard
-    killsShort: '{n} elim.',
+    // Kills of the current round, next to the length in the scoreboard: a
+    // 🎯 and the number; this is the 🎯's description (tooltip, screen readers).
+    killsIcon: 'Eliminazioni',
     // time limit and target length (top of the side column)
     timeLeft: 'Tempo {t}',
     target: 'Obiettivo: lunghezza {n}',

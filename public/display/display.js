@@ -1721,6 +1721,7 @@ function updateOverlay(msg) {
 const STATUS_ORDER = { alive: 0, dead: 1, queued: 2 };
 
 // hats: playerId -> hat id (null when the hats toggle is off).
+const KILL_ICON = '/twemoji/1f3af.svg'; // 🎯: kills, in the scoreboard
 function updateLeaderboard(state, hats) {
   $('lb-round').textContent = state.round > 0 ? fmt(T.round, { n: state.round }) : '';
   const players = [...state.players].sort(
@@ -1758,7 +1759,14 @@ function updateLeaderboard(state, hats) {
       name.append(status);
       const kills = document.createElement('span');
       kills.className = 'kills';
-      kills.textContent = p.status === 'queued' ? '' : fmt(T.killsShort, { n: p.kills ?? 0 });
+      if (p.status !== 'queued') {
+        const icon = document.createElement('img');
+        icon.className = 'kill-icon';
+        icon.src = KILL_ICON;
+        icon.alt = '🎯';
+        icon.title = T.killsIcon;
+        kills.append(icon, String(p.kills ?? 0));
+      }
       const length = document.createElement('span');
       length.className = 'length';
       length.textContent = p.status === 'queued' ? '–' : String(p.length);
