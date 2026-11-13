@@ -836,7 +836,7 @@ function drawFace(hx, hy, pose, look, headR, cell) {
   // the head, rimmed in the body color and dark inside. Its flat edge (the
   // upper jaw) sits across the head, and the fangs hang from it.
   if (m > 0) {
-    const x0 = headR * 0.38; // the flat edge, just in front of the eyes
+    const x0 = headR * 0.52; // the flat edge, a little in front of the eyes
     const r = headR * 0.95 * m;
     const rim = Math.max(1, headR * 0.16);
     const half = (radius) => {
@@ -869,7 +869,7 @@ function drawFace(hx, hy, pose, look, headR, cell) {
     ctx.save();
     ctx.globalAlpha *= 1 - m * 4;
     ctx.fillStyle = look.dark;
-    for (const k of [-1, 1]) disc(headR * 0.66, k * headR * 0.2, Math.max(0.8, headR * 0.075));
+    for (const k of [-1, 1]) disc(headR * 0.66, k * headR * 0.27, Math.max(0.8, headR * 0.075));
     ctx.restore();
   }
 
@@ -914,7 +914,7 @@ function drawFace(hx, hy, pose, look, headR, cell) {
         ctx.restore();
       }
     }
-    ctx.lineWidth = Math.max(1, cell * 0.03);
+    ctx.lineWidth = Math.max(1, cell * 0.06);
     ctx.strokeStyle = look.dark;
     ctx.beginPath();
     ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
