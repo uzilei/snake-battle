@@ -25,7 +25,7 @@ The first start creates `config.json` with a random admin password, which is pri
 - `wifi` is used for the wifi QR code. Leave `password` empty for an open network.
 - `gameUrl` is optional. If it is empty, the /play URL is built from the laptop's LAN IP, which is detected automatically.
 
-Player names are checked against `banned-words.json`. It is created from the starter list in `src/server/banned-words.default.json` on the first start, and can be edited live from /admin. If the file is ever empty or unreadable, it is renamed to `banned-words.json.bad` and the starter list is used again, so the filter is never silently off.
+Names are cleaned the same way on /play and on the server (`src/shared/names.js`): control characters and characters that draw nothing (Hangul fillers, the blank Braille pattern, zero-width and typographic spaces and the like) are removed, whitespace is collapsed and the name is capped at 16 characters. A name with no letter, number, symbol or punctuation left is rejected as empty. Player names are checked against `banned-words.json`. It is created from the starter list in `src/server/banned-words.default.json` on the first start, and can be edited live from /admin. If the file is ever empty or unreadable, it is renamed to `banned-words.json.bad` and the starter list is used again, so the filter is never silently off.
 
 Swipes are queued (up to 3) and one turn is applied per tick. A queued turn that would put the head straight into the snake's own body (not counting a tail that moves away) is skipped and the snake goes straight on, so one swipe too many isn't suicide; going straight into your own body still kills. Other snakes and walls get no such protection.
 

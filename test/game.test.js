@@ -73,6 +73,39 @@ describe('game controller', () => {
     assert.equal(game.engine.getState().players.length, 0);
   });
 
+  // Characters that draw nothing: alone, mixed with spaces, or around a real
+  // name (where they are simply removed).
+  const BLANK_CHARS = ['\u115F', '\u1160', '\u3164', '\uFFA0', '\u2800', '\u180E', '\u202F', '\u205F', '\u3000', '\uFEFF'];
+  for (let c = 0x2000; c <= 0x200f; c++) BLANK_CHARS.push(String.fromCodePoint(c));
+
+  test('names made only of blank-looking characters are empty', () => {
+    for (const ch of BLANK_CHARS) {
+      const hex = ch.codePointAt(0).toString(16);
+      for (const raw of [ch, ch.repeat(5), ` ${ch} `, `${ch} ${ch}\t${ch}`, `  ${ch}${ch}  `]) {
+        assert.equal(sanitizeName(raw), '', `U+${hex} in ${JSON.stringify(raw)}`);
+      }
+      assert.equal(sanitizeName(`${ch}Ada${ch}`), 'Ada', `U+${hex} around a name`);
+    }
+    assert.equal(sanitizeName(BLANK_CHARS.join(' ')), '');
+  });
+
+  test('a name needs a letter, number, symbol or punctuation mark', () => {
+    assert.equal(sanitizeName('\u0301\u0301'), ''); // combining accents only
+    for (const ok of ['Ada', '7', '★', '!', '😀', 'é', '李']) assert.equal(sanitizeName(ok), ok);
+    assert.equal(sanitizeName('\u3164 Bo'), 'Bo');
+  });
+
+  test('a blank name is rejected on join with nameEmpty, for every blank character', () => {
+    const game = createGame({ log: quiet });
+    for (const ch of BLANK_CHARS) {
+      const c = fakeClient(game);
+      c.send({ t: 'hello', role: 'player' });
+      c.send({ t: 'join', name: ` ${ch}${ch} ` });
+      assert.equal(c.last('error')?.code, 'nameEmpty', `U+${ch.codePointAt(0).toString(16)}`);
+    }
+    assert.equal(game.engine.getState().players.length, 0);
+  });
+
   test('keyboard players need the admin toggle and a display role', () => {
     const game = createGame({ log: quiet });
     const display = fakeClient(game);

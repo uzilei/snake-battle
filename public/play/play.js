@@ -6,6 +6,7 @@ import { STRINGS } from '/shared/strings.js';
 import { playerColor, contrastText } from '/shared/colors.js';
 import { MAX_NAME_LENGTH } from '/shared/limits.js';
 import { HATS, validHat } from '/shared/hats.js';
+import { cleanName } from '/shared/names.js';
 
 const P = STRINGS.play;
 const E = STRINGS.errors;
@@ -253,7 +254,7 @@ markHat();
 // ---- name form ----------------------------------------------------------------------
 $('name-form').addEventListener('submit', (e) => {
   e.preventDefault();
-  const value = $('name-input').value.replace(/\s+/g, ' ').trim();
+  const value = cleanName($('name-input').value); // the server's own rules
   if (!value) {
     $('name-error').textContent = E.nameEmpty;
     return;

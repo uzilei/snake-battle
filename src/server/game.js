@@ -13,6 +13,7 @@ import { createRecords, RECORD_STATS } from './records.js';
 import { SETTINGS_VERSION } from './settings-store.js';
 import { FRUIT_CODES } from '../shared/fruits.js';
 import { validHat } from '../shared/hats.js';
+import { cleanName } from '../shared/names.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
 // (most wins, most kills, highest score), shown only when it is enabled.
@@ -31,15 +32,10 @@ export { MAX_NAME_LENGTH, nameKey };
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const MAX_MESSAGES_PER_SECOND = 40;
 
-// Strips control/format characters and extra whitespace; caps the length.
-export function sanitizeName(raw) {
-  if (typeof raw !== 'string') return '';
-  const cleaned = raw
-    .replace(/[\p{C}]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return [...cleaned].slice(0, MAX_NAME_LENGTH).join('').trim();
-}
+// Strips control/format characters, blank-looking characters and extra
+// whitespace and caps the length; '' (rejected as empty) when nothing
+// visible is left. The same function runs on /play before joining.
+export const sanitizeName = cleanName;
 
 // Which side column panel /display shows. The records panel only exists when
 // the global leaderboard is enabled; it replaces the scoreboard
