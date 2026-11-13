@@ -147,7 +147,7 @@ export const STRINGS = Object.freeze({
     bots: 'Numero di bot (0 = nessuno)',
     botFill:
       'Riempi: i bot completano i posti fino al numero scelto e lasciano il posto a chi si unisce (es. 4: con 1 telefono 3 bot, con 4 o più nessuno)',
-    botSkill: 'Abilità dei bot (1 = fanno errori, 3 = mai)',
+    botSkill: 'Abilità dei bot (1 = lenti e fanno errori, 3 = pronti e mai errori)',
     gridSize: 'Dimensione griglia (dal prossimo round)',
     intermissionMs: 'Pausa tra i round (ms)',
     countdownMs: 'Conto alla rovescia prima del round (ms, 0 = disattivato)',

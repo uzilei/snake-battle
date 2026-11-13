@@ -67,7 +67,8 @@ export function createBotBrain({ random = Math.random, onError = () => {} } = {}
    * @param {object} [opts]
    * @param {number} [opts.skill] 1-3
    * @param {'cut'|'kill'} [opts.bombMode]
-   * @returns {Map<string, string>} id -> direction, for bots that move this tick
+   * @returns {Map<string, string>} id -> direction, for bots that move this tick and
+   *   decide (or react) now; the others keep going
    */
   function think(state, ids, { skill = 2, bombMode = 'cut' } = {}) {
     nodesUsed = 0;

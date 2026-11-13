@@ -345,11 +345,14 @@ function drawItems(items, cell, now) {
 // Both ends drawn as swirling rings in a hue of their own, joined by a faint
 // dashed line so the pair reads as one; they fade out during their last
 // seconds. A closing pair (run out, a snake still on its way through) is
-// drawn dim and still until it goes.
-function drawPortals(portals, cell, now) {
+// drawn dim and still until it goes; one a snake is in fades only to that
+// dim level, so closing doesn't flash it back in.
+const PORTAL_CLOSING_ALPHA = 0.35;
+function drawPortals(portals, cell, now, state) {
   for (const p of portals) {
     const left = remainingNow(p.remainingMs, now);
-    const alpha = p.closing ? 0.35 : Math.min(1, left / POWER_UP_RULES.portalFadeMs);
+    const fade = Math.min(1, left / POWER_UP_RULES.portalFadeMs);
+    const alpha = p.closing ? PORTAL_CLOSING_ALPHA : spansPortal(p, state) ? Math.max(fade, PORTAL_CLOSING_ALPHA) : fade;
     if (alpha <= 0) continue;
     const hue = (p.id * 137.5) % 360;
     const color = (a) => `hsla(${hue}, 90%, 65%, ${a})`;
@@ -382,6 +385,31 @@ function drawPortals(portals, cell, now) {
     }
     ctx.restore();
   }
+}
+
+// Whether a snake is split across the pair: a segment on one end, the next
+// one beside the other end (as the engine decides when to close it).
+function spansPortal(p, state) {
+  const n = state.gridSize;
+  const wrap = state.rules?.wrapWalls;
+  const near = (a, b) => {
+    let dx = Math.abs(a.x - b.x);
+    let dy = Math.abs(a.y - b.y);
+    if (wrap) {
+      dx = Math.min(dx, n - dx);
+      dy = Math.min(dy, n - dy);
+    }
+    return dx + dy === 1;
+  };
+  for (const s of state.snakes) {
+    if (!s.alive) continue;
+    const segs = s.segments;
+    for (let i = 0; i + 1 < segs.length; i++) {
+      const k = p.ends.findIndex((c) => c.x === segs[i].x && c.y === segs[i].y);
+      if (k !== -1 && !near(segs[i + 1], segs[i]) && near(segs[i + 1], p.ends[1 - k])) return true;
+    }
+  }
+  return false;
 }
 
 // ---- projectiles ----
@@ -1339,7 +1367,7 @@ function drawBoard(msg, now, dt) {
     }
   }
   eaten = eaten.filter((e) => !e.done);
-  drawPortals(state.portals ?? [], cell, now);
+  drawPortals(state.portals ?? [], cell, now, state);
   const items = boardItems(state, now);
   drawItems(items, cell, now);
   const frozen = Boolean(state.creaturesFrozen);
