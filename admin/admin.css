@@ -76,6 +76,8 @@ body.login input { font: inherit; padding: 10px; border: 1px solid var(--border)
 .field select { font: inherit; padding: 6px; }
 .check { display: flex; gap: 8px; align-items: center; font-weight: 600; }
 /* Settings that belong to the checkbox above them; dimmed while it is off. */
+.fruit-grid { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.fruit-grid .check { font-size: 1.4rem; }
 .sub-settings { margin: 10px 0 12px 26px; transition: opacity 0.2s; }
 .sub-settings.off { opacity: 0.5; }
 .reset-buttons button { flex: 1 1 40%; }

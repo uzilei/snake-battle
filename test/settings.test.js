@@ -8,6 +8,7 @@ import { loadSettings } from '../src/server/settings-store.js';
 import { loadRecords } from '../src/server/records.js';
 import { loadWordList } from '../src/server/profanity.js';
 import { createDefaultConfig } from '../src/engine.js';
+import { FRUIT_CODES } from '../src/shared/fruits.js';
 
 const quiet = () => {};
 const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'snake-settings-')), 'settings.json');
@@ -25,11 +26,11 @@ function gameOn(file, log = quiet) {
 
 const CHANGES = {
   config: { tickMs: 120, gridSize: 40, appleCount: 7, wrapWalls: true, corpseApples: true, timeLimitWin: true, roundTimeLimitSec: 90, timeLimitWinner: 'kills', targetLengthWin: true, targetLength: 25, powerUps: true, powerUpChance: 60, bombsPerMinute: 9, ratChance: 40, weightGolden: 0, weightGun: 7, weightShield: 10 },
-  settings: { sidePanel: 'records', keyboardPlayers: true, leaderboard: true, leaderboardStat: 'kills', displayButtons: true, deathParticles: true, appleRings: true, screenShake: true, snakeAnimations: false },
+  settings: { sidePanel: 'records', keyboardPlayers: true, leaderboard: true, leaderboardStat: 'kills', displayButtons: true, deathParticles: true, appleRings: true, screenShake: true, snakeAnimations: false, fruits: ['1f34e'] },
 };
 
 // The non-config settings on a fresh start.
-const DEFAULT_SETTINGS = { sidePanel: 'auto', keyboardPlayers: false, leaderboard: false, leaderboardStat: 'auto', displayButtons: false, deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true };
+const DEFAULT_SETTINGS = { sidePanel: 'auto', keyboardPlayers: false, leaderboard: false, leaderboardStat: 'auto', displayButtons: false, deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true, fruits: [...FRUIT_CODES] };
 
 describe('reset all settings to defaults', () => {
   // A data folder like the real one: settings, records, banned words and the

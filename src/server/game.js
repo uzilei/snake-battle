@@ -11,6 +11,7 @@ import { MAX_NAME_LENGTH } from '../shared/limits.js';
 import { nameKey } from './names.js';
 import { createRecords, RECORD_STATS } from './records.js';
 import { SETTINGS_VERSION } from './settings-store.js';
+import { FRUIT_CODES } from '../shared/fruits.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
 // (most wins, most kills, highest score), shown only when it is enabled.
@@ -61,7 +62,16 @@ const SETTING_RULES = Object.freeze({
   leaderboardStat: (v) => LEADERBOARD_STATS.includes(v),
   displayButtons: isBoolean,
   ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, isBoolean])),
+  // The fruits apples may be drawn as: any subset of the list, no repeats.
+  fruits: (v) => Array.isArray(v) && v.length <= FRUIT_CODES.length && new Set(v).size === v.length && v.every((c) => FRUIT_CODES.includes(c)),
 });
+
+// Accepted values stored in a canonical form: fruits in list order, so the
+// saved file doesn't change with the order they were ticked in.
+const SETTING_NORMALIZE = Object.freeze({
+  fruits: (v) => FRUIT_CODES.filter((c) => v.includes(c)),
+});
+const normalized = (key, value) => (SETTING_NORMALIZE[key] ? SETTING_NORMALIZE[key](value) : value);
 
 // The known settings in `partial` (own keys only), or null if any is invalid.
 function validSettingsOrNull(partial) {
@@ -69,7 +79,7 @@ function validSettingsOrNull(partial) {
   for (const [key, ok] of Object.entries(SETTING_RULES)) {
     if (!Object.hasOwn(partial, key)) continue;
     if (!ok(partial[key])) return null;
-    out[key] = partial[key];
+    out[key] = normalized(key, partial[key]);
   }
   return out;
 }
@@ -79,7 +89,7 @@ function pickValidSettings(partial) {
   const out = {};
   if (!partial || typeof partial !== 'object') return out;
   for (const [key, ok] of Object.entries(SETTING_RULES)) {
-    if (Object.hasOwn(partial, key) && ok(partial[key])) out[key] = partial[key];
+    if (Object.hasOwn(partial, key) && ok(partial[key])) out[key] = normalized(key, partial[key]);
   }
   return out;
 }
@@ -120,6 +130,7 @@ const defaultSettings = () => ({
   leaderboardStat: 'auto', // applies immediately, like sidePanel
   displayButtons: false, // mouse cursor and side panel buttons on /display
   ...EFFECT_DEFAULTS,
+  fruits: [...FRUIT_CODES], // every fruit in use
 });
 
 export function createGame({
@@ -143,7 +154,7 @@ export function createGame({
     Object.assign(settings, valid);
     log(`[settings] restored ${Object.keys(accepted).length} config values and ${Object.keys(valid).length} settings`);
   }
-  const settingsSnapshot = () => ({ version: SETTINGS_VERSION, config: { ...config }, settings: { ...settings } });
+  const settingsSnapshot = () => ({ version: SETTINGS_VERSION, config: { ...config }, settings: structuredClone(settings) });
   let lastSaved = JSON.stringify(settingsSnapshot());
   // Saves only when something actually changed.
   function persistSettings() {
@@ -196,6 +207,7 @@ export function createGame({
       sideNav: sideNav(state),
       tickMs: config.tickMs, // for smooth movement between ticks
       effects: Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, settings[k]])),
+      fruits: settings.fruits, // codes new apples are drawn as (none: all 🍎)
       records: settings.leaderboard ? recordsView : null, // { wins, kills, score }: top 10 each
       leaderboardStat: settings.leaderboardStat,
       localPlayers: null, // filled per client
@@ -214,7 +226,7 @@ export function createGame({
       choices: CONFIG_CHOICES,
       rules: state.rules, // the rules of the round in progress
       win: state.win, // and the numbers behind its win conditions
-      settings: { ...settings },
+      settings: structuredClone(settings),
       recordCounts, // entries per stat, for the reset buttons
       players: state.players.map((p) => ({ ...p, source: owners.get(p.id)?.source ?? 'unknown' })),
       joinInfo,

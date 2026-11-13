@@ -6,6 +6,7 @@ import { playerColor } from '/shared/colors.js';
 import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt } from '/shared/snake-path.js';
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
 import { RAT_RULES } from '/shared/rats.js';
+import { FRUIT_CODES } from '/shared/fruits.js';
 
 const T = STRINGS.display;
 const $ = (id) => document.getElementById(id);
@@ -33,23 +34,26 @@ function loadImage(src) {
   entry.img.src = src;
   return entry;
 }
-// Plain apples are drawn as one of these fruits, picked at random for each
-// apple when it appears and kept until it's eaten. Purely visual: every one
-// is a normal apple. 🍏🍎🍐🍊🍋🍉🍇🍓🫐🍈🍒🍑🥭🍍🍅🥑
-const FRUITS = ['1f34f', '1f34e', '1f350', '1f34a', '1f34b', '1f349', '1f347', '1f353', '1fad0', '1f348', '1f352', '1f351', '1f96d', '1f34d', '1f345', '1f951'];
+// Plain apples are drawn as one of the fruits /admin has on (see
+// src/shared/fruits.js), picked at random for each apple when it appears and
+// kept until it's eaten. Purely visual: every one is a normal apple.
 const ITEM_IMAGES = {
   apple: loadImage('/twemoji/1f34e.svg'), // 🍎
-  ...Object.fromEntries(FRUITS.map((code) => [`fruit-${code}`, loadImage(`/twemoji/${code}.svg`)])),
+  ...Object.fromEntries(FRUIT_CODES.map((code) => [`fruit-${code}`, loadImage(`/twemoji/${code}.svg`)])),
   ...Object.fromEntries(POWER_UPS.map((p) => [p.type, loadImage(`/twemoji/${p.twemoji}.svg`)])),
   rat: loadImage(`/twemoji/${RAT_RULES.twemoji}.svg`),
   mouse: loadImage(`/twemoji/${RAT_RULES.mouseTwemoji}.svg`),
 };
-const randomFruit = () => `fruit-${FRUITS[Math.floor(Math.random() * FRUITS.length)]}`;
+// A random fruit out of the ones in use (only 🍎 when none is).
+function randomFruit(enabled) {
+  const list = Array.isArray(enabled) ? enabled.filter((c) => FRUIT_CODES.includes(c)) : FRUIT_CODES;
+  return list.length ? `fruit-${list[Math.floor(Math.random() * list.length)]}` : 'apple';
+}
 // The fruit of the plain apple at a cell (one that arrived in a repeated
 // tick message gets its random fruit here, the first time it's drawn).
 function fruitAt(a) {
   const k = `${a.x},${a.y}`;
-  if (!fruits.has(k)) fruits.set(k, randomFruit());
+  if (!fruits.has(k)) fruits.set(k, randomFruit(latest?.fruits));
   return fruits.get(k);
 }
 // 🐀 or 🐁, fixed per rat (a hash of its id, so it never changes mid-run).
@@ -1066,7 +1070,7 @@ function onState(msg) {
     fruits = new Map();
     for (const a of s.apples) {
       const k = `${a.x},${a.y}`;
-      fruits.set(k, oldFruits.get(k) ?? randomFruit());
+      fruits.set(k, oldFruits.get(k) ?? randomFruit(msg.fruits));
     }
     const oldRats = rats;
     rats = new Map();

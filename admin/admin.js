@@ -4,6 +4,7 @@
 import { STRINGS, fmt } from '/shared/strings.js';
 import { playerColor } from '/shared/colors.js';
 import { WEIGHTED_POWER_UPS, weightKey } from '/shared/powerups.js';
+import { FRUITS, FRUIT_CODES, APPLE_FRUIT } from '/shared/fruits.js';
 
 const A = STRINGS.admin;
 const $ = (id) => document.getElementById(id);
@@ -82,6 +83,28 @@ for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
     send(kind === 'config' ? { t: 'config', values: { [key]: value } } : { t: 'settings', [key]: value });
   });
 }
+// Fruits: one checkbox each, plus the "all" / "apple only" shortcuts. Every
+// change sends the whole list of ticked ones.
+$('h-fruits').textContent = A.fruitsTitle;
+$('fruits-hint').textContent = A.fruitsHint;
+$('fruits-all').textContent = A.fruitsAll;
+$('fruits-apple').textContent = A.fruitsAppleOnly;
+const fruitBoxes = new Map(); // code -> checkbox
+for (const f of FRUITS) {
+  const label = document.createElement('label');
+  label.className = 'check';
+  label.title = A.fruitNames[f.code] ?? f.code;
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.setAttribute('aria-label', label.title);
+  box.addEventListener('change', () => sendFruits(FRUIT_CODES.filter((c) => fruitBoxes.get(c).checked)));
+  label.append(box, document.createTextNode(f.emoji));
+  $('fruit-grid').append(label);
+  fruitBoxes.set(f.code, box);
+}
+const sendFruits = (fruits) => send({ t: 'settings', fruits });
+$('fruits-all').addEventListener('click', () => sendFruits([...FRUIT_CODES]));
+$('fruits-apple').addEventListener('click', () => sendFruits([APPLE_FRUIT]));
 $('h-players').textContent = A.players;
 $('c-name').textContent = A.colName;
 $('c-status').textContent = A.colStatus;
@@ -243,6 +266,8 @@ function update(msg) {
   for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
     $(`t-${key}`).checked = Boolean(kind === 'config' ? msg.config[key] : msg.settings[key]);
   }
+  const fruits = new Set(msg.settings.fruits ?? []);
+  for (const [code, box] of fruitBoxes) box.checked = fruits.has(code);
   const win = msg.win ?? {};
   const activeLabel = {
     timeLimitWin: () => `${A.timeLimitWin} (${win.timeLimitSec} s, ${A.timeLimitWinnerOptions[win.timeLimitWinner]})`,

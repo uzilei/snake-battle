@@ -5,6 +5,7 @@ import { createWordList } from '../src/server/profanity.js';
 import { createRecords } from '../src/server/records.js';
 import { wifiPayload, detectLanIp } from '../src/server/network.js';
 import { passwordMatches, parseCookies, createLoginLimiter, createSessionStore } from '../src/server/auth.js';
+import { FRUIT_CODES } from '../src/shared/fruits.js';
 
 function fakeClient(game, opts) {
   const sent = [];
@@ -714,5 +715,62 @@ describe('display effects toggles', () => {
     const { game, display } = setup();
     display.send({ t: 'settings', deathParticles: true });
     assert.equal(game.settings.deathParticles, false);
+  });
+});
+
+describe('fruit toggles', () => {
+  const setup = (savedSettings = null) => {
+    const saved = [];
+    const game = createGame({ log: quiet, savedSettings, saveSettings: (snap) => saved.push(snap) });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    const admin = fakeClient(game, { admin: true, isAuthorized: () => true });
+    return { game, display, admin, saved };
+  };
+
+  test('every fruit is on by default, and /display gets the list', () => {
+    const { game, display } = setup();
+    game.tickOnce();
+    assert.deepEqual(display.last('state').fruits, FRUIT_CODES);
+    assert.deepEqual(game.settings.fruits, FRUIT_CODES);
+  });
+
+  test('the admin picks any subset, kept in list order and saved', () => {
+    const { game, display, admin, saved } = setup();
+    admin.send({ t: 'settings', fruits: ['1f951', '1f34f'] });
+    assert.deepEqual(display.last('state').fruits, ['1f34f', '1f951']);
+    assert.deepEqual(saved.at(-1).settings.fruits, ['1f34f', '1f951']);
+    admin.send({ t: 'settings', fruits: [] }); // none: /display falls back to 🍎
+    assert.deepEqual(game.settings.fruits, []);
+    assert.deepEqual(saved.at(-1).settings.fruits, []);
+  });
+
+  test('unknown codes, repeats and non-lists are rejected as a whole', () => {
+    const { game, admin } = setup();
+    admin.send({ t: 'settings', fruits: ['1f34e'] });
+    for (const fruits of [['1f34e', 'nope'], ['1f34e', '1f34e'], '1f34e', null, [1], { 0: '1f34e' }, ['1f4a3']]) {
+      admin.send({ t: 'settings', fruits });
+      assert.equal(admin.last('error').code, 'badMessage', JSON.stringify(fruits));
+    }
+    assert.deepEqual(game.settings.fruits, ['1f34e']);
+  });
+
+  test('a saved list is restored; a bad one is ignored', () => {
+    assert.deepEqual(setup({ config: {}, settings: { fruits: ['1f353', '1f34e'] } }).game.settings.fruits, ['1f34e', '1f353']);
+    assert.deepEqual(setup({ config: {}, settings: { fruits: ['1f353', 'x'] } }).game.settings.fruits, FRUIT_CODES);
+    assert.deepEqual(setup({ config: {}, settings: { deathParticles: true } }).game.settings.fruits, FRUIT_CODES);
+  });
+
+  test('changing the admin message can not change the setting', () => {
+    const { game, admin } = setup();
+    admin.send({ t: 'settings', fruits: ['1f34e'] });
+    admin.last('admin').settings.fruits.push('1f34f');
+    assert.deepEqual(game.settings.fruits, ['1f34e']);
+  });
+
+  test('players can not change it', () => {
+    const { game, display } = setup();
+    display.send({ t: 'settings', fruits: [] });
+    assert.deepEqual(game.settings.fruits, FRUIT_CODES);
   });
 });
