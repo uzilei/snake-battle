@@ -850,8 +850,8 @@ function drawFace(hx, hy, pose, look, headR, cell) {
 // A hat on the head at (hx, hy) px: its top points back toward the tail
 // (upright when the snake goes down), turning with the face (same eased
 // angle), sized to the head.
-const HAT_SIZE = 1.7; // hat width, in head radii
-const HAT_BACK = 0.9; // how far behind the head's center the hat sits, in head radii (negative: toward the face)
+const HAT_SIZE = 2.5; // hat width, in head radii
+const HAT_BACK = 1.5; // how far behind the head's center the hat sits, in head radii (negative: toward the face)
 function drawHat(hx, hy, angle, hat, headR) {
   const px = Math.max(4, Math.round(headR * HAT_SIZE));
   const img = sprite(`hat-${hat}`, px);
