@@ -1074,33 +1074,65 @@ describe('portal', () => {
 });
 
 describe('magnet', () => {
-  test('pulls nearby apples and power-ups one cell a tick, never into snakes, items, portals or any bomb cell; not bombs', () => {
-    const e = setup({ a: [[[6, 6], [6, 7], [6, 8]], 'up'], ...far }, { appleCount: 5 });
+  const events = (e, type) => e.getState().events.filter((ev) => ev.type === type);
+
+  test('every fruit within 3 cells is eaten at once, over anything in the way; power-ups and bombs stay', () => {
+    const e = setup({ a: [[[6, 6], [6, 7], [6, 8]], 'up'], b: column(4, 2, 6), ...far }, { appleCount: 5, growthPerApple: 2 });
     e._debug.setEffect('a', 'magnet', 5000);
-    // After the move the head is at (6,5) and the body at (6,6), (6,7).
-    e._debug.setApples([[3, 5], [2, 5], [6, 2], [6, 4]]);
-    e._debug.addPowerUps([[7, 7, 'ghost']]);
-    e._debug.setBombs([[8, 5]]); // covers (7-9, 4-6)
-    e._debug.addPortal([6, 3], [15, 15]);
+    // After the move the head is at (6,5).
+    e._debug.setApples([[3, 5], [2, 5], [6, 2], [8, 6]]); // (3,5) is behind b's body
+    e._debug.addPowerUps([[7, 5, 'ghost']]);
+    e._debug.setBombs([[9, 2]]); // covers (8-10, 1-3): 2 cells away
     e.tick();
     const s = e.getState();
-    assert.deepEqual(s.apples.map((c) => [c.x, c.y]), [
-      [4, 5], // pulled
-      [2, 5], // too far (4)
-      [6, 2], // the portal is in the way
-      [6, 4], // the head is in the way: it stays to be eaten
-    ]);
-    // (7,6) is a bomb cell and (6,7) is the body: it stays.
-    assert.deepEqual(s.powerUps.map((c) => [c.x, c.y]), [[7, 7]]);
-    assert.deepEqual(s.bombs.map((c) => [c.x, c.y]), [[8, 5]]); // never pulled
+    assert.ok(s.apples.some((a) => a.x === 2 && a.y === 5)); // 4 cells away: too far
+    for (const [x, y] of [[3, 5], [6, 2], [8, 6]]) assert.ok(!s.apples.some((a) => a.x === x && a.y === y), `${x},${y} not eaten`);
+    assert.deepEqual(s.powerUps.map((c) => [c.x, c.y]), [[7, 5]]); // never pulled
+    assert.deepEqual(s.bombs.map((c) => [c.x, c.y]), [[9, 2]]);
+    assert.equal(snake(e, 'a').pendingGrowth, 3 * 2); // exactly like eating three apples
+    assert.equal(snake(e, 'a').effect.type, 'magnet');
+    assert.deepEqual(
+      events(e, 'eat').map(({ x, y, magnet }) => [x, y, magnet]).sort(),
+      [[3, 5, true], [6, 2, true], [8, 6, true]].sort(),
+    );
+    // Replacements: the board is back to appleCount items (the far apple, the
+    // power-up and three new ones).
+    assert.equal(s.apples.length + s.powerUps.length, 5);
   });
 
-  test('pulls the short way round across a wrapping edge', () => {
-    const e = setup({ a: [[[1, 5], [0, 5], [19, 5]], 'up'], ...far }, { wrapWalls: true, appleCount: 1 });
+  test('extra apples (from a dead snake) are fruit too', () => {
+    const e = setup({ a: [[[2, 4], [2, 5], [2, 6]], 'up'], b: [[[0, 1], [0, 2], [0, 3]], 'left'], ...far }, { appleCount: 0, corpseApples: true });
     e._debug.setEffect('a', 'magnet', 5000);
-    e._debug.setApples([[18, 4]]); // 2 cells from the head at (1,4), across the edge
+    e.tick(); // b hits the wall: its body turns into apples at (0,1-3); a's head is at (2,3)
+    assert.equal(player(e, 'b').status, 'dead');
+    assert.deepEqual(e.getState().apples.map((c) => [c.x, c.y]), [[0, 1]]); // 4 cells away; the other two are eaten
+    assert.equal(snake(e, 'a').pendingGrowth, 2);
+  });
+
+  test('reaches the short way round across a wrapping edge', () => {
+    const e = setup({ a: [[[1, 5], [0, 5], [19, 5]], 'up'], ...far }, { wrapWalls: true, appleCount: 0 });
+    e._debug.setEffect('a', 'magnet', 5000);
+    e._debug.setApples([[18, 4]]); // 3 cells from the head at (1,4), across the edge
     e.tick();
-    assert.deepEqual(e.getState().apples, [{ x: 19, y: 4 }]);
+    assert.deepEqual(e.getState().apples, []);
+    assert.deepEqual(events(e, 'eat'), [{ type: 'eat', id: 'a', x: 18, y: 4, magnet: true }]);
+  });
+
+  test('an apple in reach of two magnets goes to the nearer head', () => {
+    const e = setup({ a: [[[3, 6], [3, 7], [3, 8]], 'up'], b: [[[8, 6], [8, 7], [8, 8]], 'up'], ...far }, { appleCount: 0 });
+    e._debug.setEffect('a', 'magnet', 5000);
+    e._debug.setEffect('b', 'magnet', 5000);
+    e._debug.setApples([[6, 5]]); // 3 from a at (3,5), 2 from b at (8,5)
+    e.tick();
+    assert.equal(snake(e, 'a').pendingGrowth, 0);
+    assert.equal(snake(e, 'b').pendingGrowth, 1);
+  });
+
+  test('without the magnet nothing is pulled', () => {
+    const e = setup({ a: [[[6, 6], [6, 7], [6, 8]], 'up'], ...far }, { appleCount: 1 });
+    e._debug.setApples([[6, 3]]);
+    e.tick();
+    assert.deepEqual(e.getState().apples, [{ x: 6, y: 3 }]);
   });
 });
 

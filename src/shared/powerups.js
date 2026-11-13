@@ -47,6 +47,6 @@ export const POWER_UP_RULES = Object.freeze({
   shieldGhostMs: 1000, // after a shield pops, the snake is a ghost for this long
   portalLifetimeMs: 8000,
   portalFadeMs: 2000, // /display fades a portal during its last this-many ms
-  magnetRadius: 3, // cells (Manhattan)
+  magnetRadius: 3, // cells (Manhattan): fruit this close flies into the mouth
   feastApples: 10,
 });

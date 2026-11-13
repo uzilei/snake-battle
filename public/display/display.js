@@ -714,6 +714,8 @@ let prevSnakes = new Map(); // id -> snake one tick before the latest
 let prevProjectiles = new Map(); // id -> projectile one tick before the latest
 const diedAt = new Map(); // id -> when it died (for the fade)
 let eaten = []; // { x, y, color, until, item? }
+let flights = []; // { x, y, id, color, start }: apples a magnet is pulling into a mouth
+const FLIGHT_MS = 200;
 
 // Small bright sparks, e.g. where a projectile ends.
 function sparks(x, y, now, count, colors) {
@@ -764,6 +766,7 @@ function onState(msg) {
     if (!sameRound) {
       diedAt.clear();
       eaten = [];
+      flights = [];
     }
     tickKey = key;
     tickAt = now;
@@ -775,7 +778,8 @@ function onState(msg) {
     for (const ev of s.events ?? []) {
       if (ev.type === 'eat') {
         // A bomb goes off at once (its x, y is the block's center).
-        if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item });
+        if (ev.magnet) flights.push({ x: ev.x, y: ev.y, id: ev.id, color: colorOf(ev.id), start: now });
+        else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item });
         if (ev.item === 'bomb') {
           if (fx.screenShake) shakeStart = now;
           if (fx.deathParticles) explosion(ev.x, ev.y, now);
@@ -829,19 +833,50 @@ function drawBoard(msg, now, dt) {
   const names = new Map(state.players.map((p) => [p.id, p.name]));
   const labels = [];
   const badges = [];
+  const heads = new Map(); // id -> head center in pixels
   // Fading dead snakes first, so the living are drawn on top.
   for (const s of state.snakes) if (!s.alive) drawSnake(s, null, 1, cell, n, now);
   for (const s of state.snakes) {
     if (!s.alive) continue;
     const head = drawSnake(s, prevSnakes.get(s.id), t, cell, n, now);
     if (head) labels.push({ ...head, name: names.get(s.id) ?? '' });
+    if (head) heads.set(s.id, head);
     if (head && s.effect) badges.push({ ...head, effect: s.effect });
   }
   drawProjectiles(state.projectiles ?? [], t, cell);
+  drawFlights(heads, cell, n, now, msg.effects);
   drawEffects(cell, now, dt);
   drawEffectBadges(badges, cell, now);
   drawNames(labels, cell, size);
   applyShake(now);
+}
+
+// Magnet: each pulled apple flies from where it was into the (moving) mouth,
+// speeding up and shrinking as it goes.
+function drawFlights(heads, cell, n, now, fx) {
+  flights = flights.filter((f) => {
+    const head = heads.get(f.id);
+    const e = (now - f.start) / FLIGHT_MS;
+    if (!head || e >= 1) {
+      if (head && fx?.appleRings) rings.push({ x: head.x / cell - 0.5, y: head.y / cell - 0.5, color: f.color, start: now });
+      return false;
+    }
+    let tx = head.x / cell - 0.5;
+    let ty = head.y / cell - 0.5;
+    // Across a wrapping edge: fly the short way, off the edge.
+    if (tx - f.x > n / 2) tx -= n;
+    else if (f.x - tx > n / 2) tx += n;
+    if (ty - f.y > n / 2) ty -= n;
+    else if (f.y - ty > n / 2) ty += n;
+    const k = e * e; // ease in: it gets sucked in
+    const scale = 1 - 0.65 * k;
+    ctx.save();
+    ctx.translate((f.x + (tx - f.x) * k + 0.5) * cell, (f.y + (ty - f.y) * k + 0.5) * cell);
+    ctx.scale(scale, scale);
+    drawItems([{ type: 'apple', x: -0.5, y: -0.5 }], cell, now);
+    ctx.restore();
+    return true;
+  });
 }
 
 function setOverlay({ title = '', sub = '', banner = null, countdown = false, dim = false } = {}) {

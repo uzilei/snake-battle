@@ -171,7 +171,7 @@ export const STRINGS = Object.freeze({
       golden: 'Stella dorata: doppia velocità',
       ghost: 'Fantasma: attraversa tutto',
       gun: 'Pistola: un colpo dritto avanti',
-      magnet: 'Calamita: attira mele e power-up',
+      magnet: 'Calamita: mangia le mele vicine',
       freeze: 'Ghiaccio: rallenta gli altri',
       scissors: 'Forbici: taglia chi tocchi',
       portal: 'Portale: ingresso e uscita',

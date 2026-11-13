@@ -481,7 +481,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     const second = first.filter((p) => effectOf(p, 'golden'));
     substep(first);
     substep(second.filter((p) => p.status === 'alive'));
-    pullItems();
+    magnetEat();
     countDown();
     spawnBombs();
   }
@@ -755,46 +755,32 @@ export function createEngine({ config, random = Math.random } = {}) {
     return free.slice(0, count);
   }
 
-  // Magnet: once per tick, apples and power-ups within magnetRadius of a
-  // magnet head move one cell toward it (along the longer axis first),
-  // never into a snake, another item or a portal. Bombs aren't pulled.
-  function pullItems() {
+  // Magnet: after the moves, every fruit (a regular or extra apple, not a
+  // power-up or bomb) within magnetRadius of a magnet head flies straight to
+  // it and is eaten, exactly like an apple the head ran into: growth, an
+  // 'eat' event (with magnet: true and where the apple was, for /display's
+  // flight), and a replacement spawns as usual. Nothing on the way stops it.
+  // An apple in reach of two magnets goes to the nearer head (the first
+  // player on a tie).
+  function magnetEat() {
     const magnets = [...players.values()].filter((p) => p.status === 'alive' && effectOf(p, 'magnet'));
     if (!magnets.length) return;
-    const blocked = occupiedCells();
-    const moved = new Set();
-    const toward = (delta) => {
-      // The short way round when walls wrap.
-      if (rules.wrapWalls && Math.abs(delta) > gridSize / 2) delta -= Math.sign(delta) * gridSize;
-      return delta;
-    };
-    for (const p of magnets) {
-      const h = p.snake.segments[0];
-      for (const a of apples) {
-        if (moved.has(a)) continue;
-        const d = distance(a, h);
-        if (d === 0 || d > POWER_UP_RULES.magnetRadius) continue;
-        const dx = toward(h.x - a.x);
-        const dy = toward(h.y - a.y);
-        const steps = Math.abs(dx) >= Math.abs(dy) ? [[Math.sign(dx), 0], [0, Math.sign(dy)]] : [[0, Math.sign(dy)], [Math.sign(dx), 0]];
-        for (const [sx, sy] of steps) {
-          if (!sx && !sy) continue;
-          let x = a.x + sx;
-          let y = a.y + sy;
-          if (rules.wrapWalls) {
-            x = (x + gridSize) % gridSize;
-            y = (y + gridSize) % gridSize;
-          }
-          if (!inBounds(x, y) || blocked.has(cellKey(x, y))) continue;
-          blocked.delete(cellKey(a.x, a.y));
-          blocked.add(cellKey(x, y));
-          a.x = x;
-          a.y = y;
-          moved.add(a);
-          break;
+    apples = apples.filter((a) => {
+      if (a.type) return true;
+      let best = null;
+      let bestD = Infinity;
+      for (const p of magnets) {
+        const d = distance(a, p.snake.segments[0]);
+        if (d <= POWER_UP_RULES.magnetRadius && d < bestD) {
+          best = p;
+          bestD = d;
         }
       }
-    }
+      if (!best) return true;
+      best.snake.pendingGrowth += cfg.growthPerApple;
+      events.push({ type: 'eat', id: best.id, x: a.x, y: a.y, magnet: true });
+      return false;
+    });
   }
 
   // ---- one sub-step ----
