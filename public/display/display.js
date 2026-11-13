@@ -243,24 +243,26 @@ function sprite(type, px) {
   return spriteCache.get(key);
 }
 
-// The same sprite tinted icy blue, like a frozen snake (creatures slowed by
-// freeze). Cached alongside the plain ones.
-function frozenSprite(type, px) {
+// The same sprite with a color laid over it (only where the sprite is),
+// cached alongside the plain ones under `tint`.
+function tintedSprite(type, px, tint, fill) {
   const plain = sprite(type, px);
   if (!plain) return null;
-  const key = `${type}:${px}:frozen`;
+  const key = `${type}:${px}:${tint}`;
   if (!spriteCache.has(key)) {
     const c = document.createElement('canvas');
     c.width = c.height = px;
     const g = c.getContext('2d');
     g.drawImage(plain, 0, 0);
-    g.globalCompositeOperation = 'source-atop'; // only where the sprite is
-    g.fillStyle = 'rgba(159, 228, 255, 0.55)';
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = fill;
     g.fillRect(0, 0, px, px);
     spriteCache.set(key, c);
   }
   return spriteCache.get(key);
 }
+// Icy blue, like a frozen snake (creatures slowed by freeze).
+const frozenSprite = (type, px) => tintedSprite(type, px, 'frozen', 'rgba(159, 228, 255, 0.55)');
 const creatureSprite = (type, px, frozen) => (frozen ? frozenSprite(type, px) : sprite(type, px));
 
 // Time left on something the server counts down, as of now (the state is
@@ -1075,6 +1077,9 @@ let chickens = new Map(); // id -> { from, to, start, ms, facing, alertSince }
 let eatenRats = []; // { from, to, start, ms, facing, color, sprite }
 // The badger slides like a rat, a cell every moveEveryTicks ticks.
 let badgerAnim = null; // { id, from, to, start, ms, facing }
+// The last scissors hit on the badger: when, and the HP it left (/display
+// flashes it white and fades the lost health-bar segment). null: none yet.
+let badgerHit = null; // { id, at, hp }
 const FLIGHT_MS = 200;
 
 // Small bright sparks, e.g. where a projectile ends.
@@ -1250,6 +1255,11 @@ function onState(msg) {
         if (fx.screenShake) shakeStart = now;
         const shooter = ev.byId && s.snakes.find((x) => x.id === ev.byId);
         if (fx.snakeAnimations && shooter?.alive) wink(shooter, now);
+      } else if (ev.type === 'badgerHit') {
+        // A scissors hit: it flashes white, a segment of its bar goes.
+        if (b) badgerHit = { id: b.id, at: now, hp: ev.hp };
+        if (fx.deathParticles) sparks(ev.x, ev.y, now, 16, ['#ffffff', '#e0e0e0', '#ff5252']);
+        if (fx.screenShake) shakeStart = now;
       } else if (ev.type === 'badgerBite') {
         if (fx.screenShake) shakeStart = now;
       } else if (ev.type === 'ratCaught') {
@@ -1341,7 +1351,7 @@ function drawBoard(msg, now, dt) {
   drawEffects(cell, now, dt);
   drawEffectBadges(badges, cell, now);
   drawNames(labels, cell, size);
-  drawBadgerName(state.badger, msg.badgerName, cell, size, now);
+  drawBadgerHud(state.badger, msg.badgerName, cell, size, now);
   applyShake(now);
 }
 
@@ -1508,6 +1518,12 @@ function drawBadger(b, cell, now, frozen) {
   if (img) {
     ctx.scale(badgerAnim.facing, 1);
     ctx.drawImage(img, -px / 2, -px * BADGER_ART_TOP, px, px);
+    const flash = badgerHit?.id === b.id ? 1 - (now - badgerHit.at) / BADGER_RULES.hitFlashMs : 0;
+    const white = flash > 0 && tintedSprite('badger', px, 'hit', '#ffffff');
+    if (white) {
+      ctx.globalAlpha *= flash;
+      ctx.drawImage(white, -px / 2, -px * BADGER_ART_TOP, px, px);
+    }
   } else {
     ctx.fillStyle = '#5d4037';
     ctx.fillRect(-w / 2 + pad, -h / 2 + pad, w - 2 * pad, h - 2 * pad);
@@ -1515,33 +1531,53 @@ function drawBadger(b, cell, now, frozen) {
   ctx.restore();
 }
 
-// The badger's boss name (set on /admin), warning included: big bold text
-// with a thick red outline just under its block, or above it when there's
-// no room below. It blinks along with the badger.
-function drawBadgerName(b, name, cell, size, now) {
-  if (!b || !name || !badgerAnim) return;
+// Over the badger, like a boss: its health bar (once active, not during
+// the warning) just above its block, and its name (set on /admin, warning
+// included) above the bar, in big bold text with a thick red outline. With
+// no room above, both go below the block instead (bar first). They blink
+// along with the badger.
+function drawBadgerHud(b, name, cell, size, now) {
+  if (!b || !badgerAnim) return;
+  const showBar = b.warningMs <= 0 && b.maxHp > 0;
+  if (!name && !showBar) return;
   const at = ratAt(badgerAnim, now);
   const h = b.height * cell;
+  const cx = (at.x + 0.5) * cell;
   const cy = (at.y + 0.5) * cell;
   let font = Math.max(12, Math.round(cell * 0.95));
   ctx.save();
   const setFont = () => (ctx.font = `900 ${font}px system-ui, "Segoe UI", Arial, sans-serif`);
   setFont();
   // A long name on a small board: shrink it to fit 90% of the width.
-  const wide = ctx.measureText(name).width + font * 0.4;
+  const wide = name ? ctx.measureText(name).width + font * 0.4 : 0;
   if (wide > size * 0.9) {
     font = Math.max(8, Math.floor((font * size * 0.9) / wide));
     setFont();
   }
+  const gap = cell * 0.2;
+  const barH = Math.max(6, cell * 0.42);
+  const barW = b.width * cell * 0.92;
+  // Laid out away from the block: the bar (if shown), then the name.
+  const need = (showBar ? gap + barH : 0) + (name ? gap + font : 0);
+  const above = cy - h / 2 - need >= 0;
+  const side = above ? -1 : 1;
+  let edge = cy + (side * h) / 2; // where the next thing starts, moving away from the block
+  if (b.warningMs <= 0 && remainingNow(b.remainingMs, now) < BADGER_RULES.blinkMs) ctx.globalAlpha = blinkAlpha(now);
+  if (showBar) {
+    edge += side * gap;
+    drawHealthBar(b, cx - barW / 2, above ? edge - barH : edge, barW, barH, now);
+    edge += side * barH;
+  }
+  if (!name) {
+    ctx.restore();
+    return;
+  }
   ctx.textAlign = 'center';
   ctx.lineJoin = 'round';
-  const gap = cell * 0.25;
-  const below = cy + h / 2 + gap + font <= size;
-  ctx.textBaseline = below ? 'top' : 'bottom';
-  const y = below ? cy + h / 2 + gap : cy - h / 2 - gap;
+  ctx.textBaseline = above ? 'bottom' : 'top';
+  const y = edge + side * gap;
   const half = ctx.measureText(name).width / 2 + font * 0.2;
-  const x = clamp((at.x + 0.5) * cell, half, size - half);
-  if (b.warningMs <= 0 && remainingNow(b.remainingMs, now) < BADGER_RULES.blinkMs) ctx.globalAlpha = blinkAlpha(now);
+  const x = clamp(cx, half, size - half);
   ctx.lineWidth = Math.max(3, font * 0.28);
   ctx.strokeStyle = '#d50000';
   ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
@@ -1550,6 +1586,48 @@ function drawBadgerName(b, name, cell, size, now) {
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#fff8e1';
   ctx.fillText(name, x, y);
+  ctx.restore();
+}
+
+// The badger's health bar at (x, y), w x h: a dark frame, one segment per
+// HP, red where it has health left. A segment lost to the last hit stays,
+// fading from white, for a moment.
+const HIT_FADE_MS = 500;
+function drawHealthBar(b, x, y, w, h, now) {
+  const pad = Math.max(1.5, h * 0.18);
+  const r = h * 0.3;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+  ctx.shadowBlur = h * 0.6;
+  blockPath(x, y, w, h, r);
+  ctx.fillStyle = '#1a0d0d';
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = Math.max(1.5, h * 0.12);
+  ctx.strokeStyle = '#000000';
+  ctx.stroke();
+  const n = b.maxHp;
+  const sep = Math.max(1, h * 0.12);
+  const segW = (w - 2 * pad - sep * (n - 1)) / n;
+  const segH = h - 2 * pad;
+  const hit = badgerHit?.id === b.id ? badgerHit : null;
+  const fade = hit ? 1 - (now - hit.at) / HIT_FADE_MS : 0;
+  for (let i = 0; i < n; i++) {
+    const sx = x + pad + i * (segW + sep);
+    const sy = y + pad;
+    if (i < b.hp) {
+      const g = ctx.createLinearGradient(0, sy, 0, sy + segH);
+      g.addColorStop(0, '#ff6b6b');
+      g.addColorStop(0.5, '#e01b1b');
+      g.addColorStop(1, '#8e0000');
+      ctx.fillStyle = g;
+    } else if (fade > 0 && i === hit.hp) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${fade})`; // just lost
+    } else {
+      ctx.fillStyle = 'rgba(80, 20, 20, 0.6)'; // empty
+    }
+    ctx.fillRect(sx, sy, segW, segH);
+  }
   ctx.restore();
 }
 

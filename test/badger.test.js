@@ -524,6 +524,15 @@ describe('badger bites', () => {
     assert.equal(bites[1].index, 0);
   });
 
+  test('so is a snake that just hit it with scissors (a ghost for 1 s, then passing)', () => {
+    const { out, bites, e } = passThrough((e) => e._debug.setEffect('a', 'scissors', 8000));
+    assert.ok(out !== null, 'never left the badger');
+    assert.equal(bites.length, 1); // only head first on the way back, with no scissors left
+    assert.ok(bites[0].t > out, `bitten at tick ${bites[0].t}, out at ${out}`);
+    assert.equal(bites[0].index, 0);
+    assert.equal(badger(e).hp, 2);
+  });
+
   test('a frozen snake standing still is bitten when the badger steps onto it', () => {
     const e = setup({ a: [row(12, 15, 4), 'right'], ...far });
     run(e, 1); // now on tick 2, so the next tick is odd: frozen snakes sit it out
@@ -610,6 +619,128 @@ describe('badger, rats and projectiles', () => {
     e.tick();
     assert.equal(badger(e), null);
     assert.equal(events(e, 'badgerKilled')[0].byId, null);
+  });
+});
+
+describe('badger health', () => {
+  const SCISSORS_MS = 8000;
+  const column = (x, fromY, toY) => row(0, fromY, toY).map(([y]) => [x, y]);
+
+  test('badgerHealth: 1-10 HP, 3 by default, given to each new badger', () => {
+    assert.deepEqual(CONFIG_LIMITS.badgerHealth, { min: 1, max: 10, default: 3 });
+    assert.equal(createDefaultConfig().badgerHealth, 3);
+    assert.deepEqual(sanitizeConfig({ badgerHealth: 0 }), { badgerHealth: 1 });
+    assert.deepEqual(sanitizeConfig({ badgerHealth: 50 }), { badgerHealth: 10 });
+    assert.deepEqual(sanitizeConfig({ badgerHealth: 'lots' }), {});
+    // A naturally spawned one.
+    const e = setup(far, { badgerEverySec: 30, badgerHealth: 6 });
+    e._debug.setEffect('z', 'ghost', 1e9);
+    for (let i = 0; i < 600 && !badger(e); i++) run(e, 1);
+    assert.ok(badger(e), 'no badger turned up');
+    assert.equal(badger(e).hp, 6);
+    assert.equal(badger(e).maxHp, 6);
+  });
+
+  test('a scissors head entering it deals 1 damage instead of a bite: scissors used up, a ghost for 1 s', () => {
+    const e = setup({ a: [row(10, 7, 5), 'right'], ...far });
+    e._debug.setEffect('a', 'scissors', SCISSORS_MS);
+    e._debug.setBadger([10, 10], STILL);
+    e.tick(); // head in at x 8
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.deepEqual(cells(e, 'a'), row(10, 8, 6));
+    assert.equal(badger(e).hp, 2);
+    assert.equal(badger(e).maxHp, 3);
+    assert.deepEqual(events(e, 'badgerHit'), [{ type: 'badgerHit', id: 'a', x: 8, y: 10, hp: 2 }]);
+    assert.deepEqual(events(e, 'badgerBite'), []);
+    const effect = snake(e, 'a').effect;
+    assert.equal(effect.type, 'ghost'); // the scissors are gone
+    assert.equal(effect.durationMs, BADGER_RULES.hitGhostMs);
+    assert.equal(BADGER_RULES.hitGhostMs, 1000);
+  });
+
+  test('each hit takes 1 HP, one per pair of scissors', () => {
+    // In and out along row 10, then back in with new scissors: 3 -> 2 -> 1.
+    const e = setup({ a: [row(10, 7, 5), 'right'], ...far }, { gridSize: 30 });
+    e._debug.setEffect('a', 'scissors', SCISSORS_MS);
+    e._debug.setBadger([10, 10], { ...STILL, remainingMs: 1e9 });
+    const hp = [];
+    for (let t = 1; t <= 4; t++) {
+      run(e, 1);
+      hp.push(badger(e).hp);
+    }
+    assert.deepEqual(hp, [2, 2, 2, 2]); // the ghost moving through doesn't hit again
+    const b = setup({ a: [row(10, 7, 5), 'right'], ...far });
+    b._debug.setBadger([10, 10], { ...STILL, hp: 2 });
+    b._debug.setEffect('a', 'scissors', SCISSORS_MS);
+    b.tick();
+    assert.equal(badger(b).hp, 1);
+  });
+
+  test('the hit taking its last HP kills it: a kill for that snake, not for earlier hitters', () => {
+    // a hits first (tick 1), b from above two ticks later.
+    const e = setup({ a: [row(10, 7, 5), 'right'], b: [column(10, 6, 4), 'down'], ...far }, { badgerHealth: 2 });
+    e._debug.setEffect('a', 'scissors', SCISSORS_MS);
+    e._debug.setEffect('b', 'scissors', SCISSORS_MS);
+    e._debug.setBadger([10, 10], STILL);
+    e.tick();
+    assert.equal(badger(e).hp, 1);
+    e.tick();
+    assert.equal(badger(e).hp, 1);
+    e.tick(); // b in at (10, 9)
+    assert.equal(badger(e), null);
+    assert.deepEqual(events(e, 'badgerHit'), [{ type: 'badgerHit', id: 'b', x: 10, y: 9, hp: 0 }]);
+    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'b' }]);
+    assert.equal(player(e, 'b').kills, 1);
+    assert.equal(player(e, 'a').kills, 0);
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.equal(player(e, 'b').status, 'alive');
+    assert.equal(snake(e, 'b').effect.type, 'ghost');
+  });
+
+  test('hits come before bites: the killing hit spares a snake entering the same sub-step', () => {
+    // c drives down into (10, 9) on the same tick, without scissors.
+    const e = setup({ c: [column(10, 8, 6), 'down'], a: [row(10, 7, 5), 'right'], ...far }, { badgerHealth: 1 });
+    e._debug.setEffect('a', 'scissors', SCISSORS_MS);
+    e._debug.setBadger([10, 10], STILL);
+    e.tick();
+    assert.equal(badger(e), null);
+    assert.deepEqual(events(e, 'badgerBite'), []);
+    assert.equal(player(e, 'c').status, 'alive');
+    assert.equal(player(e, 'a').kills, 1);
+  });
+
+  test('a projectile still kills it at once, at full health', () => {
+    const e = setup({ a: [[[1, 1], [1, 2], [1, 3]], 'right'], ...far }, { badgerHealth: 10 });
+    e._debug.setBadger([10, 10], STILL);
+    assert.equal(badger(e).hp, 10);
+    e._debug.addProjectile([7, 10], 'right', 'a');
+    e.tick();
+    assert.equal(badger(e), null);
+    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a' }]);
+    assert.equal(player(e, 'a').kills, 1);
+  });
+
+  test('the badger moving onto a scissors snake bites as usual: body cut, head killed', () => {
+    const e = setup({ a: [row(12, 15, 4), 'right'], ...far });
+    e._debug.setEffect('a', 'scissors', SCISSORS_MS);
+    e._debug.setBadger([10, 10], { dir: 'down' });
+    e.tick();
+    assert.deepEqual(events(e, 'badgerBite'), [{ type: 'badgerBite', id: 'a', index: 4 }]);
+    assert.deepEqual(cells(e, 'a'), row(12, 16, 13));
+    assert.equal(badger(e).hp, 3);
+    assert.equal(snake(e, 'a').effect.type, 'scissors'); // not used up
+    assert.deepEqual(events(e, 'badgerHit'), []);
+    // Onto the head of one standing still (frozen out of the tick).
+    const h = setup({ a: [row(12, 12, 14), 'left'], ...far });
+    run(h, 1);
+    h._debug.setSnake('a', row(12, 12, 14), 'left');
+    h._debug.setEffect('a', 'scissors', SCISSORS_MS);
+    h._debug.setEffect('z', 'freeze', 5000);
+    h._debug.setBadger([10, 10], { dir: 'down' });
+    h.tick();
+    assert.deepEqual(events(h, 'badgerBite'), [{ type: 'badgerBite', id: 'a', index: 0 }]);
+    assert.equal(player(h, 'a').status, 'dead');
+    assert.equal(badger(h).hp, 3);
   });
 });
 

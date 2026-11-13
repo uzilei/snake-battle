@@ -15,4 +15,9 @@ export const BADGER_RULES = Object.freeze({
   turnMaxTicks: 40,
   headClearance: 3, // a new badger's block is at least this many steps from every snake head
   blinkMs: 3000, // /display blinks it during its last 3 s, like a bomb
+  // A snake holding scissors whose head enters its block takes 1 HP off it
+  // (it has badgerHealth HP) instead of being bitten: the scissors are used
+  // up and the snake is a ghost for this long, passing through.
+  hitGhostMs: 1000,
+  hitFlashMs: 180, // /display flashes it white on each hit
 });

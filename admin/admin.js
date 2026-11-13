@@ -20,6 +20,7 @@ const SLIDERS = [
   { key: 'chickenChance', step: 1 },
   { key: 'badgerEverySec', step: 30 },
   { key: 'badgerLifetimeSec', step: 5 },
+  { key: 'badgerHealth', step: 1 },
   { key: 'maxPlayers', step: 1 },
   { key: 'gridSize', step: 1 },
   { key: 'countdownMs', step: 500 },
@@ -243,7 +244,7 @@ function buildSliders(limits) {
     wrap.append(label, input, output, range);
     $(parent).append(wrap);
     sliderEls[key] = { input, output };
-    if (key === 'badgerLifetimeSec') $(parent).append(badgerNameField());
+    if (key === 'badgerHealth') $(parent).append(badgerNameField());
   }
   slidersBuilt = true;
 }

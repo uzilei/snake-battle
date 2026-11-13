@@ -109,10 +109,11 @@ Rules and numbers live in `src/shared/chicken.js`.
 
 ## Honey badger 🦡
 
-A rare predator: a 5×3 block (5 wide, 3 tall) that never rotates. Two /admin sliders control it; both are saved, and neither depends on the power-up switch:
+A rare predator: a 5×3 block (5 wide, 3 tall) that never rotates. Three /admin sliders control it; all are saved, and neither depends on the power-up switch:
 
 - **"Tasso del miele" (average seconds between badgers):** 120 by default, 30–600, or 0 for never. The real delay is random, between half and one and a half times the average, counted in seconds of play. A change applies at once.
 - **"Quanto resta in campo" (lifetime):** 20 s by default, 5–120. A change applies from the next badger.
+- **"Vita del tasso" (health):** 3 HP by default, 1–10: the scissors hits it takes to die. A change applies from the next badger.
 
 There is never more than one badger on the board.
 
@@ -123,17 +124,20 @@ There is never more than one badger on the board.
   - any other segment: the snake is cut there, and the cut-off part follows "dead snakes become apples";
   - if fewer than 3 segments would be left, the snake dies.
 
-  A shield pops instead of any of these, and the badger never gives anyone a kill. Several snakes can be bitten at once. The badger bites before items are eaten, so a head can't eat its way out of it through a portal.
+  A shield pops instead of any of these, and the badger never gives anyone a kill.
+
+  **Scissors:** a snake holding scissors whose head moves into the block hits the badger instead of being bitten: 1 HP off, the scissors are used up, and the snake becomes a ghost for 1 s and is passing through (not bitten until it has fully left). The badger moving onto a scissors snake bites as usual. The hit that takes the last HP kills it like a projectile: a kill for that snake, and the big burst. Hits are dealt before bites, so once it's dead nobody else is bitten that sub-step. Several snakes can be bitten at once. The badger bites before items are eaten, so a head can't eat its way out of it through a portal.
 - **Items:** ignored. Fruits and power-ups spawn and stay under it as usual.
 - **Rats and chickens:** a new apple that would become a rat or a chicken under the badger (warning included) stays a plain apple. A rat or chicken inside the active badger dies, whether it ran in, the badger moved onto it, or it was under the warning when the badger became active. Nobody grows or gets a kill, and a chicken leaves a 🍗 feast power-up in its place. Chickens flee the active badger like a snake head.
-- **Projectiles:** a projectile entering any of its cells (or that the badger steps onto, or a gun fired right next to it) kills the badger at once. That is a kill for the shooter, and the projectile is used up.
+- **Projectiles:** a projectile entering any of its cells (or that the badger steps onto, or a gun fired right next to it) kills the badger at once, whatever its HP. That is a kill for the shooter, and the projectile is used up.
 - **/display:**
   - one big 🦡 over its block, never rotated, mirrored while heading right, sliding smoothly;
   - while active, a red outline pulses round it;
   - the warning is a dashed, pulsing red outline with ⚠️ in the middle;
-  - a shot badger goes off in a bomb's burst the size of its block, and the shooter winks;
+  - a boss-style health bar just above its block once active (red fill, dark frame, one segment per HP); each scissors hit flashes the badger white and the lost segment fades out;
+  - a killed badger (shot, or its last HP) goes off in a bomb's burst the size of its block, and the killer winks;
   - rats and chickens get a soft green glow, so green means eat and red means run;
-  - a boss name: the /admin field "Nome del tasso" (saved, up to 20 characters, cleaned like a player name, empty for none) is drawn under its block in big bold red-outlined letters, from the warning on, or above the block when there's no room below.
+  - a boss name: the /admin field "Nome del tasso" (saved, up to 20 characters, cleaned like a player name, empty for none) is drawn above the health bar in big bold red-outlined letters, from the warning on. With no room above, the bar and the name go below the block instead.
 
   The burst and the puff follow the particles toggle.
 

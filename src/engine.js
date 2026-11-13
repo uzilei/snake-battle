@@ -54,6 +54,7 @@ export const CONFIG_LIMITS = Object.freeze({
   // badgerLifetimeSec once active.
   badgerEverySec: { min: 0, max: 600, default: 120, lowest: 30 },
   badgerLifetimeSec: { min: 5, max: 120, default: 20 },
+  badgerHealth: { min: 1, max: 10, default: 3 }, // HP a new badger spawns with (scissors hits)
   roundTimeLimitSec: { min: 15, max: 900, default: 120 }, // used when timeLimitWin is on
   targetLength: { min: START_LENGTH + 1, max: 300, default: 30 }, // used when targetLengthWin is on
   // Power-ups (used when powerUps is on; read live). Integers only, since
@@ -1357,6 +1358,8 @@ export function createEngine({ config, random = Math.random } = {}) {
       turnAt: Infinity,
       since: tickCount,
       passing: new Set(),
+      hp: cfg.badgerHealth,
+      maxHp: cfg.badgerHealth,
     };
     return badger;
   }
@@ -1452,8 +1455,9 @@ export function createEngine({ config, random = Math.random } = {}) {
     }
   }
 
-  // A projectile got it: gone at once, a kill for the shooter (if still in
-  // the game).
+  // A projectile got it (whatever its HP), or a scissors hit took its last
+  // HP: gone at once, a kill for the shooter or the snake that dealt the
+  // final hit (if still in the game).
   function killBadger(by) {
     const credited = by && players.get(by.id) === by ? by : null;
     if (credited) credited.kills++;
@@ -1486,9 +1490,17 @@ export function createEngine({ config, random = Math.random } = {}) {
   // after a shield pops) is passing through: never bitten, even once the
   // immunity ends and even as the badger moves onto more of it, until no
   // segment of it is inside any more.
+  // Scissors: a snake holding them whose head moved into the block (the
+  // new contact is its head, and it moved this sub-step; the badger
+  // stepping onto it bites as usual) hits it instead of being bitten:
+  // 1 HP off, the scissors are used up, and the snake is a ghost for
+  // hitGhostMs, passing through. Hits are dealt before any bite; the one
+  // that takes the last HP kills it like a projectile, and then nobody else
+  // is bitten.
   function badgerBites(before) {
     if (!before || !isActive(badger)) return;
     const passing = badger.passing;
+    const bites = [];
     for (const p of players.values()) {
       const segs = p.status === 'alive' ? p.snake.segments : null;
       if (!segs || !segs.some((c) => badgerCovers(c.x, c.y))) {
@@ -1503,6 +1515,21 @@ export function createEngine({ config, random = Math.random } = {}) {
       const wasInside = (i) => Boolean(was) && was.inside.has(i === 0 ? was.head : segs[i]);
       const index = segs.findIndex((c, i) => badgerCovers(c.x, c.y) && !wasInside(i));
       if (index === -1) continue;
+      const headIn = index === 0 && Boolean(was) && was.head !== segs[0];
+      if (headIn && effectOf(p, 'scissors')) {
+        setEffect(p, 'ghost', BADGER_RULES.hitGhostMs); // replaces the scissors
+        passing.add(p);
+        badger.hp--;
+        events.push({ type: 'badgerHit', id: p.id, x: segs[0].x, y: segs[0].y, hp: badger.hp });
+        if (badger.hp <= 0) {
+          killBadger(p);
+          return;
+        }
+        continue;
+      }
+      bites.push({ p, segs, index });
+    }
+    for (const { p, segs, index } of bites) {
       events.push({ type: 'badgerBite', id: p.id, index });
       if (effectOf(p, 'shield')) {
         popShield(p);
@@ -1637,6 +1664,8 @@ export function createEngine({ config, random = Math.random } = {}) {
             height: BADGER_RULES.height,
             dir: badger.dir,
             stepTicks: badger.stepTicks ?? BADGER_RULES.moveEveryTicks,
+            hp: badger.hp,
+            maxHp: badger.maxHp,
             warningMs: badger.warningMs,
             remainingMs: badger.remainingMs,
             lifetimeMs: badger.lifetimeMs,
@@ -1729,8 +1758,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     // Puts a badger centered on (x, y): active by default, or in its warning
     // with warningMs > 0. It next moves on tick `moveAt` (default: the next
     // tick) and keeps going straight until tick `turnAt`, when free.
-    setBadger([x, y], { dir = 'left', warningMs = 0, remainingMs = cfg.badgerLifetimeSec * 1000, moveAt = tickCount + 1, turnAt = tickCount + 1000 } = {}) {
-      badger = { id: nextObjectId++, x, y, dir, warningMs, remainingMs, lifetimeMs: remainingMs, moveAt: warningMs > 0 ? Infinity : moveAt, turnAt: warningMs > 0 ? Infinity : turnAt, since: tickCount, passing: new Set() };
+    setBadger([x, y], { dir = 'left', warningMs = 0, remainingMs = cfg.badgerLifetimeSec * 1000, moveAt = tickCount + 1, turnAt = tickCount + 1000, hp = cfg.badgerHealth } = {}) {
+      badger = { id: nextObjectId++, x, y, dir, warningMs, remainingMs, lifetimeMs: remainingMs, moveAt: warningMs > 0 ? Infinity : moveAt, turnAt: warningMs > 0 ? Infinity : turnAt, since: tickCount, passing: new Set(), hp, maxHp: cfg.badgerHealth };
     },
     // When the badger next moves and next picks a direction (ticks).
     badgerTimers() {
