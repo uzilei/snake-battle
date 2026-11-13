@@ -3,7 +3,7 @@
 
 import { STRINGS, fmt } from '/shared/strings.js';
 import { playerColor } from '/shared/colors.js';
-import { snakePath, pointAt, subPath, smoothSubPath } from '/shared/snake-path.js';
+import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt } from '/shared/snake-path.js';
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
 import { RAT_RULES } from '/shared/rats.js';
 
@@ -33,11 +33,27 @@ function loadImage(src) {
   entry.img.src = src;
   return entry;
 }
+// Plain apples are drawn as one of these fruits, picked at random for each
+// apple when it appears and kept until it's eaten. Purely visual: every one
+// is a normal apple. 🍏🍎🍐🍊🍋🍉🍇🍓🫐🍈🍒🍑🥭🍍🍅🥑
+const FRUITS = ['1f34f', '1f34e', '1f350', '1f34a', '1f34b', '1f349', '1f347', '1f353', '1fad0', '1f348', '1f352', '1f351', '1f96d', '1f34d', '1f345', '1f951'];
 const ITEM_IMAGES = {
   apple: loadImage('/twemoji/1f34e.svg'), // 🍎
+  ...Object.fromEntries(FRUITS.map((code) => [`fruit-${code}`, loadImage(`/twemoji/${code}.svg`)])),
   ...Object.fromEntries(POWER_UPS.map((p) => [p.type, loadImage(`/twemoji/${p.twemoji}.svg`)])),
   rat: loadImage(`/twemoji/${RAT_RULES.twemoji}.svg`),
+  mouse: loadImage(`/twemoji/${RAT_RULES.mouseTwemoji}.svg`),
 };
+const randomFruit = () => `fruit-${FRUITS[Math.floor(Math.random() * FRUITS.length)]}`;
+// The fruit of the plain apple at a cell (one that arrived in a repeated
+// tick message gets its random fruit here, the first time it's drawn).
+function fruitAt(a) {
+  const k = `${a.x},${a.y}`;
+  if (!fruits.has(k)) fruits.set(k, randomFruit());
+  return fruits.get(k);
+}
+// 🐀 or 🐁, fixed per rat (a hash of its id, so it never changes mid-run).
+const ratSprite = (id) => ((Math.imul(Number(id) | 0, 0x9e3779b1) >>> 16) & 1 ? 'mouse' : 'rat');
 
 // ---- state ------------------------------------------------------------------------
 let latest = null; // last 'state' message
@@ -206,7 +222,7 @@ function sprite(type, px) {
   if (!entry?.ready) return null;
   const key = `${type}:${px}`;
   if (!spriteCache.has(key)) {
-    if (spriteCache.size > 64) spriteCache.clear(); // old cell sizes
+    if (spriteCache.size > 400) spriteCache.clear(); // old cell sizes (about 40 sprites per size)
     const c = document.createElement('canvas');
     c.width = c.height = px;
     c.getContext('2d').drawImage(entry.img, 0, 0, px, px);
@@ -220,14 +236,14 @@ function sprite(type, px) {
 const remainingNow = (ms, now) => Math.max(0, ms - (now - tickAt));
 
 function boardItems(state, now) {
-  const items = state.apples.map((a) => ({ type: 'apple', x: a.x, y: a.y }));
+  const items = state.apples.map((a) => ({ type: 'apple', sprite: fruitAt(a), x: a.x, y: a.y }));
   for (const p of state.powerUps ?? []) items.push({ type: p.type, x: p.x, y: p.y, power: true });
   // A bomb is one big sprite over its whole block, centered on (x, y).
   for (const b of state.bombs ?? []) {
     items.push({ type: 'bomb', x: b.x, y: b.y, size: POWER_UP_RULES.bombSize, power: true, remainingMs: remainingNow(b.remainingMs, now) });
   }
   // An eaten item stays until the (interpolated) head has reached it.
-  for (const e of eaten) if (now < e.until) items.push({ type: e.item ?? 'apple', x: e.x, y: e.y, power: Boolean(e.item) });
+  for (const e of eaten) if (now < e.until) items.push({ type: e.item ?? 'apple', sprite: e.sprite, x: e.x, y: e.y, power: Boolean(e.item) });
   return items;
 }
 
@@ -261,7 +277,7 @@ function drawItems(items, cell, now) {
     const size = px * scale;
     const x = (it.x + 0.5) * cell - size / 2;
     const y = (it.y + 0.5) * cell - size / 2;
-    const img = sprite(it.type, px);
+    const img = sprite(it.sprite ?? it.type, px);
     ctx.globalAlpha = alpha;
     if (img) ctx.drawImage(img, x, y, size, size);
     else {
@@ -398,8 +414,12 @@ function pointsAt(chains, u) {
 // Clips to the body's exact shape: a line with round joins and caps is the
 // union of a rectangle per straight piece and a circle at every point. All
 // pieces wind the same way, so the nonzero rule fills their union.
-function clipToBody(chains, u0, u1, cell, r) {
+function clipToBody(chains, u0, u1, cell, r, extra = []) {
   ctx.beginPath();
+  for (const c of extra) {
+    ctx.moveTo(c.x + c.r, c.y);
+    ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+  }
   for (const chain of chains) {
     const pts = subPath(chain, u0, u1);
     if (!pts) continue;
@@ -436,12 +456,15 @@ function disc(x, y, r) {
 }
 
 // Draws one snake; returns where its head is (in px) for the name label.
-function drawSnake(s, prev, t, cell, n, now) {
+// `anim` is the snake's animation state, or null when the animations are
+// off; `frame` is what they react to: { dt, tickMs, food, heads }.
+function drawSnake(s, prev, t, cell, n, now, anim = null, frame = null) {
   const look = snakeLook(s, now);
   if (look.alpha <= 0 || !s.segments.length) return null;
   const path = snakePath(s, s.alive ? prev : null, t, n);
   const { chains, front, back, segU } = path;
   const width = cell * look.width;
+  const bumps = anim && s.alive ? swallowBumps(anim, chains, front, back, s.segments.length, width, cell, now) : [];
   ctx.save();
   ctx.globalAlpha = clamp(look.alpha, 0, 1);
   ctx.lineJoin = 'round';
@@ -480,13 +503,15 @@ function drawSnake(s, prev, t, cell, n, now) {
   tracePath(chains, front, back, cell);
   ctx.stroke();
   ctx.shadowBlur = 0;
+  ctx.fillStyle = look.color;
+  for (const b of bumps) disc(b.x, b.y, b.r);
 
   // ...then every other segment in the darker shade. Stripes belong to the
   // segments (counted from the head), so they travel with the body. Each is
   // a band along the rounded path, square to it, so it turns through bends,
   // clipped to the body so nothing shows past its outline.
   ctx.save();
-  clipToBody(chains, front, back, cell, width / 2);
+  clipToBody(chains, front, back, cell, width / 2, bumps);
   ctx.lineCap = 'butt';
   ctx.lineWidth = cell * STRIPE_REACH * 2;
   ctx.strokeStyle = look.dark;
@@ -509,30 +534,23 @@ function drawSnake(s, prev, t, cell, n, now) {
   }
   ctx.restore();
 
-  // Head: a bit wider than the body, eyes looking where it's going.
+  // Head: a bit wider than the body, with big eyes.
   const d = DIR_VECTORS[s.dir] ?? [1, 0];
-  const side = [-d[1], d[0]];
   const headR = (width / 2) * look.headScale;
-  const eyeR = cell * 0.13;
+  // Every copy of the head (two while wrapping). The one on the board gets
+  // the name label, and the animated eyes look out from it.
+  const heads = pointsAt(chains, front).map((p) => ({
+    x: (p.x + 0.5) * cell,
+    y: (p.y + 0.5) * cell,
+    onBoard: p.x >= -0.5 && p.y >= -0.5 && p.x <= n - 0.5 && p.y <= n - 0.5,
+  }));
   let label = null;
-  for (const p of pointsAt(chains, front)) {
-    const hx = (p.x + 0.5) * cell;
-    const hy = (p.y + 0.5) * cell;
-    ctx.fillStyle = look.color;
-    disc(hx, hy, headR);
-    const cx = hx + d[0] * cell * 0.12;
-    const cy = hy + d[1] * cell * 0.12;
-    for (const k of [-1, 1]) {
-      const ex = cx + side[0] * k * cell * 0.2;
-      const ey = cy + side[1] * k * cell * 0.2;
-      ctx.fillStyle = '#ffffff';
-      disc(ex, ey, eyeR);
-      ctx.lineWidth = Math.max(1, cell * 0.025); // rim, so eyes show on light snakes too
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
-      ctx.stroke();
-      ctx.fillStyle = '#111111';
-      disc(ex + d[0] * eyeR * 0.45, ey + d[1] * eyeR * 0.45, eyeR * 0.55);
-    }
+  for (const h of heads) if (!label || h.onBoard) label = { x: h.x, y: h.y, r: headR };
+  const travel = travelDirAt(chains, front);
+  // Without the animations the same face is drawn, just still: eyes ahead.
+  const pose = !label ? null : anim ? facePose(s, anim, label, travel, cell, now, frame) : stillPose(travel ?? { x: d[0], y: d[1] });
+  for (const { x: hx, y: hy } of heads) {
+    drawFace(hx, hy, pose, look, headR, cell);
     // Shield: a ring around the head.
     if (look.ring) {
       ctx.lineWidth = Math.max(1.5, cell * 0.08);
@@ -541,12 +559,276 @@ function drawSnake(s, prev, t, cell, n, now) {
       ctx.arc(hx, hy, headR * 1.55, 0, Math.PI * 2);
       ctx.stroke();
     }
-    // While wrapping, label the copy that's on the board.
-    const onBoard = p.x >= -0.5 && p.y >= -0.5 && p.x <= n - 0.5 && p.y <= n - 0.5;
-    if (!label || onBoard) label = { x: hx, y: hy, r: headR };
   }
   ctx.restore();
   return label;
+}
+
+// ---- snake animations (an /admin toggle, on by default) ----
+// Purely cosmetic, worked out from what /display already gets: eyes that
+// blink and look at nearby food or snakes, a tongue that flicks out now and
+// then, a mouth that opens when food is straight ahead, and a bump that runs
+// down the body after each bite. Every snake has its own random timers, so
+// they don't blink or lick in step.
+const BLINK_MS = 150;
+const BLINK_EVERY_MS = [2000, 6000];
+const TONGUE_MS = 300;
+const TONGUE_EVERY_MS = [2500, 7000];
+const LOOK_RANGE = 4; // cells: the eyes follow food or a head this close
+const MOUTH_RANGE = 3; // cells: the mouth opens for food this far straight ahead
+const BUMP_SPEED = 18; // segments per second (faster on long snakes)
+const FINE_DETAIL_PX = 14; // smaller cells skip nostrils, fangs and the tongue's fork
+
+const between = ([lo, hi]) => lo + Math.random() * (hi - lo);
+const anims = new Map(); // snake id -> its animation state
+function animOf(id, now) {
+  let a = anims.get(id);
+  if (!a) {
+    a = {
+      blinkAt: now + between([300, BLINK_EVERY_MS[1]]),
+      blinkStart: -Infinity,
+      tongueAt: now + between([800, TONGUE_EVERY_MS[1]]),
+      tongueStart: -Infinity,
+      look: null, // where the pupils point: a vector of length <= 1, in screen space
+      heading: null, // the angle the face points at, in radians
+      mouth: 0, // 0 closed .. 1 wide open
+      bumps: [], // { start, size }: swallowed food on its way to the tail
+      head: null, // head center in cells as last drawn, for the others' eyes
+    };
+    anims.set(id, a);
+  }
+  return a;
+}
+
+// Each bite's bump, as circles (px) drawn into the body. A bump starts at
+// the head once the food has visibly gone in, swells, runs down the body
+// and shrinks away at the tail. Its place is counted in segments from the
+// head (front + offset), so it travels with the body as that slides.
+function swallowBumps(anim, chains, front, back, length, width, cell, now) {
+  const len = back - front;
+  const speed = Math.max(BUMP_SPEED, length / 1.6);
+  const out = [];
+  anim.bumps = anim.bumps.filter((b) => ((now - b.start) / 1000) * speed <= len + 0.5);
+  for (const b of anim.bumps) {
+    const off = ((now - b.start) / 1000) * speed;
+    if (off < 0) continue; // not swallowed yet
+    const swell = clamp(Math.min(off / 0.8, (len + 0.5 - off) / 1.2), 0, 1);
+    const r = (width / 2) * (1 + 0.4 * b.size * swell);
+    for (const p of pointsAt(chains, Math.min(back, front + off))) out.push({ x: (p.x + 0.5) * cell, y: (p.y + 0.5) * cell, r });
+  }
+  return out;
+}
+
+// Moves `from` toward `to` by the share an exponential ease with time
+// constant tau (ms) covers in dt (ms).
+const ease = (from, to, dt, tau) => from + (to - from) * (1 - Math.exp(-dt / Math.max(1, tau)));
+
+// Updates a snake's timers and smoothed values for this frame and returns
+// how its face looks. headPx: the head on the board, in px. travel: the grid
+// step the head is moving along (null when it isn't moving).
+function facePose(s, a, headPx, travel, cell, now, frame) {
+  const dtMs = frame.dt * 1000;
+  const v = DIR_VECTORS[s.dir] ?? [1, 0];
+  if (!s.alive) {
+    a.head = null;
+    a.bumps = [];
+    return { angle: a.heading ?? Math.atan2(v[1], v[0]), look: a.look ?? { x: 0, y: 0 }, blink: 0, tongue: -1, mouth: 0, dead: true };
+  }
+  const head = { x: headPx.x / cell - 0.5, y: headPx.y / cell - 0.5 };
+  a.head = head;
+
+  // Heading: along the leg the head is on. A turn eases in over about the
+  // first 30% of the tick (95% of the way after 3 time constants), so the
+  // head snaps round instead of sweeping through the whole tick.
+  const dir = travel ?? { x: v[0], y: v[1] };
+  const target = Math.atan2(dir.y, dir.x);
+  if (a.heading === null) a.heading = target;
+  else {
+    const diff = Math.atan2(Math.sin(target - a.heading), Math.cos(target - a.heading)); // the short way round
+    a.heading = ease(a.heading, a.heading + diff, dtMs, frame.tickMs * 0.1);
+  }
+
+  // Eyes: the nearest food or other head within reach, otherwise ahead.
+  let best = null;
+  let bestD = LOOK_RANGE;
+  const consider = (p) => {
+    const dist = Math.hypot(p.x - head.x, p.y - head.y);
+    if (dist > 0.3 && dist <= bestD) {
+      best = p;
+      bestD = dist;
+    }
+  };
+  for (const f of frame.food) consider(f);
+  for (const [id, h] of frame.heads) if (id !== s.id) consider(h);
+  const want = best
+    ? { x: (best.x - head.x) / bestD, y: (best.y - head.y) / bestD }
+    : { x: Math.cos(a.heading) * 0.6, y: Math.sin(a.heading) * 0.6 };
+  a.look ??= want;
+  a.look = { x: ease(a.look.x, want.x, dtMs, 70), y: ease(a.look.y, want.y, dtMs, 70) };
+
+  // Mouth: wide open while food is up to MOUTH_RANGE cells straight ahead in
+  // its lane; it shuts once the food is gone (eaten) or out of line.
+  let open = 0;
+  for (const f of frame.food) {
+    const rx = f.x - head.x;
+    const ry = f.y - head.y;
+    const ahead = rx * dir.x + ry * dir.y;
+    if (ahead > 0.05 && ahead <= MOUTH_RANGE + 0.3 && Math.abs(rx * dir.y - ry * dir.x) < 0.55) open = 1;
+  }
+  a.mouth = ease(a.mouth, open, dtMs, open ? 55 : 35);
+
+  // Blinks and tongue flicks, each on its own random timer.
+  if (now >= a.blinkAt) {
+    a.blinkStart = now;
+    a.blinkAt = now + between(BLINK_EVERY_MS);
+  }
+  if (now >= a.tongueAt) {
+    if (a.mouth < 0.1) a.tongueStart = now; // not while the mouth is open
+    a.tongueAt = now + between(TONGUE_EVERY_MS);
+  }
+  const sinceBlink = now - a.blinkStart;
+  const sinceTongue = now - a.tongueStart;
+  return {
+    angle: a.heading,
+    look: a.look,
+    blink: sinceBlink < BLINK_MS ? Math.sin((Math.PI * sinceBlink) / BLINK_MS) : 0,
+    tongue: sinceTongue < TONGUE_MS ? sinceTongue / TONGUE_MS : -1,
+    mouth: a.mouth < 0.01 ? 0 : a.mouth,
+    dead: false,
+  };
+}
+
+// The face with the animations off: big eyes looking ahead, nothing moving.
+function stillPose(dir) {
+  const angle = Math.atan2(dir.y, dir.x);
+  return { angle, look: { x: Math.cos(angle) * 0.6, y: Math.sin(angle) * 0.6 }, blink: 0, tongue: -1, mouth: 0, dead: false };
+}
+
+// The head at (hx, hy) px, drawn in the head's own frame: +x is
+// where it faces, +y its right.
+function drawFace(hx, hy, pose, look, headR, cell) {
+  const fine = cell >= FINE_DETAIL_PX;
+  const m = pose.mouth;
+  ctx.save();
+  ctx.translate(hx, hy);
+  ctx.rotate(pose.angle);
+
+  // Tongue, under the head: flicks out and back in, wagging fast.
+  if (pose.tongue >= 0) {
+    const out = Math.sin(Math.PI * pose.tongue);
+    const base = headR * 0.6;
+    const len = headR * 0.4 + cell * 0.42 * out; // from inside the head to the tip
+    ctx.save();
+    ctx.translate(base, 0);
+    ctx.rotate(Math.sin(pose.tongue * Math.PI * 6) * 0.4 * out);
+    ctx.strokeStyle = '#e53950';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(1, cell * 0.07);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(len, 0);
+    if (fine) {
+      const fork = cell * 0.13 * out;
+      ctx.moveTo(len + fork * Math.cos(0.6), -fork * Math.sin(0.6));
+      ctx.lineTo(len, 0);
+      ctx.lineTo(len + fork * Math.cos(0.6), fork * Math.sin(0.6));
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.fillStyle = look.color;
+  disc(0, 0, headR);
+
+  // Open mouth, a goofy ":D": a big half-disc jutting out of the front of
+  // the head, rimmed in the body color and dark inside. Its flat edge (the
+  // upper jaw) sits across the head, and the fangs hang from it.
+  if (m > 0) {
+    const x0 = headR * 0.38; // the flat edge, just in front of the eyes
+    const r = headR * 0.95 * m;
+    const rim = Math.max(1, headR * 0.16);
+    const half = (radius) => {
+      ctx.beginPath();
+      ctx.moveTo(x0, -radius);
+      ctx.arc(x0, 0, radius, -Math.PI / 2, Math.PI / 2);
+      ctx.closePath();
+      ctx.fill();
+    };
+    ctx.fillStyle = look.color;
+    half(r + rim);
+    ctx.fillStyle = darker(look.color, 0.55);
+    half(r);
+    if (fine) {
+      ctx.fillStyle = '#ffffff';
+      for (const k of [-1, 1]) {
+        const y = k * r * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(x0, y - r * 0.13);
+        ctx.lineTo(x0 + r * 0.3, y);
+        ctx.lineTo(x0, y + r * 0.13);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  // Nostrils, fading out as the mouth opens.
+  if (fine && m < 0.25) {
+    ctx.save();
+    ctx.globalAlpha *= 1 - m * 4;
+    ctx.fillStyle = look.dark;
+    for (const k of [-1, 1]) disc(headR * 0.66, k * headR * 0.2, Math.max(0.8, headR * 0.075));
+    ctx.restore();
+  }
+
+  // Eyes: big, on top of the head and poking out past its sides.
+  const eyeR = headR * 0.46;
+  // The look vector, turned into the head's frame.
+  const cos = Math.cos(-pose.angle);
+  const sin = Math.sin(-pose.angle);
+  const lx = pose.look.x * cos - pose.look.y * sin;
+  const ly = pose.look.x * sin + pose.look.y * cos;
+  for (const k of [-1, 1]) {
+    const ex = -headR * 0.12;
+    const ey = k * headR * 0.66;
+    ctx.fillStyle = '#ffffff';
+    disc(ex, ey, eyeR);
+    if (pose.dead) {
+      // X eyes.
+      const a = eyeR * 0.5;
+      ctx.strokeStyle = '#111111';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = Math.max(1, eyeR * 0.3);
+      ctx.beginPath();
+      ctx.moveTo(ex - a, ey - a);
+      ctx.lineTo(ex + a, ey + a);
+      ctx.moveTo(ex + a, ey - a);
+      ctx.lineTo(ex - a, ey + a);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#111111';
+      disc(ex + lx * eyeR * 0.4, ey + ly * eyeR * 0.4, eyeR * 0.55);
+      if (pose.blink > 0) {
+        // Eyelids in the darker body color, closing from the front and back.
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.fillStyle = look.dark;
+        const lid = eyeR * pose.blink * 1.02;
+        ctx.fillRect(ex - eyeR, ey - eyeR, lid, eyeR * 2);
+        ctx.fillRect(ex + eyeR - lid, ey - eyeR, lid, eyeR * 2);
+        ctx.restore();
+      }
+    }
+    ctx.lineWidth = Math.max(1, cell * 0.03);
+    ctx.strokeStyle = look.dark;
+    ctx.beginPath();
+    ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // The active timed effect: its icon in a small dark badge by the head, with
@@ -715,12 +997,13 @@ let tickAt = 0; // when the latest tick arrived
 let prevSnakes = new Map(); // id -> snake one tick before the latest
 let prevProjectiles = new Map(); // id -> projectile one tick before the latest
 const diedAt = new Map(); // id -> when it died (for the fade)
-let eaten = []; // { x, y, color, until, item? }
-let flights = []; // { x, y, id, color, start }: apples a magnet is pulling into a mouth
+let eaten = []; // { x, y, color, until, item?, sprite? }
+let flights = []; // { x, y, id, color, start, sprite }: apples a magnet is pulling into a mouth
+let fruits = new Map(); // "x,y" -> which fruit sprite the plain apple there is drawn as
 // Rats slide from cell to cell over the moveEveryTicks ticks a step takes.
 // facing: 1 = as the emoji is drawn (left), -1 = mirrored (right).
 let rats = new Map(); // id -> { from, to, start, ms, facing }
-let eatenRats = []; // { from, to, start, ms, facing, color }: sliding into the mouth that ate them
+let eatenRats = []; // { from, to, start, ms, facing, color, id }: sliding into the mouth that ate them
 const FLIGHT_MS = 200;
 
 // Small bright sparks, e.g. where a projectile ends.
@@ -775,6 +1058,15 @@ function onState(msg) {
       flights = [];
       rats = new Map();
       eatenRats = [];
+      anims.clear();
+    }
+    for (const id of anims.keys()) if (!s.snakes.some((x) => x.id === id)) anims.delete(id);
+    // Each plain apple keeps its fruit; a new one gets a random one.
+    const oldFruits = sameRound ? fruits : new Map();
+    fruits = new Map();
+    for (const a of s.apples) {
+      const k = `${a.x},${a.y}`;
+      fruits.set(k, oldFruits.get(k) ?? randomFruit());
     }
     const oldRats = rats;
     rats = new Map();
@@ -793,13 +1085,19 @@ function onState(msg) {
     };
     for (const ev of s.events ?? []) {
       if (ev.type === 'eat') {
+        // A swallow bump, once the food has visibly gone in (a bomb isn't food).
+        if (fx.snakeAnimations && ev.item !== 'bomb') {
+          const start = now + (ev.magnet ? FLIGHT_MS : msg.tickMs * EAT_AT);
+          animOf(ev.id, now).bumps.push({ start, size: ev.item === 'rat' ? 1.5 : ev.item ? 1.2 : 1 });
+        }
         // A bomb goes off at once (its x, y is the block's center).
-        if (ev.magnet) flights.push({ x: ev.x, y: ev.y, id: ev.id, color: colorOf(ev.id), start: now });
+        const fruit = ev.item ? undefined : oldFruits.get(`${ev.x},${ev.y}`);
+        if (ev.magnet) flights.push({ x: ev.x, y: ev.y, id: ev.id, color: colorOf(ev.id), start: now, sprite: fruit });
         else if (ev.item === 'rat') {
           // It slides on from wherever it was drawn into the head's cell.
           const old = oldRats.get(ev.ratId);
-          if (old) eatenRats.push({ ...ratStep(old, ev, s.gridSize, now, msg.tickMs * EAT_AT), color: colorOf(ev.id) });
-        } else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item });
+          if (old) eatenRats.push({ ...ratStep(old, ev, s.gridSize, now, msg.tickMs * EAT_AT), color: colorOf(ev.id), id: ev.ratId });
+        } else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item, sprite: fruit });
         if (ev.item === 'bomb') {
           if (fx.screenShake) shakeStart = now;
           if (fx.deathParticles) explosion(ev.x, ev.y, now);
@@ -847,8 +1145,23 @@ function drawBoard(msg, now, dt) {
   }
   eaten = eaten.filter((e) => !e.done);
   drawPortals(state.portals ?? [], cell, now);
-  drawItems(boardItems(state, now), cell, now);
+  const items = boardItems(state, now);
+  drawItems(items, cell, now);
   drawRats(cell, n, now, msg.effects);
+
+  // What the snake faces react to: food (not bombs) as drawn right now, and
+  // the other heads where they were last drawn.
+  const animate = Boolean(msg.effects?.snakeAnimations);
+  let frame = null;
+  if (animate) {
+    const food = items.filter((it) => it.type !== 'bomb');
+    for (const r of rats.values()) food.push(ratAt(r, now));
+    for (const r of eatenRats) food.push(ratAt(r, now));
+    const heads = new Map();
+    for (const [id, a] of anims) if (a.head) heads.set(id, a.head);
+    frame = { dt, tickMs: msg.tickMs, food, heads };
+  }
+  const animFor = (snake) => (animate ? animOf(snake.id, now) : null);
 
   const t = msg.tickMs > 0 ? clamp((now - tickAt) / msg.tickMs, 0, 1) : 1;
   const names = new Map(state.players.map((p) => [p.id, p.name]));
@@ -856,10 +1169,10 @@ function drawBoard(msg, now, dt) {
   const badges = [];
   const heads = new Map(); // id -> head center in pixels
   // Fading dead snakes first, so the living are drawn on top.
-  for (const s of state.snakes) if (!s.alive) drawSnake(s, null, 1, cell, n, now);
+  for (const s of state.snakes) if (!s.alive) drawSnake(s, null, 1, cell, n, now, animFor(s), frame);
   for (const s of state.snakes) {
     if (!s.alive) continue;
-    const head = drawSnake(s, prevSnakes.get(s.id), t, cell, n, now);
+    const head = drawSnake(s, prevSnakes.get(s.id), t, cell, n, now, animFor(s), frame);
     if (head) labels.push({ ...head, name: names.get(s.id) ?? '' });
     if (head) heads.set(s.id, head);
     if (head && s.effect) badges.push({ ...head, effect: s.effect });
@@ -894,9 +1207,9 @@ function ratStep(old, to, n, now, ms) {
   return { from, to: { x: to.x, y: to.y }, start: now, ms: Math.max(1, ms), facing };
 }
 
-function drawRat(x, y, facing, cell, n) {
+function drawRat(x, y, facing, cell, n, id) {
   const px = Math.max(1, Math.round(cell * 0.9));
-  const img = sprite('rat', px);
+  const img = sprite(ratSprite(id), px);
   // Partly off one edge (wrapping in): also drawn on the other side.
   const xs = [x, ...(x < 0 ? [x + n] : x > n - 1 ? [x - n] : [])];
   const ys = [y, ...(y < 0 ? [y + n] : y > n - 1 ? [y - n] : [])];
@@ -917,9 +1230,9 @@ function drawRat(x, y, facing, cell, n) {
 }
 
 function drawRats(cell, n, now, fx) {
-  for (const r of rats.values()) {
+  for (const [id, r] of rats) {
     const at = ratAt(r, now);
-    drawRat(at.x, at.y, r.facing, cell, n);
+    drawRat(at.x, at.y, r.facing, cell, n, id);
   }
   eatenRats = eatenRats.filter((r) => {
     if (now >= r.start + r.ms) {
@@ -927,7 +1240,7 @@ function drawRats(cell, n, now, fx) {
       return false;
     }
     const at = ratAt(r, now);
-    drawRat(at.x, at.y, r.facing, cell, n);
+    drawRat(at.x, at.y, r.facing, cell, n, r.id);
     return true;
   });
 }
@@ -954,7 +1267,7 @@ function drawFlights(heads, cell, n, now, fx) {
     ctx.save();
     ctx.translate((f.x + (tx - f.x) * k + 0.5) * cell, (f.y + (ty - f.y) * k + 0.5) * cell);
     ctx.scale(scale, scale);
-    drawItems([{ type: 'apple', x: -0.5, y: -0.5 }], cell, now);
+    drawItems([{ type: 'apple', sprite: f.sprite, x: -0.5, y: -0.5 }], cell, now);
     ctx.restore();
     return true;
   });

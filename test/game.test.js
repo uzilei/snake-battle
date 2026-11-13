@@ -676,17 +676,17 @@ describe('display effects toggles', () => {
     return { game, display, admin };
   };
 
-  test('all off by default, and the display gets them with the tick length', () => {
+  test('only the snake animations are on by default, and the display gets them with the tick length', () => {
     const { game, display } = setup();
     game.tickOnce();
     const msg = display.last('state');
-    assert.deepEqual(msg.effects, { deathParticles: false, appleRings: false, screenShake: false });
+    assert.deepEqual(msg.effects, { deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true });
     assert.equal(msg.tickMs, game.config.tickMs);
   });
 
   test('the admin turns each one on and off, live', () => {
     const { game, display, admin } = setup();
-    for (const key of ['deathParticles', 'appleRings', 'screenShake']) {
+    for (const key of ['deathParticles', 'appleRings', 'screenShake', 'snakeAnimations']) {
       admin.send({ t: 'settings', [key]: true });
       assert.equal(display.last('state').effects[key], true);
       admin.send({ t: 'settings', [key]: false });
@@ -702,6 +702,12 @@ describe('display effects toggles', () => {
       assert.equal(admin.last('error').code, 'badMessage');
     }
     assert.equal(game.settings.screenShake, false);
+  });
+
+  test('a settings.json saved before the snake animations existed keeps them on', () => {
+    const game = createGame({ log: quiet, savedSettings: { config: {}, settings: { deathParticles: true } } });
+    assert.equal(game.settings.deathParticles, true);
+    assert.equal(game.settings.snakeAnimations, true);
   });
 
   test('effects are not open to non-admin clients', () => {

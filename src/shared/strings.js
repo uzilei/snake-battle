@@ -143,6 +143,7 @@ export const STRINGS = Object.freeze({
     deathParticles: 'Esplosione di particelle quando un serpente muore',
     appleRings: 'Anello quando si mangia una mela',
     screenShake: 'Scossa dello schermo negli scontri frontali',
+    snakeAnimations: 'Animazioni dei serpenti (sguardo, battito di ciglia, lingua, bocca, boccone che scende)',
     rules: 'Regole',
     rulesHint: 'Le modifiche valgono dal prossimo round.',
     corpseApples: 'I serpenti morti diventano mele',

@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildChains, snakePath, pointAt, subPath, smoothPointAt, smoothSubPath } from '../src/shared/snake-path.js';
+import { buildChains, snakePath, pointAt, subPath, smoothPointAt, smoothSubPath, travelDirAt, turnProgress } from '../src/shared/snake-path.js';
 
 const cells = (list) => list.map(([x, y]) => ({ x, y }));
 const snake = (list) => ({ segments: cells(list) });
@@ -245,5 +245,121 @@ describe('rounded corners (stripes)', () => {
     const [a, b] = buildChains(cells([[0, 4], [9, 4], [8, 4]]), N);
     assert.deepEqual(smoothSubPath(a, 0, 1).map((p) => [p.x, p.y]).at(-1), [-1, 4]);
     assert.ok(smoothSubPath(b, 0, 2).every((p) => p.y === 4));
+  });
+});
+
+describe("direction of travel (the head's heading)", () => {
+  test('a head that just turned faces the new way from the start of the tick', () => {
+    // Was going right along y = 3, turned up at (3, 3).
+    const prev = snake([[3, 3], [2, 3], [1, 3]]);
+    const cur = snake([[3, 2], [3, 3], [2, 3]]);
+    for (const t of [0, 0.3, 1]) {
+      const { chains, front } = snakePath(cur, prev, t, N);
+      assert.deepEqual(travelDirAt(chains, front), { x: 0, y: -1 });
+    }
+    // Further back the body still travels right.
+    const { chains } = snakePath(cur, prev, 0.5, N);
+    assert.deepEqual(travelDirAt(chains, 1.5), { x: 1, y: 0 });
+  });
+
+  test('golden: still the old way while on the first cell, the new way after the corner', () => {
+    // Two cells right, then the turn: (3, 3) -> (4, 3) -> (4, 2).
+    const prev = snake([[3, 3], [2, 3], [1, 3], [0, 3]]);
+    const cur = snake([[4, 2], [4, 3], [3, 3], [2, 3]]);
+    const at = (t) => {
+      const { chains, front } = snakePath(cur, prev, t, N);
+      return travelDirAt(chains, front);
+    };
+    assert.deepEqual(at(0.05), { x: 1, y: 0 }); // early: the head leads on a turning tick
+    assert.deepEqual(at(0.75), { x: 0, y: -1 });
+  });
+
+  test('across a wrap, and nothing for a single point', () => {
+    const chains = buildChains(cells([[0, 4], [9, 4], [8, 4]]), N);
+    for (const u of [0, 0.5, 1, 1.5]) assert.deepEqual(travelDirAt(chains, u), { x: 1, y: 0 });
+    assert.equal(travelDirAt(buildChains(cells([[2, 2]]), N), 0), null);
+    assert.equal(travelDirAt(chains, 5), null);
+  });
+});
+
+describe('snappier turns: the head runs ahead on a turning tick', () => {
+  const TS = [0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1];
+  const plain = (cur, prev, t) => {
+    // What the head would do with the plain slide: every other segment.
+    const { segU } = snakePath(cur, prev, t, N);
+    return segU.slice(1);
+  };
+
+  test('the curve: from 0 to 1, never backwards, more than halfway by 30% of the tick', () => {
+    assert.equal(turnProgress(0), 0);
+    assert.ok(Math.abs(turnProgress(1) - 1) < 1e-12);
+    assert.ok(turnProgress(0.3) >= 0.5);
+    let last = -1;
+    for (let i = 0; i <= 200; i++) {
+      const v = turnProgress(i / 200);
+      assert.ok(v >= last - 1e-12);
+      last = v;
+    }
+  });
+
+  test('a turn: the head leads, lands on time, and the rest of the body is untouched', () => {
+    const prev = snake([[3, 3], [2, 3], [1, 3], [0, 3]]);
+    const cur = snake([[3, 2], [3, 3], [2, 3], [1, 3]]);
+    for (const t of TS) {
+      const path = snakePath(cur, prev, t, N);
+      assert.ok(Math.abs(path.front - (1 - turnProgress(t))) < 1e-12);
+      assert.deepEqual(path.segU.slice(1), plain(cur, prev, t));
+      assertDrawable(path);
+    }
+    assert.equal(snakePath(cur, prev, 0, N).front, 1);
+    assert.equal(snakePath(cur, prev, 1, N).front, 0);
+    assert.ok(snakePath(cur, prev, 0.3, N).front <= 0.5);
+  });
+
+  test('straight on: the plain slide, exactly as before', () => {
+    const prev = snake([[3, 3], [2, 3], [1, 3]]);
+    const cur = snake([[4, 3], [3, 3], [2, 3]]);
+    for (const t of TS) assert.equal(snakePath(cur, prev, t, N).front, 1 - t);
+  });
+
+  test('golden: a corner at either cell of a two-cell move counts', () => {
+    const prev = snake([[3, 3], [2, 3], [1, 3], [0, 3]]);
+    const lateTurn = snake([[4, 2], [4, 3], [3, 3], [2, 3]]); // right, then up
+    const earlyTurn = snake([[3, 1], [3, 2], [3, 3], [2, 3]]); // up at once
+    const straight = snake([[5, 3], [4, 3], [3, 3], [2, 3]]);
+    for (const t of TS) {
+      for (const cur of [lateTurn, earlyTurn]) {
+        const path = snakePath(cur, prev, t, N);
+        assert.ok(Math.abs(path.front - 2 * (1 - turnProgress(t))) < 1e-12);
+        assertDrawable(path);
+      }
+      assert.equal(snakePath(straight, prev, t, N).front, 2 * (1 - t));
+    }
+  });
+
+  test('turning while it grows, and across a wrap', () => {
+    // Grew: the tail stays, the head turns.
+    const prev = snake([[3, 3], [2, 3], [1, 3]]);
+    const grown = snake([[3, 4], [3, 3], [2, 3], [1, 3]]);
+    // Wrapped off the right edge at y = 3 and turned down straight after.
+    const wPrev = snake([[0, 3], [9, 3], [8, 3]]);
+    const wCur = snake([[0, 4], [0, 3], [9, 3]]);
+    for (const t of TS) {
+      for (const [cur, old] of [[grown, prev], [wCur, wPrev]]) {
+        const path = snakePath(cur, old, t, N);
+        assert.ok(Math.abs(path.front - (1 - turnProgress(t))) < 1e-12);
+        assertDrawable(path);
+      }
+    }
+    // Going straight across the wrap is a plain slide.
+    const sCur = snake([[1, 3], [0, 3], [9, 3]]);
+    assert.equal(snakePath(sCur, wPrev, 0.2, N).front, 0.8);
+  });
+
+  test('no lead without movement or for a one-cell snake', () => {
+    const one = snake([[3, 3]]);
+    assert.equal(snakePath(snake([[3, 2]]), one, 0.2, N).front, 0.8);
+    const still = snake([[3, 2], [3, 3], [2, 3]]);
+    assert.equal(snakePath(still, still, 0.2, N).front, 0);
   });
 });

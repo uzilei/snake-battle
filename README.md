@@ -46,6 +46,10 @@ Everything set on /admin (sliders, game rules, win conditions, side panel, globa
 
 The /display effects (particles when a snake dies, a ring when an apple is eaten, a screen shake on head-on collisions) are also /admin toggles, off by default. They are purely visual and apply immediately.
 
+Snakes always have big eyes. The snake animations are on by default (turn them off on /admin if they hurt readability or speed): the eyes blink every few seconds and look at the nearest food or snake head within 4 cells, a forked tongue flicks out now and then, the mouth opens in a wide grin (with fangs) when food is up to 3 cells straight ahead, and a bump runs from the head to the tail after each bite. Dead snakes get X eyes while they fade. With the animations off the eyes just look ahead. Every snake has its own random timers. When a snake turns, its head swings round within about the first third of the tick. All of this is worked out on /display and changes nothing in the game.
+
+Apples are drawn as a random fruit (🍏🍎🍐🍊🍋🍉🍇🍓🫐🍈🍒🍑🥭🍍🍅🥑), picked when the apple appears and kept until it's eaten. Every fruit is a normal apple.
+
 With "Mouse e pulsanti ← →" enabled on /admin (off by default), /display shows the mouse cursor (it hides after a few seconds without movement) and, when the side column isn't on "Automatica", buttons in its bottom corners that switch to the previous or next panel. Any device that opens /display can press them while the toggle is on.
 
 At startup the server prints the URLs for `/display`, `/play`, `/admin` and `/admin/print`.
@@ -82,7 +86,7 @@ Rare food that runs away. A new apple becomes a rat with the "topo" probability 
 - **Movement:** one cell every second tick (half a snake's speed), straight on. It picks a random new direction after 2–20 ticks, or straight away when the next cell is a wall, a snake, a bomb, a portal end, an item or another rat. Walls wrap when "Bordi attraversabili" is on, and rats ignore portals. A rat never turns back to the cell it just left unless that's the only way out. Boxed in, it stays put. Rats move at the start of a tick, before the snakes.
 - **Eating:** a head entering the rat's cell eats it. So does a rat running into the cell a head is entering, or out of it in that same move, so it can never slip past a head. Ghosts eat rats too. A rat grows the snake by 4 × "Crescita per mela" and is replaced like an apple.
 - **Not affected:** the magnet doesn't pull rats. A projectile (or a gun fired right next to one) kills a rat. The rat just disappears, and nobody gets a kill.
-- **/display:** rats slide smoothly between cells. The sprite is never rotated: it's mirrored while running right, and keeps its last left/right look while running up or down.
+- **/display:** each rat is drawn as 🐀 or 🐁 (fixed per rat, purely visual). Rats slide smoothly between cells. The sprite is never rotated: it's mirrored while running right, and keeps its last left/right look while running up or down.
 
 Rules and numbers live in `src/shared/rats.js`; the engine's `moveRats` does the movement.
 

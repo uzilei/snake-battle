@@ -73,6 +73,7 @@ const RULE_TOGGLES = {
   deathParticles: 'settings',
   appleRings: 'settings',
   screenShake: 'settings',
+  snakeAnimations: 'settings',
 };
 for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
   $(`l-${key}`).textContent = A[key];

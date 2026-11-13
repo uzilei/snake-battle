@@ -90,7 +90,49 @@ export function snakePath(cur, prev, t, gridSize) {
     for (let i = j; slides && i < j + by; i++) slides = linked(i);
     segU[j] = slides ? j + by * (1 - Math.min(1, Math.max(0, t))) : j;
   }
+  // Snappier turns: on a tick where the head goes round a corner, the head
+  // alone runs ahead early and then slides on to land exactly on time. The
+  // rest of the body keeps the plain slide, so only the neck stretches a
+  // little (in the base color, between the head and the first stripe).
+  if (n > 1 && k > 0 && turnsWithin(cells, k, gridSize)) {
+    segU[0] = k * (1 - turnProgress(Math.min(1, Math.max(0, t))));
+  }
   return { chains, front: segU[0] ?? 0, back: segU[n - 1] ?? 0, segU };
+}
+
+// Unit step from cell b to the next cell a, across a wrap too.
+function stepDir(a, b, gridSize) {
+  const w = wrapStep(a, b, gridSize);
+  return w ?? { x: a.x - b.x, y: a.y - b.y };
+}
+
+// Whether the head's path this tick (the k cells it moved through, plus the
+// leg it arrived on) has a corner.
+function turnsWithin(cells, k, gridSize) {
+  if (cells.length < k + 2) return false;
+  let prev = null;
+  for (let i = k; i >= 0; i--) {
+    if (!adjacent(cells[i], cells[i + 1]) && !wrapStep(cells[i], cells[i + 1], gridSize)) return false; // a jump
+    const d = stepDir(cells[i], cells[i + 1], gridSize);
+    if (prev && (d.x !== prev.x || d.y !== prev.y)) return true;
+    prev = d;
+  }
+  return false;
+}
+
+// How far along its move the head is at fraction t of a turning tick:
+// TURN_LEAD of the way by t = TURN_PHASE (a fast start that eases into the
+// following speed), then linear to 1 at t = 1.
+const TURN_PHASE = 0.3;
+const TURN_LEAD = 0.55;
+export function turnProgress(t) {
+  const late = (1 - TURN_LEAD) / (1 - TURN_PHASE); // speed after the fast part
+  if (t >= TURN_PHASE) return TURN_LEAD + (t - TURN_PHASE) * late;
+  // Cubic Hermite from (0, 0) at speed 3 to (TURN_PHASE, TURN_LEAD) at `late`.
+  const s = t / TURN_PHASE;
+  const m0 = 3 * TURN_PHASE;
+  const m1 = late * TURN_PHASE;
+  return (s ** 3 - 2 * s ** 2 + s) * m0 + (-2 * s ** 3 + 3 * s ** 2) * TURN_LEAD + (s ** 3 - s ** 2) * m1;
 }
 
 // How many cells the snake moved since `old`: 0 (dead, frozen or no
@@ -112,6 +154,23 @@ export function pointAt(chain, u) {
   const b = chain[i + 1];
   const f = u - a.u;
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+}
+
+/**
+ * Which way a point at position u is travelling (towards smaller u, i.e. the
+ * way the head goes) as a unit grid step, or null if no chain holds u or the
+ * chain is a single point. Exactly on a corner it's the leg ahead: the head
+ * turns the moment it leaves the corner cell. On a golden two-cell move this
+ * is the leg the head is on now, which may still be the old direction.
+ */
+export function travelDirAt(chains, u) {
+  for (const chain of chains) {
+    const first = chain[0].u;
+    if (chain.length < 2 || u < first || u > chain[chain.length - 1].u) continue;
+    const i = Math.min(chain.length - 2, Math.max(0, Math.ceil(u - first) - 1));
+    return { x: chain[i].x - chain[i + 1].x, y: chain[i].y - chain[i + 1].y };
+  }
+  return null;
 }
 
 // ---- rounded corners (for the stripes) ----

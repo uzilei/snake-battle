@@ -19,7 +19,10 @@ export const SIDE_PANEL_MODES = Object.freeze(['auto', 'leaderboard', 'records',
 export const LEADERBOARD_STATS = Object.freeze(['auto', ...RECORD_STATS]);
 const RESET_TARGETS = Object.freeze([...RECORD_STATS, 'all']);
 // Cosmetic /display effects: applied live, no effect on the game itself.
-export const EFFECT_SETTINGS = Object.freeze(['deathParticles', 'appleRings', 'screenShake']);
+// Each with its default: the snake animations (eyes, blinking, tongue, mouth,
+// swallow bumps) are on unless the admin turns them off.
+const EFFECT_DEFAULTS = Object.freeze({ deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true });
+export const EFFECT_SETTINGS = Object.freeze(Object.keys(EFFECT_DEFAULTS));
 export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
 const SELF = 'self';
 export { MAX_NAME_LENGTH, nameKey };
@@ -116,7 +119,7 @@ const defaultSettings = () => ({
   leaderboard: false, // global leaderboard: recorded and shown on /display
   leaderboardStat: 'auto', // applies immediately, like sidePanel
   displayButtons: false, // mouse cursor and side panel buttons on /display
-  ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, false])),
+  ...EFFECT_DEFAULTS,
 });
 
 export function createGame({

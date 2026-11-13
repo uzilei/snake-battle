@@ -3,6 +3,7 @@
 
 export const RAT_RULES = Object.freeze({
   twemoji: '1f400', // 🐀, faces left
+  mouseTwemoji: '1f401', // 🐁, also faces left: /display draws each rat as one of the two
   moveEveryTicks: 2, // half the speed of a snake
   // A fresh random direction after this many ticks (both included), or at
   // once when the way ahead is blocked.
