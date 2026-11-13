@@ -5,6 +5,7 @@
 // setDirection(id, dir); time advances only via tick().
 
 import { WEIGHTED_POWER_UPS, POWER_UP_TYPES, POWER_UP_RULES, weightKey } from './shared/powerups.js';
+import { RAT_RULES } from './shared/rats.js';
 
 export const DIRECTIONS = Object.freeze({
   up: Object.freeze({ x: 0, y: -1 }),
@@ -33,6 +34,9 @@ export const CONFIG_LIMITS = Object.freeze({
   tickMs: { min: 50, max: 300, default: 200 },
   appleCount: { min: 0, max: 30, default: 3 },
   growthPerApple: { min: 1, max: 10, default: 1 },
+  // % of new apples that are a rat instead (0 = no rats). Read live, and
+  // independent of the powerUps toggle.
+  ratChance: { min: 0, max: 100, default: 3 },
   maxPlayers: { min: 1, max: 24, default: 24 },
   gridSize: { min: 10, max: 80, default: 30 },
   intermissionMs: { min: 0, max: 30000, default: 4000 },
@@ -116,9 +120,10 @@ export function createEngine({ config, random = Math.random } = {}) {
   let win = lockWin(); // the numbers behind rules.timeLimitWin / targetLengthWin
   let playingElapsed = 0; // ms of PLAYING ticks this round, for the time limit
   let endReason = null; // why the last round ended: 'lastAlive' | 'time' | 'target'
-  // Board items. Apples and power-ups ({ x, y, type }) share one list in
-  // spawn order. Regular ones count toward cfg.appleCount; extras (corpse:
-  // dead or cut snakes, feast: the feast power-up) come on top of it.
+  // Board items. Apples, power-ups ({ x, y, type }) and rats ({ x, y,
+  // type: 'rat', id, dir, ... }, see moveRats) share one list in spawn order.
+  // Regular ones count toward cfg.appleCount; extras (corpse: dead or cut
+  // snakes, feast: the feast power-up) come on top of it.
   let apples = [];
   let bombs = []; // { x, y, remainingMs, since }: (x, y) is the center of a 3x3 block; on top of appleCount, despawn
   let projectiles = []; // { id, x, y, dir, ownerId }
@@ -296,7 +301,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // Keeps the apple count in line with cfg.appleCount (applies live).
-  // Power-ups take an apple's place and count toward it. Extra apples count
+  // Power-ups and rats take an apple's place and count toward it. Extra apples count
   // towards the total too, so no new apple spawns while the board already
   // holds appleCount or more. Lowering appleCount trims the newest regular
   // items (apples or power-ups) down to it; extras are never removed.
@@ -313,10 +318,37 @@ export function createEngine({ config, random = Math.random } = {}) {
     while (apples.length < cfg.appleCount) {
       const apple = spawnApple(occupied);
       if (!apple) break;
-      const type = rollPowerUp();
-      apples.push(type ? { ...apple, type } : apple);
+      if (rollRat()) apples.push(newRat(apple));
+      else {
+        const type = rollPowerUp();
+        apples.push(type ? { ...apple, type } : apple);
+      }
       occupied.add(cellKey(apple.x, apple.y));
     }
+  }
+
+  // Whether a spawning apple becomes a rat. Rolled before the power-up; at
+  // 0% it draws no random number, so games without rats play out as before.
+  function rollRat() {
+    return cfg.ratChance > 0 && random() * 100 < cfg.ratChance;
+  }
+
+  const ratTurnIn = () => RAT_RULES.turnMinTicks + randInt(RAT_RULES.turnMaxTicks - RAT_RULES.turnMinTicks + 1);
+
+  // A rat on (x, y), facing a random way. It first moves moveEveryTicks
+  // after it appears.
+  function newRat({ x, y }, dir = Object.keys(DIRECTIONS)[randInt(4)]) {
+    return {
+      x,
+      y,
+      type: 'rat',
+      id: nextObjectId++,
+      dir,
+      from: null, // the cell it last moved off, so it doesn't turn straight back
+      left: null, // the cell it left during the current sub-step, if any
+      moveAt: tickCount + RAT_RULES.moveEveryTicks,
+      turnAt: tickCount + ratTurnIn(),
+    };
   }
 
   // Whether a spawning apple becomes a power-up, and which one: null, or a
@@ -479,8 +511,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     // A frozen snake sits out every odd tick, golden or not.
     const first = alive.filter((p) => !(tickCount % 2 === 1 && isFrozen(p)));
     const second = first.filter((p) => effectOf(p, 'golden'));
-    substep(first);
-    substep(second.filter((p) => p.status === 'alive'));
+    substep(first, true);
+    substep(second.filter((p) => p.status === 'alive'), false);
     magnetEat();
     countDown();
     spawnBombs();
@@ -625,6 +657,11 @@ export function createEngine({ config, random = Math.random } = {}) {
         for (const t of targets) shot(t, p.id);
         return;
       }
+      const rat = ratHitBy(x, y);
+      if (rat !== -1) {
+        apples.splice(rat, 1);
+        return events.push({ type: 'projectileEnd', x, y, hit: true });
+      }
       const other = projectiles.findIndex((o) => o.x === x && o.y === y);
       if (other !== -1) {
         projectiles.splice(other, 1);
@@ -756,7 +793,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // Magnet: after the moves, every fruit (a regular or extra apple, not a
-  // power-up or bomb) within magnetRadius of a magnet head flies straight to
+  // power-up, rat or bomb) within magnetRadius of a magnet head flies straight to
   // it and is eaten, exactly like an apple the head ran into: growth, an
   // 'eat' event (with magnet: true and where the apple was, for /display's
   // flight), and a replacement spawns as usual. Nothing on the way stops it.
@@ -795,10 +832,66 @@ export function createEngine({ config, random = Math.random } = {}) {
     return body.some((c) => c.x === cell.x && c.y === cell.y);
   }
 
+  // ---- rats ----
+  // Every moveEveryTicks ticks a rat runs one cell on, at the start of the
+  // tick's first sub-step (before the snakes, against the board as it is).
+  // It picks a fresh random direction when its timer (turnMinTicks to
+  // turnMaxTicks) runs out, or at once when the cell ahead is a wall (it
+  // wraps when walls do), a snake, a bomb, a portal end, an item or another
+  // rat. It never turns back to the cell it just left unless that's the only
+  // way out, and it stays put when boxed in. Portals mean nothing to it.
+  //
+  // Eating happens in the snakes' item check: a rat that runs into the cell
+  // a head is entering is eaten, and so is one leaving the cell a head is
+  // entering (r.left), so it can never slip past a head.
+  function moveRats() {
+    const rats = apples.filter((a) => a.type === 'rat');
+    if (!rats.length) return;
+    const blocked = occupiedCells(); // includes every rat, kept current below
+    for (const r of rats) {
+      if (tickCount < r.moveAt) continue;
+      r.moveAt = tickCount + RAT_RULES.moveEveryTicks;
+      const options = Object.keys(DIRECTIONS)
+        .map((dir) => ({ dir, cell: nextCell(r, dir) }))
+        .filter(({ cell }) => inBounds(cell.x, cell.y) && !blocked.has(cellKey(cell.x, cell.y)));
+      let pick = tickCount < r.turnAt ? options.find((o) => o.dir === r.dir) : null;
+      if (!pick) {
+        r.turnAt = tickCount + ratTurnIn();
+        const onward = options.filter(({ cell }) => !(r.from && cell.x === r.from.x && cell.y === r.from.y));
+        const pool = onward.length ? onward : options;
+        if (!pool.length) continue; // boxed in
+        pick = pool[randInt(pool.length)];
+      }
+      // The cell it leaves stays blocked for the other rats this sub-step:
+      // a head entering it still catches this one.
+      r.from = r.left = { x: r.x, y: r.y };
+      r.x = pick.cell.x;
+      r.y = pick.cell.y;
+      r.dir = pick.dir;
+      blocked.add(cellKey(r.x, r.y));
+    }
+  }
+
+  // The item a head entering (x, y) eats: the one on it, or a rat that just
+  // ran off it.
+  function itemAt(x, y) {
+    const i = apples.findIndex((a) => a.x === x && a.y === y);
+    return i !== -1 ? i : apples.findIndex((a) => a.left && a.left.x === x && a.left.y === y);
+  }
+
+  // A projectile entering (x, y) hits a rat on (x, y), or one that just ran
+  // off it (which includes swapping places with the projectile).
+  function ratHitBy(x, y) {
+    const on = (c) => c && c.x === x && c.y === y;
+    return apples.findIndex((a) => a.type === 'rat' && (on(a) || on(a.left)));
+  }
+
   // ---- one sub-step ----
 
-  function substep(movers) {
+  function substep(movers, ratsMove) {
     fallen = [];
+    for (const a of apples) if (a.type === 'rat') a.left = null;
+    if (ratsMove) moveRats();
     const moves = movers.map((p) => {
       const s = p.snake;
       if (s.dirQueue.length) {
@@ -893,7 +986,15 @@ export function createEngine({ config, random = Math.random } = {}) {
         const swap = m.head.x === n.x && m.head.y === n.y && m.newHead.x === n.pr.x && m.newHead.y === n.pr.y;
         if (into || swap) hit.add(m.player);
       }
-      if (!hit.size) continue;
+      if (!hit.size) {
+        // A rat in the way simply dies (no kill credit).
+        const r = ratHitBy(n.x, n.y);
+        if (r === -1) continue;
+        apples.splice(r, 1);
+        gone.add(n.pr);
+        events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true });
+        continue;
+      }
       gone.add(n.pr);
       events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true });
       for (const p of hit) if (!shooterOf.has(p)) shooterOf.set(p, n.pr.ownerId);
@@ -998,18 +1099,24 @@ export function createEngine({ config, random = Math.random } = {}) {
       else removeSegments(target.snake.segments.splice(index));
     }
 
-    // Items: eaten by surviving heads. A power-up grows the snake like an
-    // apple, then takes effect. A head entering any cell of a bomb sets it
+    // Items: eaten by surviving heads (ghosts too). A power-up grows the
+    // snake like an apple, then takes effect; a rat is worth
+    // growthMultiplier apples. A head entering any cell of a bomb sets it
     // off (a ghost passes through); it doesn't grow the snake.
     for (const m of moves) {
       if (dead.has(m) || m.player.status !== 'alive') continue;
       const { x, y } = m.newHead;
-      const i = apples.findIndex((a) => a.x === x && a.y === y);
+      const i = itemAt(x, y);
       if (i !== -1) {
         const [item] = apples.splice(i, 1);
-        m.snake.pendingGrowth += cfg.growthPerApple;
-        events.push(item.type ? { type: 'eat', id: m.player.id, x, y, item: item.type } : { type: 'eat', id: m.player.id, x, y });
-        if (item.type) pickUp(m.player, item.type);
+        if (item.type === 'rat') {
+          m.snake.pendingGrowth += cfg.growthPerApple * RAT_RULES.growthMultiplier;
+          events.push({ type: 'eat', id: m.player.id, x, y, item: 'rat', ratId: item.id });
+        } else {
+          m.snake.pendingGrowth += cfg.growthPerApple;
+          events.push(item.type ? { type: 'eat', id: m.player.id, x, y, item: item.type } : { type: 'eat', id: m.player.id, x, y });
+          if (item.type) pickUp(m.player, item.type);
+        }
       }
       if (m.player.status !== 'alive' || isGhost(m.player)) continue;
       const b = bombs.findIndex((o) => bombCovers(o, x, y));
@@ -1134,7 +1241,8 @@ export function createEngine({ config, random = Math.random } = {}) {
       apples: apples
         .filter((a) => !a.type)
         .map((a) => (a.corpse ? { x: a.x, y: a.y, corpse: true } : a.feast ? { x: a.x, y: a.y, feast: true } : { x: a.x, y: a.y })),
-      powerUps: apples.filter((a) => a.type).map((a) => ({ x: a.x, y: a.y, type: a.type })),
+      powerUps: apples.filter((a) => a.type && a.type !== 'rat').map((a) => ({ x: a.x, y: a.y, type: a.type })),
+      rats: apples.filter((a) => a.type === 'rat').map((a) => ({ id: a.id, x: a.x, y: a.y, dir: a.dir })),
       bombs: bombs.map((b) => ({ x: b.x, y: b.y, remainingMs: b.remainingMs })),
       projectiles: projectiles.map((p) => ({ id: p.id, x: p.x, y: p.y, dir: p.dir, ownerId: p.ownerId })),
       portals: portals.map((p) => ({ id: p.id, ends: p.ends.map((c) => ({ x: c.x, y: c.y })), remainingMs: p.remainingMs })),
@@ -1202,6 +1310,13 @@ export function createEngine({ config, random = Math.random } = {}) {
     addPowerUps(list) {
       for (const [x, y, type] of list) apples.push({ x, y, type });
     },
+    // Adds a rat facing `dir` that next moves on tick `moveAt` (default: the
+    // next tick) and keeps going straight until tick `turnAt`, when free.
+    addRat([x, y], dir, { moveAt = tickCount + 1, turnAt = tickCount + 1000 } = {}) {
+      apples.push({ ...newRat({ x, y }, dir), moveAt, turnAt });
+    },
+    // Rat internals, for the movement tests.
+    rats: () => apples.filter((a) => a.type === 'rat').map((a) => ({ ...a })),
     addPortal([ax, ay], [bx, by], remainingMs = POWER_UP_RULES.portalLifetimeMs) {
       portals.push({ id: nextObjectId++, ends: [{ x: ax, y: ay }, { x: bx, y: by }], remainingMs, since: tickCount });
     },

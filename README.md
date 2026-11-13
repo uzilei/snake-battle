@@ -75,6 +75,17 @@ Segments removed from a living snake (the part scissors cut off) become apples w
 
 To add a power-up: an entry in `src/shared/powerups.js` (its weight slider, /admin label and sprite are generated from it), its effect in the engine's `EFFECTS` table, and its Italian name in `STRINGS.admin.powerUpNames`. A test checks all three are there.
 
+## Rats 🐀
+
+Rare food that runs away. A new apple becomes a rat with the "topo" probability on /admin (3% by default, 0 = never). That setting applies at once and doesn't depend on the power-up switch. Rats take an apple's place and count toward the number of apples.
+
+- **Movement:** one cell every second tick (half a snake's speed), straight on. It picks a random new direction after 2–20 ticks, or straight away when the next cell is a wall, a snake, a bomb, a portal end, an item or another rat. Walls wrap when "Bordi attraversabili" is on, and rats ignore portals. A rat never turns back to the cell it just left unless that's the only way out. Boxed in, it stays put. Rats move at the start of a tick, before the snakes.
+- **Eating:** a head entering the rat's cell eats it. So does a rat running into the cell a head is entering, or out of it in that same move, so it can never slip past a head. Ghosts eat rats too. A rat grows the snake by 4 × "Crescita per mela" and is replaced like an apple.
+- **Not affected:** the magnet doesn't pull rats. A projectile (or a gun fired right next to one) kills a rat. The rat just disappears, and nobody gets a kill.
+- **/display:** rats slide smoothly between cells. The sprite is never rotated: it's mirrored while running right, and keeps its last left/right look while running up or down.
+
+Rules and numbers live in `src/shared/rats.js`; the engine's `moveRats` does the movement.
+
 ## Pages
 
 - `/display`: fullscreen view for the monitor. Double-click to toggle fullscreen. When "keyboard players" is enabled on /admin, WASD and the arrow keys control two local players.

@@ -119,6 +119,7 @@ export const STRINGS = Object.freeze({
     tickMs: 'Velocità (ms per passo, meno = più veloce)',
     appleCount: 'Numero di mele',
     growthPerApple: 'Crescita per mela',
+    ratChance: 'Probabilità che una nuova mela sia un topo 🐀 che scappa e vale 4 mele (%, 0 = mai)',
     maxPlayers: 'Giocatori massimi',
     gridSize: 'Dimensione griglia (dal prossimo round)',
     intermissionMs: 'Pausa tra i round (ms)',

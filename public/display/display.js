@@ -5,6 +5,7 @@ import { STRINGS, fmt } from '/shared/strings.js';
 import { playerColor } from '/shared/colors.js';
 import { snakePath, pointAt, subPath, smoothSubPath } from '/shared/snake-path.js';
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
+import { RAT_RULES } from '/shared/rats.js';
 
 const T = STRINGS.display;
 const $ = (id) => document.getElementById(id);
@@ -35,6 +36,7 @@ function loadImage(src) {
 const ITEM_IMAGES = {
   apple: loadImage('/twemoji/1f34e.svg'), // 🍎
   ...Object.fromEntries(POWER_UPS.map((p) => [p.type, loadImage(`/twemoji/${p.twemoji}.svg`)])),
+  rat: loadImage(`/twemoji/${RAT_RULES.twemoji}.svg`),
 };
 
 // ---- state ------------------------------------------------------------------------
@@ -715,6 +717,10 @@ let prevProjectiles = new Map(); // id -> projectile one tick before the latest
 const diedAt = new Map(); // id -> when it died (for the fade)
 let eaten = []; // { x, y, color, until, item? }
 let flights = []; // { x, y, id, color, start }: apples a magnet is pulling into a mouth
+// Rats slide from cell to cell over the moveEveryTicks ticks a step takes.
+// facing: 1 = as the emoji is drawn (left), -1 = mirrored (right).
+let rats = new Map(); // id -> { from, to, start, ms, facing }
+let eatenRats = []; // { from, to, start, ms, facing, color }: sliding into the mouth that ate them
 const FLIGHT_MS = 200;
 
 // Small bright sparks, e.g. where a projectile ends.
@@ -767,6 +773,16 @@ function onState(msg) {
       diedAt.clear();
       eaten = [];
       flights = [];
+      rats = new Map();
+      eatenRats = [];
+    }
+    const oldRats = rats;
+    rats = new Map();
+    for (const r of s.rats ?? []) {
+      const old = oldRats.get(r.id);
+      if (!old) rats.set(r.id, { from: r, to: r, start: now, ms: 1, facing: r.dir === 'right' ? -1 : 1 });
+      else if (old.to.x === r.x && old.to.y === r.y) rats.set(r.id, old);
+      else rats.set(r.id, ratStep(old, r, s.gridSize, now, msg.tickMs * RAT_RULES.moveEveryTicks));
     }
     tickKey = key;
     tickAt = now;
@@ -779,7 +795,11 @@ function onState(msg) {
       if (ev.type === 'eat') {
         // A bomb goes off at once (its x, y is the block's center).
         if (ev.magnet) flights.push({ x: ev.x, y: ev.y, id: ev.id, color: colorOf(ev.id), start: now });
-        else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item });
+        else if (ev.item === 'rat') {
+          // It slides on from wherever it was drawn into the head's cell.
+          const old = oldRats.get(ev.ratId);
+          if (old) eatenRats.push({ ...ratStep(old, ev, s.gridSize, now, msg.tickMs * EAT_AT), color: colorOf(ev.id) });
+        } else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item });
         if (ev.item === 'bomb') {
           if (fx.screenShake) shakeStart = now;
           if (fx.deathParticles) explosion(ev.x, ev.y, now);
@@ -828,6 +848,7 @@ function drawBoard(msg, now, dt) {
   eaten = eaten.filter((e) => !e.done);
   drawPortals(state.portals ?? [], cell, now);
   drawItems(boardItems(state, now), cell, now);
+  drawRats(cell, n, now, msg.effects);
 
   const t = msg.tickMs > 0 ? clamp((now - tickAt) / msg.tickMs, 0, 1) : 1;
   const names = new Map(state.players.map((p) => [p.id, p.name]));
@@ -849,6 +870,66 @@ function drawBoard(msg, now, dt) {
   drawEffectBadges(badges, cell, now);
   drawNames(labels, cell, size);
   applyShake(now);
+}
+
+// ---- rats ----
+// Where a rat sliding from -> to is drawn at `now`, in cells.
+function ratAt(r, now) {
+  const k = clamp((now - r.start) / r.ms, 0, 1);
+  return { x: r.from.x + (r.to.x - r.from.x) * k, y: r.from.y + (r.to.y - r.from.y) * k };
+}
+
+// A rat drawn as `old` heading for cell `to` from now on, over `ms`. It
+// carries on from where it is drawn; across a wrapping edge it comes in from
+// just off the board instead. Moving right mirrors it, left draws it as is,
+// up or down keeps the way it faced.
+function ratStep(old, to, n, now, ms) {
+  let dx = to.x - old.to.x;
+  let dy = to.y - old.to.y;
+  const wrapped = Math.abs(dx) > n / 2 || Math.abs(dy) > n / 2;
+  if (Math.abs(dx) > n / 2) dx -= Math.sign(dx) * n;
+  if (Math.abs(dy) > n / 2) dy -= Math.sign(dy) * n;
+  const from = wrapped ? { x: to.x - dx, y: to.y - dy } : ratAt(old, now);
+  const facing = dx > 0 ? -1 : dx < 0 ? 1 : old.facing;
+  return { from, to: { x: to.x, y: to.y }, start: now, ms: Math.max(1, ms), facing };
+}
+
+function drawRat(x, y, facing, cell, n) {
+  const px = Math.max(1, Math.round(cell * 0.9));
+  const img = sprite('rat', px);
+  // Partly off one edge (wrapping in): also drawn on the other side.
+  const xs = [x, ...(x < 0 ? [x + n] : x > n - 1 ? [x - n] : [])];
+  const ys = [y, ...(y < 0 ? [y + n] : y > n - 1 ? [y - n] : [])];
+  for (const ax of xs) {
+    for (const ay of ys) {
+      ctx.save();
+      ctx.translate((ax + 0.5) * cell, (ay + 0.5) * cell);
+      if (img) {
+        ctx.scale(facing, 1);
+        ctx.drawImage(img, -px / 2, -px / 2, px, px);
+      } else {
+        ctx.fillStyle = '#9e9e9e';
+        disc(0, 0, cell * 0.36);
+      }
+      ctx.restore();
+    }
+  }
+}
+
+function drawRats(cell, n, now, fx) {
+  for (const r of rats.values()) {
+    const at = ratAt(r, now);
+    drawRat(at.x, at.y, r.facing, cell, n);
+  }
+  eatenRats = eatenRats.filter((r) => {
+    if (now >= r.start + r.ms) {
+      if (fx?.appleRings) rings.push({ x: r.to.x, y: r.to.y, color: r.color, start: now });
+      return false;
+    }
+    const at = ratAt(r, now);
+    drawRat(at.x, at.y, r.facing, cell, n);
+    return true;
+  });
 }
 
 // Magnet: each pulled apple flies from where it was into the (moving) mouth,

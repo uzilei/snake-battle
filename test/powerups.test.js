@@ -22,10 +22,11 @@ function seeded(seed) {
 
 // Starts a round with the given snakes placed exactly. `snakes` maps id ->
 // [segments (head first, as [x, y]), dir]. Tick 1 starts the round, so the
-// first playing tick is tick 2 (even).
+// first playing tick is tick 2 (even). No rats unless asked for (they have
+// their own tests), so spawned items are exactly apples and power-ups.
 function setup(snakes, config = {}) {
   const engine = createEngine({
-    config: { gridSize: 20, appleCount: 0, intermissionMs: 0, ...config },
+    config: { gridSize: 20, appleCount: 0, intermissionMs: 0, ratChance: 0, ...config },
     random: seeded(42),
   });
   for (const id of Object.keys(snakes)) engine.addPlayer(id, id);
