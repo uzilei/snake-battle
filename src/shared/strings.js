@@ -133,6 +133,7 @@ export const STRINGS = Object.freeze({
     gridSize: 'Dimensione griglia (dal prossimo round)',
     intermissionMs: 'Pausa tra i round (ms)',
     countdownMs: 'Conto alla rovescia prima del round (ms, 0 = disattivato)',
+    spawnShieldSec: 'Protezione all’inizio: scudo 🛡️ per i primi secondi di gioco (s, 0 = disattivata)',
     display: 'Schermo',
     sidePanel: 'Colonna laterale',
     sidePanelOptions: {

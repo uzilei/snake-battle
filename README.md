@@ -36,6 +36,8 @@ The game rules (dead snakes become apples, wrap-around walls) are /admin toggles
 
 In a solo round these can end the round, but nobody wins.
 
+Every snake starts with spawn protection: a normal 🛡️ shield for the first `spawnShieldSec` seconds of play (/admin slider, 0-10 s, 3 by default, 0 turns it off; saved, applies from the next spawn). It works exactly like the power-up shield, whether or not power-ups are on: it pops on a hit, leaves the snake a ghost for 1 s, and shows the shield ring and countdown badge on /display. Its timer starts when play does, not during the pre-round countdown. Every spawn goes through the same code path: round start, a player joining during the countdown, and any future mid-round respawn.
+
 A snake earns a kill when another snake runs into its body or loses a head-on against it (walls and running into yourself give no kill). Kills of the current round are shown in the /display scoreboard and in /admin's player list.
 
 The global leaderboard tracks three stats per player name: most wins, most kills and highest score (the best length each name ever reached). It is off by default; once enabled on /admin it records from the next round and /display shows one stat at a time as a top 10, either a fixed one or rotating every 10 seconds (that choice applies immediately). Each stat can be reset from /admin. The data is saved in `records.json`, created on the first recorded round. If `records.json` is ever empty or unreadable, it is renamed to `records.json.bad` (or `records.json.bad-<time>` if that exists already) and the records start empty. The records are saved at the end of every round; a crash only loses the round in progress.

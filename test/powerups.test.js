@@ -4,7 +4,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { createEngine, sanitizeConfig, CONFIG_LIMITS } from '../src/engine.js';
+import { createEngine, sanitizeConfig, createDefaultConfig, CONFIG_LIMITS } from '../src/engine.js';
 import { POWER_UPS, weightKey } from '../src/shared/powerups.js';
 import { STRINGS } from '../src/shared/strings.js';
 import { createGame } from '../src/server/game.js';
@@ -510,7 +510,8 @@ describe('rounds and state', () => {
     e.restartRound();
     const s = e.getState();
     assert.deepEqual([s.powerUps, s.bombs, s.portals, s.projectiles], [[], [], [], []]);
-    assert.ok(s.snakes.every((x) => x.effect === null));
+    // The ghost is gone: every snake has just the fresh spawn shield.
+    assert.ok(s.snakes.every((x) => x.effect?.type === 'shield' && x.effect.remainingMs === 3000));
     assert.equal(s.rules.powerUps, false);
   });
 
@@ -667,6 +668,93 @@ describe('gun', () => {
     e._debug.addProjectile([5, 10], 'right', 'z');
     e.tick();
     assert.equal(e.getState().apples.filter((a) => a.corpse).length, 4);
+  });
+});
+
+describe('spawn protection', () => {
+  // Spawned by the engine itself (no _debug.setSnake, which places a bare
+  // snake), so the shield is the one every round starts with.
+  const spawned = (config = {}) => {
+    const e = createEngine({ config: { gridSize: 30, appleCount: 0, intermissionMs: 0, ratChance: 0, tickMs: 100, ...config }, random: seeded(3) });
+    e.addPlayer('a', 'A');
+    e.addPlayer('b', 'B');
+    e.tick(); // the round starts
+    return e;
+  };
+
+  test('3 seconds by default, within 0-10', () => {
+    assert.deepEqual(CONFIG_LIMITS.spawnShieldSec, { min: 0, max: 10, default: 3 });
+    assert.equal(createDefaultConfig().spawnShieldSec, 3);
+    assert.deepEqual(sanitizeConfig({ spawnShieldSec: 25 }), { spawnShieldSec: 10 });
+    assert.deepEqual(sanitizeConfig({ spawnShieldSec: -1 }), { spawnShieldSec: 0 });
+    assert.deepEqual(sanitizeConfig({ spawnShieldSec: 'on' }), {});
+  });
+
+  test('every snake starts the round with a normal shield, even without power-ups', () => {
+    const e = spawned();
+    assert.equal(e.getState().rules.powerUps, false);
+    for (const id of ['a', 'b']) assert.deepEqual(snake(e, id).effect, { type: 'shield', remainingMs: 3000, durationMs: 3000 });
+  });
+
+  test('it lasts exactly spawnShieldSec of play', () => {
+    const e = spawned({ spawnShieldSec: 2 });
+    for (let i = 0; i < 19; i++) e.tick(); // 1.9 s of play
+    assert.equal(snake(e, 'a').effect?.type, 'shield');
+    e.tick();
+    assert.equal(snake(e, 'a').effect, null);
+  });
+
+  test('its timer starts when play does, not during the countdown', () => {
+    const e = spawned({ spawnShieldSec: 1, countdownMs: 3000 });
+    assert.equal(e.getState().phase, 'countdown');
+    for (let i = 0; i < 30; i++) e.tick(); // the whole countdown
+    assert.equal(e.getState().phase, 'playing');
+    assert.deepEqual(snake(e, 'a').effect, { type: 'shield', remainingMs: 1000, durationMs: 1000 });
+    for (let i = 0; i < 9; i++) e.tick();
+    assert.equal(snake(e, 'a').effect?.type, 'shield');
+    e.tick();
+    assert.equal(snake(e, 'a').effect, null);
+  });
+
+  test('a player joining during the countdown gets it too', () => {
+    const e = spawned({ countdownMs: 3000 });
+    e.addPlayer('late', 'Late');
+    assert.deepEqual(snake(e, 'late').effect, { type: 'shield', remainingMs: 3000, durationMs: 3000 });
+  });
+
+  test('it pops on a hit like any shield: alive, a ghost for 1 s, no kill credit', () => {
+    const e = spawned({ spawnShieldSec: 10 }); // long enough to reach a wall
+    // Nobody steers: a runs straight on until something pops the shield.
+    for (let i = 0; i < 40 && snake(e, 'a').effect?.type === 'shield'; i++) e.tick();
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.equal(snake(e, 'a').effect.type, 'ghost');
+    assert.equal(snake(e, 'a').effect.durationMs, 1000);
+    assert.deepEqual(events(e, 'shieldPop').map((ev) => ev.id), ['a']);
+    assert.ok(e.getState().players.every((p) => p.kills === 0));
+  });
+
+  test('it pops on a body hit, and the snake hit gets no kill', () => {
+    const e = spawned();
+    e._debug.setSnake('a', [[5, 5], [4, 5], [3, 5]], 'right'); // bare: no shield...
+    e._debug.setSnake('b', [[6, 2], [6, 3], [6, 4], [6, 5], [6, 6], [6, 7]], 'up');
+    e._debug.setEffect('a', 'shield', 3000); // ...so give it the spawn one back
+    e.tick();
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.equal(snake(e, 'a').effect.type, 'ghost');
+    assert.equal(player(e, 'b').kills, 0);
+  });
+
+  test('0 turns it off', () => {
+    const e = spawned({ spawnShieldSec: 0 });
+    for (const id of ['a', 'b']) assert.equal(snake(e, id).effect, null);
+  });
+
+  test('read when a snake spawns: a change applies from the next round', () => {
+    const e = spawned();
+    e.updateConfig({ spawnShieldSec: 5 });
+    assert.equal(snake(e, 'a').effect.remainingMs, 3000);
+    e.restartRound();
+    assert.equal(snake(e, 'a').effect.remainingMs, 5000);
   });
 });
 
@@ -846,7 +934,8 @@ describe('scissors', () => {
   });
 
   test('wears off after 8 seconds', () => {
-    const e = setup({ a: [[[1, 5], [0, 5], [0, 6]], 'right'], ...far }, { tickMs: 400, gridSize: 40 });
+    // No spawn shield: the bystander hits the wall and a new round starts.
+    const e = setup({ a: [[[1, 5], [0, 5], [0, 6]], 'right'], ...far }, { tickMs: 400, gridSize: 40, spawnShieldSec: 0 });
     e._debug.setEffect('a', 'scissors', 8000);
     for (let i = 0; i < 19; i++) e.tick();
     assert.equal(snake(e, 'a').effect.type, 'scissors');

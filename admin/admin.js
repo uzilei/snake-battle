@@ -20,6 +20,7 @@ const SLIDERS = [
   { key: 'maxPlayers', step: 1 },
   { key: 'gridSize', step: 1 },
   { key: 'countdownMs', step: 500 },
+  { key: 'spawnShieldSec', step: 1 },
   { key: 'intermissionMs', step: 500 },
   { key: 'roundTimeLimitSec', step: 15, parent: 'sliders-time' },
   { key: 'targetLength', step: 1, parent: 'sliders-target' },

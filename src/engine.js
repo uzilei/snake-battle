@@ -41,6 +41,9 @@ export const CONFIG_LIMITS = Object.freeze({
   gridSize: { min: 10, max: 80, default: 30 },
   intermissionMs: { min: 0, max: 30000, default: 4000 },
   countdownMs: { min: 0, max: 10000, default: 0 }, // 0 = no pre-round countdown
+  // Every snake spawns with a normal shield lasting this long (0 = none). Its
+  // timer only runs while playing, so it starts after the countdown.
+  spawnShieldSec: { min: 0, max: 10, default: 3 },
   roundTimeLimitSec: { min: 15, max: 900, default: 120 }, // used when timeLimitWin is on
   targetLength: { min: START_LENGTH + 1, max: 300, default: 30 }, // used when targetLengthWin is on
   // Power-ups (used when powerUps is on; read live). Integers only, since
@@ -430,12 +433,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     const others = []; // cells of the snakes spawned so far
     for (const p of players.values()) {
       p.kills = 0;
-      const snake = spawnSnake(occupied, others);
-      if (snake) {
-        p.snake = snake;
-        p.status = 'alive';
-        participants++;
-      } else {
+      if (!spawnInto(p, occupied, others)) {
         p.snake = null;
         p.status = 'queued'; // grid too crowded, try again next round
       }
@@ -443,6 +441,20 @@ export function createEngine({ config, random = Math.random } = {}) {
     countdownElapsed = 0;
     phase = cfg.countdownMs > 0 ? PHASES.COUNTDOWN : PHASES.PLAYING;
     syncApples();
+  }
+
+  // Puts a new snake for `p` on the board, with spawn protection. Every spawn
+  // (round start, joining during the countdown, any future mid-round
+  // respawn) goes through here. Effect timers only count down on playing
+  // ticks, so a shield given during the countdown starts when play does.
+  function spawnInto(p, occupied, others) {
+    const snake = spawnSnake(occupied, others);
+    if (!snake) return false;
+    p.snake = snake;
+    p.status = 'alive';
+    participants++;
+    if (cfg.spawnShieldSec > 0) setEffect(p, 'shield', cfg.spawnShieldSec * 1000);
+    return true;
   }
 
   function endRound(winner, reason) {
@@ -1163,14 +1175,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     const p = { id, name: String(name), colorIndex, status: 'queued', snake: null, kills: 0 };
     players.set(id, p);
     // The round hasn't really started during the countdown: join it now.
-    if (phase === PHASES.COUNTDOWN) {
-      const snake = spawnSnake(occupiedCells(), snakeCells());
-      if (snake) {
-        p.snake = snake;
-        p.status = 'alive';
-        participants++;
-      }
-    }
+    if (phase === PHASES.COUNTDOWN) spawnInto(p, occupiedCells(), snakeCells());
     return { ok: true, colorIndex };
   }
 
