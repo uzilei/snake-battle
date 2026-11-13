@@ -6,6 +6,7 @@ import { createRecords } from '../src/server/records.js';
 import { wifiPayload, detectLanIp } from '../src/server/network.js';
 import { passwordMatches, parseCookies, createLoginLimiter, createSessionStore } from '../src/server/auth.js';
 import { FRUIT_CODES } from '../src/shared/fruits.js';
+import { HAT_IDS } from '../src/shared/hats.js';
 
 function fakeClient(game, opts) {
   const sent = [];
@@ -715,6 +716,71 @@ describe('display effects toggles', () => {
     const { game, display } = setup();
     display.send({ t: 'settings', deathParticles: true });
     assert.equal(game.settings.deathParticles, false);
+  });
+});
+
+describe('hats', () => {
+  const setup = () => {
+    const game = createGame({ log: quiet });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    const admin = fakeClient(game, { admin: true, isAuthorized: () => true });
+    const join = (name, hat) => {
+      const phone = fakeClient(game);
+      phone.send({ t: 'hello', role: 'player' });
+      phone.send(hat === undefined ? { t: 'join', name } : { t: 'join', name, hat });
+      return phone.last('joined').id;
+    };
+    return { game, display, admin, join };
+  };
+
+  test('a listed hat is kept; anything else means no hat', () => {
+    const { game, display, admin, join } = setup();
+    const ids = {
+      cap: join('Ada', 'cap'),
+      gradcap: join('Bo', 'gradcap'),
+      none: join('Cy'),
+      unknown: join('Di', 'crown'),
+      number: join('Ed', 3),
+      object: join('Flo', { id: 'cap' }),
+      proto: join('Gus', '__proto__'),
+      nul: join('Hal', null),
+    };
+    game.tickOnce();
+    assert.deepEqual(display.last('state').hats, { [ids.cap]: 'cap', [ids.gradcap]: 'gradcap' });
+    const hatOf = Object.fromEntries(admin.last('admin').players.map((p) => [p.id, p.hat]));
+    assert.equal(hatOf[ids.cap], 'cap');
+    assert.equal(hatOf[ids.gradcap], 'gradcap');
+    for (const k of ['none', 'unknown', 'number', 'object', 'proto', 'nul']) assert.equal(hatOf[ids[k]], null, k);
+  });
+
+  test('every hat in the list is accepted', () => {
+    const { display, join } = setup();
+    const ids = HAT_IDS.map((hat, i) => [join(`P${i}`, hat), hat]);
+    assert.deepEqual(display.last('state').hats, Object.fromEntries(ids));
+  });
+
+  test('the toggle is on by default; off, /display gets no hats but /admin still lists them', () => {
+    const { game, display, admin, join } = setup();
+    assert.equal(game.settings.hats, true);
+    const id = join('Ada', 'tophat');
+    admin.send({ t: 'settings', hats: false });
+    assert.equal(display.last('state').hats, null);
+    assert.equal(admin.last('admin').players.find((p) => p.id === id).hat, 'tophat');
+    admin.send({ t: 'settings', hats: true }); // the picked hat comes back
+    assert.deepEqual(display.last('state').hats, { [id]: 'tophat' });
+    admin.send({ t: 'settings', hats: 'yes' });
+    assert.equal(admin.last('error').code, 'badMessage');
+  });
+
+  test('a player who leaves takes the hat along', () => {
+    const { game, display } = setup();
+    const phone = fakeClient(game);
+    phone.send({ t: 'hello', role: 'player' });
+    phone.send({ t: 'join', name: 'Ada', hat: 'sunhat' });
+    phone.conn.disconnect();
+    game.tickOnce();
+    assert.deepEqual(display.last('state').hats, {});
   });
 });
 

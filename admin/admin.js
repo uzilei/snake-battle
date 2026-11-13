@@ -5,6 +5,7 @@ import { STRINGS, fmt } from '/shared/strings.js';
 import { playerColor } from '/shared/colors.js';
 import { WEIGHTED_POWER_UPS, weightKey } from '/shared/powerups.js';
 import { FRUITS, FRUIT_CODES, APPLE_FRUIT } from '/shared/fruits.js';
+import { HATS } from '/shared/hats.js';
 
 const A = STRINGS.admin;
 const $ = (id) => document.getElementById(id);
@@ -67,6 +68,7 @@ $('effects-hint').textContent = A.effectsHint;
 const RULE_TOGGLES = {
   corpseApples: 'config',
   displayButtons: 'settings',
+  hats: 'settings',
   wrapWalls: 'config',
   timeLimitWin: 'config',
   targetLengthWin: 'config',
@@ -112,6 +114,7 @@ $('c-status').textContent = A.colStatus;
 $('c-length').textContent = A.colLength;
 $('c-kills').textContent = A.colKills;
 $('c-source').textContent = A.colSource;
+$('c-hat').textContent = A.colHat;
 $('no-players').textContent = A.noPlayers;
 $('h-links').textContent = A.links;
 $('h-words').textContent = A.words;
@@ -313,6 +316,10 @@ function renderPlayers(players) {
       kills.textContent = p.status === 'queued' ? '–' : String(p.kills ?? 0);
       const source = document.createElement('td');
       source.textContent = p.source === 'keyboard' ? A.sourceKeyboard : A.sourcePhone;
+      const hat = document.createElement('td');
+      const h = HATS.find((x) => x.id === p.hat);
+      hat.textContent = h ? h.emoji : '–';
+      if (h) hat.title = STRINGS.play.hatNames[h.id] ?? h.id;
       const actions = document.createElement('td');
       const kick = document.createElement('button');
       kick.className = 'danger';
@@ -321,7 +328,7 @@ function renderPlayers(players) {
         if (confirm(fmt(A.confirmKick, { name: p.name }))) send({ t: 'kick', id: p.id });
       });
       actions.append(kick);
-      tr.append(name, status, length, kills, source, actions);
+      tr.append(name, status, length, kills, source, hat, actions);
       return tr;
     }),
   );

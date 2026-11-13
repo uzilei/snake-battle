@@ -65,6 +65,15 @@ export const STRINGS = Object.freeze({
     title: 'Snake Battle',
     namePrompt: 'Come ti chiami?',
     namePlaceholder: 'Il tuo nome',
+    hatPrompt: 'Scegli un cappello',
+    hatNone: 'Nessuno',
+    // One per entry of src/shared/hats.js (also used by /admin).
+    hatNames: {
+      cap: 'Berretto',
+      sunhat: 'Cappello di paglia',
+      tophat: 'Cilindro',
+      gradcap: 'Tocco da laureato',
+    },
     join: 'Gioca',
     connecting: 'Connessione…',
     cannotConnect: 'Impossibile raggiungere il gioco. Sei connesso al wifi della partita?',
@@ -137,6 +146,7 @@ export const STRINGS = Object.freeze({
     sidePanelRecordsOff:
       'La classifica globale è spenta, quindi lo schermo mostra la classifica del round. Per vederla attivala in «Classifica globale».',
     keyboardPlayers: 'Giocatori da tastiera sullo schermo (WASD e frecce)',
+    hats: 'Cappelli dei giocatori sui serpenti (scelti su /play)',
     displayButtons: 'Mouse e pulsanti ← → sullo schermo per cambiare la colonna (non in «Automatica»)',
     effects: 'Effetti grafici',
     effectsHint: 'Solo grafica, valgono subito.',
@@ -239,6 +249,7 @@ export const STRINGS = Object.freeze({
     colLength: 'Lunghezza',
     colKills: 'Eliminazioni',
     colSource: 'Dispositivo',
+    colHat: 'Cappello',
     sourcePhone: 'Telefono',
     sourceKeyboard: 'Tastiera',
     kick: 'Espelli',

@@ -5,6 +5,7 @@
 import { STRINGS } from '/shared/strings.js';
 import { playerColor, contrastText } from '/shared/colors.js';
 import { MAX_NAME_LENGTH } from '/shared/limits.js';
+import { HATS, validHat } from '/shared/hats.js';
 
 const P = STRINGS.play;
 const E = STRINGS.errors;
@@ -20,6 +21,7 @@ const fresh = new URLSearchParams(location.search).has('new');
 const NAME_KEY = 'snakeBattle.name';
 const SESSION_KEY = 'snakeBattle.session';
 const PAD_KEY = 'snakeBattle.pad';
+const HAT_KEY = 'snakeBattle.hat';
 
 // ---- storage (may be unavailable, e.g. private mode) ---------------------------
 function load(store, key) {
@@ -60,6 +62,7 @@ $('name-input').maxLength = MAX_NAME_LENGTH;
 $('join-btn').textContent = P.join;
 $('rejoin').textContent = P.rejoin;
 $('swipe-hint').textContent = P.swipeHint;
+$('hat-label').textContent = P.hatPrompt;
 $('gear').setAttribute('aria-label', P.toggleControls);
 for (const b of document.querySelectorAll('.pad .dir')) {
   b.setAttribute('aria-label', P[`dir${b.dataset.dir[0].toUpperCase()}${b.dataset.dir.slice(1)}`]);
@@ -143,7 +146,7 @@ function connect() {
 
   socket.onopen = () => {
     send({ t: 'hello', role: 'player' });
-    send({ t: 'join', name, session });
+    send({ t: 'join', name, session, hat });
   };
 
   socket.onmessage = (ev) => {
@@ -218,6 +221,34 @@ function onMe(msg) {
   status = p.status;
   setStatus(msg.paused);
 }
+
+// ---- hat picker -----------------------------------------------------------------------
+// None or one of the hats, remembered on this device and sent with every join.
+let hat = validHat(load(localStorage, HAT_KEY));
+const hatButtons = [{ id: null }, ...HATS].map((h) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.setAttribute('role', 'radio');
+  b.setAttribute('aria-label', h.id ? (P.hatNames[h.id] ?? h.id) : P.hatNone);
+  if (h.id) {
+    const img = document.createElement('img');
+    img.src = `/twemoji/${h.twemoji}.svg`;
+    img.alt = '';
+    b.append(img);
+  } else b.textContent = P.hatNone;
+  b.addEventListener('click', () => {
+    hat = h.id;
+    save(localStorage, HAT_KEY, hat ?? '');
+    markHat();
+  });
+  b.dataset.hat = h.id ?? '';
+  return b;
+});
+$('hats').append(...hatButtons);
+function markHat() {
+  for (const b of hatButtons) b.setAttribute('aria-checked', String(b.dataset.hat === (hat ?? '')));
+}
+markHat();
 
 // ---- name form ----------------------------------------------------------------------
 $('name-form').addEventListener('submit', (e) => {

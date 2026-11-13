@@ -7,6 +7,7 @@ import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt } from '/shared
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
 import { RAT_RULES } from '/shared/rats.js';
 import { FRUIT_CODES } from '/shared/fruits.js';
+import { HATS } from '/shared/hats.js';
 
 const T = STRINGS.display;
 const $ = (id) => document.getElementById(id);
@@ -43,6 +44,7 @@ const ITEM_IMAGES = {
   ...Object.fromEntries(POWER_UPS.map((p) => [p.type, loadImage(`/twemoji/${p.twemoji}.svg`)])),
   rat: loadImage(`/twemoji/${RAT_RULES.twemoji}.svg`),
   mouse: loadImage(`/twemoji/${RAT_RULES.mouseTwemoji}.svg`),
+  ...Object.fromEntries(HATS.map((h) => [`hat-${h.id}`, loadImage(`/twemoji/${h.twemoji}.svg`)])),
 };
 // A random fruit out of the ones in use (only 🍎 when none is).
 function randomFruit(enabled) {
@@ -462,7 +464,8 @@ function disc(x, y, r) {
 // Draws one snake; returns where its head is (in px) for the name label.
 // `anim` is the snake's animation state, or null when the animations are
 // off; `frame` is what they react to: { dt, tickMs, food, heads }.
-function drawSnake(s, prev, t, cell, n, now, anim = null, frame = null) {
+// `hat`: the hat id it wears, or null.
+function drawSnake(s, prev, t, cell, n, now, anim = null, frame = null, hat = null) {
   const look = snakeLook(s, now);
   if (look.alpha <= 0 || !s.segments.length) return null;
   const path = snakePath(s, s.alive ? prev : null, t, n);
@@ -555,6 +558,7 @@ function drawSnake(s, prev, t, cell, n, now, anim = null, frame = null) {
   const pose = !label ? null : anim ? facePose(s, anim, label, travel, cell, now, frame) : stillPose(travel ?? { x: d[0], y: d[1] });
   for (const { x: hx, y: hy } of heads) {
     drawFace(hx, hy, pose, look, headR, cell);
+    if (hat && s.alive) drawHat(hx, hy, pose.angle, hat, headR);
     // Shield: a ring around the head.
     if (look.ring) {
       ctx.lineWidth = Math.max(1.5, cell * 0.08);
@@ -840,6 +844,21 @@ function drawFace(hx, hy, pose, look, headR, cell) {
     ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
     ctx.stroke();
   }
+  ctx.restore();
+}
+
+// A hat on the head at (hx, hy) px: upright when the snake goes up, turning
+// with the face (same eased angle), sitting on the back of the head between
+// the eyes, sized to the head.
+const HAT_SIZE = 1.7; // hat width, in head radii
+function drawHat(hx, hy, angle, hat, headR) {
+  const px = Math.max(4, Math.round(headR * HAT_SIZE));
+  const img = sprite(`hat-${hat}`, px);
+  if (!img) return;
+  ctx.save();
+  ctx.translate(hx, hy);
+  ctx.rotate(angle + Math.PI / 2); // the sprite's top points the way the head faces
+  ctx.drawImage(img, -px / 2, -px / 2 + headR * 0.35, px, px);
   ctx.restore();
 }
 
@@ -1216,7 +1235,7 @@ function drawBoard(msg, now, dt) {
   for (const s of state.snakes) if (!s.alive) drawSnake(s, null, 1, cell, n, now, animFor(s), frame);
   for (const s of state.snakes) {
     if (!s.alive) continue;
-    const head = drawSnake(s, prevSnakes.get(s.id), t, cell, n, now, animFor(s), frame);
+    const head = drawSnake(s, prevSnakes.get(s.id), t, cell, n, now, animFor(s), frame, msg.hats?.[s.id] ?? null);
     if (head) labels.push({ ...head, name: names.get(s.id) ?? '' });
     if (head) heads.set(s.id, head);
     if (head && s.effect) badges.push({ ...head, effect: s.effect });

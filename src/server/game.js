@@ -12,6 +12,7 @@ import { nameKey } from './names.js';
 import { createRecords, RECORD_STATS } from './records.js';
 import { SETTINGS_VERSION } from './settings-store.js';
 import { FRUIT_CODES } from '../shared/fruits.js';
+import { validHat } from '../shared/hats.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
 // (most wins, most kills, highest score), shown only when it is enabled.
@@ -61,6 +62,7 @@ const SETTING_RULES = Object.freeze({
   leaderboard: isBoolean,
   leaderboardStat: (v) => LEADERBOARD_STATS.includes(v),
   displayButtons: isBoolean,
+  hats: isBoolean,
   ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, isBoolean])),
   // The fruits apples may be drawn as: any subset of the list, no repeats.
   fruits: (v) => Array.isArray(v) && v.length <= FRUIT_CODES.length && new Set(v).size === v.length && v.every((c) => FRUIT_CODES.includes(c)),
@@ -129,6 +131,7 @@ const defaultSettings = () => ({
   leaderboard: false, // global leaderboard: recorded and shown on /display
   leaderboardStat: 'auto', // applies immediately, like sidePanel
   displayButtons: false, // mouse cursor and side panel buttons on /display
+  hats: true, // /display draws the hats players picked on /play
   ...EFFECT_DEFAULTS,
   fruits: [...FRUIT_CODES], // every fruit in use
 });
@@ -208,6 +211,7 @@ export function createGame({
       tickMs: config.tickMs, // for smooth movement between ticks
       effects: Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, settings[k]])),
       fruits: settings.fruits, // codes new apples are drawn as (none: all 🍎)
+      hats: settings.hats ? hatsOf(state) : null, // playerId -> hat id, for players wearing one
       records: settings.leaderboard ? recordsView : null, // { wins, kills, score }: top 10 each
       leaderboardStat: settings.leaderboardStat,
       localPlayers: null, // filled per client
@@ -228,9 +232,18 @@ export function createGame({
       win: state.win, // and the numbers behind its win conditions
       settings: structuredClone(settings),
       recordCounts, // entries per stat, for the reset buttons
-      players: state.players.map((p) => ({ ...p, source: owners.get(p.id)?.source ?? 'unknown' })),
+      players: state.players.map((p) => ({ ...p, source: owners.get(p.id)?.source ?? 'unknown', hat: owners.get(p.id)?.hat ?? null })),
       joinInfo,
     };
+  }
+
+  function hatsOf(state) {
+    const out = {};
+    for (const p of state.players) {
+      const hat = owners.get(p.id)?.hat;
+      if (hat) out[p.id] = hat;
+    }
+    return out;
   }
 
   function localPlayersOf(client, state) {
@@ -374,13 +387,13 @@ export function createGame({
 
   // ---- players ---------------------------------------------------------------
 
-  function addOwnedPlayer(client, slot, name, source, session = null) {
+  function addOwnedPlayer(client, slot, name, source, session = null, hat = null) {
     if (client.owned.has(slot)) return { ok: true, already: true };
     const id = `p${nextPlayerNumber++}`;
     const result = engine.addPlayer(id, name);
     if (!result.ok) return result;
     client.owned.set(slot, id);
-    owners.set(id, { client, slot, source, session });
+    owners.set(id, { client, slot, source, session, hat });
     log(`[game] ${id} joined (${source}${slot === SELF ? '' : ` ${slot}`})`);
     return { ok: true, id, name, colorIndex: result.colorIndex };
   }
@@ -442,7 +455,7 @@ export function createGame({
     const problem = nameProblem(name, previous);
     if (problem) return safeSend(client, { t: 'error', code: problem, slot: SELF });
     if (previous) replaceStale(previous);
-    const result = addOwnedPlayer(client, SELF, name, 'phone', session);
+    const result = addOwnedPlayer(client, SELF, name, 'phone', session, validHat(msg.hat)); // unknown hat: none
     if (!result.ok) return safeSend(client, { t: 'error', code: result.reason === 'full' ? 'full' : 'badMessage', slot: SELF });
     safeSend(client, { t: 'joined', slot: SELF, id: result.id, name: result.name, colorIndex: result.colorIndex });
     broadcast();
