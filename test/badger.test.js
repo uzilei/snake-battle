@@ -409,6 +409,50 @@ describe('badger bites', () => {
     assert.equal(snake(t, 'a').effect.type, 'ghost');
   });
 
+  // Passing through: a long snake drives right along row 12 while the badger
+  // (x 18-22, y 11-13 at first) walks left onto more of it every 4 ticks.
+  // `immune` makes it a ghost or gives it a shield; the immunity ends while
+  // it's still well inside. Returns the tick it was fully out, and the bites.
+  function passThrough(immune) {
+    const e = setup({ a: [row(12, 17, 0), 'right'], ...far }, { gridSize: 40 });
+    immune(e);
+    e._debug.setBadger([20, 12], { dir: 'left', remainingMs: 1e9 });
+    const bites = [];
+    let out = null;
+    let sawImmunityEnd = false;
+    for (let t = 1; t <= 60; t++) {
+      if (t === 18) e.setDirection('a', 'down'); // then back in along row 13
+      if (t === 19) e.setDirection('a', 'left');
+      run(e, 1);
+      bites.push(...events(e, 'badgerBite').map((ev) => ({ t, index: ev.index })));
+      if (player(e, 'a').status !== 'alive') break;
+      const b = badger(e);
+      const inside = snake(e, 'a').segments.filter((c) => covers(b, c.x, c.y)).length;
+      if (inside && !snake(e, 'a').effect) sawImmunityEnd = true;
+      if (!inside && out === null && t > 1) out = t;
+    }
+    assert.ok(sawImmunityEnd, 'the immunity never ended inside the badger');
+    return { out, bites, e };
+  }
+
+  test('a ghost wearing off halfway through is not bitten, even as the badger moves onto more of it, until it touches it anew', () => {
+    const { out, bites, e } = passThrough((e) => e._debug.setEffect('a', 'ghost', 300));
+    assert.ok(out !== null, 'never left the badger');
+    assert.equal(player(e, 'a').status, 'dead'); // bitten in the end: back in head first
+    assert.equal(bites.length, 1);
+    assert.ok(bites[0].t > out, `bitten at tick ${bites[0].t}, out at ${out}`);
+    assert.equal(bites[0].index, 0);
+  });
+
+  test('so is a snake whose shield popped on the way in', () => {
+    const { out, bites } = passThrough((e) => e._debug.setEffect('a', 'shield', 10000));
+    assert.ok(out !== null, 'never left the badger');
+    assert.equal(bites.length, 2); // the pop, then head first on the way back
+    assert.equal(bites[0].t, 1);
+    assert.ok(bites[1].t > out, `bitten at tick ${bites[1].t}, out at ${out}`);
+    assert.equal(bites[1].index, 0);
+  });
+
   test('a frozen snake standing still is bitten when the badger steps onto it', () => {
     const e = setup({ a: [row(12, 15, 4), 'right'], ...far });
     run(e, 1); // now on tick 2, so the next tick is odd: frozen snakes sit it out

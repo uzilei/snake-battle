@@ -1280,6 +1280,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       moveAt: Infinity, // set when it becomes active
       turnAt: Infinity,
       since: tickCount,
+      passing: new Set(),
     };
     return badger;
   }
@@ -1393,20 +1394,32 @@ export function createEngine({ config, random = Math.random } = {}) {
   // head counts: the head dies, anywhere else is cut off there (dead if
   // fewer than minLength segments would be left). A shield pops instead.
   // Nobody gets a kill.
+  // A snake touching it while immune (a ghost, which includes the second
+  // after a shield pops) is passing through: never bitten, even once the
+  // immunity ends and even as the badger moves onto more of it, until no
+  // segment of it is inside any more.
   function badgerBites(before) {
     if (!before || !isActive(badger)) return;
+    const passing = badger.passing;
     for (const p of players.values()) {
-      if (p.status !== 'alive' || isGhost(p)) continue;
+      const segs = p.status === 'alive' ? p.snake.segments : null;
+      if (!segs || !segs.some((c) => badgerCovers(c.x, c.y))) {
+        passing.delete(p);
+        continue;
+      }
+      if (isGhost(p)) passing.add(p);
+      if (passing.has(p)) continue;
       const was = before.get(p);
-      const segs = p.snake.segments;
       // A segment's previous self: itself, or for the head the old head
       // (the same object when the snake didn't move).
       const wasInside = (i) => Boolean(was) && was.inside.has(i === 0 ? was.head : segs[i]);
       const index = segs.findIndex((c, i) => badgerCovers(c.x, c.y) && !wasInside(i));
       if (index === -1) continue;
       events.push({ type: 'badgerBite', id: p.id, index });
-      if (effectOf(p, 'shield')) popShield(p);
-      else if (index < POWER_UP_RULES.minLength) kill(p, null);
+      if (effectOf(p, 'shield')) {
+        popShield(p);
+        passing.add(p);
+      } else if (index < POWER_UP_RULES.minLength) kill(p, null);
       else removeSegments(segs.splice(index));
     }
   }
@@ -1616,7 +1629,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     // with warningMs > 0. It next moves on tick `moveAt` (default: the next
     // tick) and keeps going straight until tick `turnAt`, when free.
     setBadger([x, y], { dir = 'left', warningMs = 0, remainingMs = cfg.badgerLifetimeSec * 1000, moveAt = tickCount + 1, turnAt = tickCount + 1000 } = {}) {
-      badger = { id: nextObjectId++, x, y, dir, warningMs, remainingMs, lifetimeMs: remainingMs, moveAt: warningMs > 0 ? Infinity : moveAt, turnAt: warningMs > 0 ? Infinity : turnAt, since: tickCount };
+      badger = { id: nextObjectId++, x, y, dir, warningMs, remainingMs, lifetimeMs: remainingMs, moveAt: warningMs > 0 ? Infinity : moveAt, turnAt: warningMs > 0 ? Infinity : turnAt, since: tickCount, passing: new Set() };
     },
     clearBadger() {
       removeBadger();
