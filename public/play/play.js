@@ -10,7 +10,7 @@ const P = STRINGS.play;
 const E = STRINGS.errors;
 const $ = (id) => document.getElementById(id);
 
-const SWIPE_PX = 20;
+const SWIPE_PX = 12;
 const OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left' };
 const KEYS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
 
