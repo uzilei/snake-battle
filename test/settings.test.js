@@ -195,7 +195,7 @@ describe('settings persistence', () => {
     );
     const game = gameOn(file);
     const defaults = createDefaultConfig();
-    assert.equal(game.config.tickMs, 80); // clamped to the minimum
+    assert.equal(game.config.tickMs, 50); // clamped to the minimum
     assert.equal(game.config.gridSize, 80); // clamped to the maximum
     assert.equal(game.config.wrapWalls, defaults.wrapWalls);
     assert.equal(game.config.timeLimitWinner, defaults.timeLimitWinner);

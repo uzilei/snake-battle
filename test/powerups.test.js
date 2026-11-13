@@ -398,7 +398,7 @@ describe('bombs', () => {
   });
 
   test('they spawn at bombsPerMinute, never more than 5 at once, as whole free 3x3 blocks on the board, away from heads', () => {
-    const e = setup(loopers, { ...PU, wrapWalls: true, tickMs: 600, bombsPerMinute: 20, appleCount: 20, powerUpChance: 0 });
+    const e = setup(loopers, { ...PU, wrapWalls: true, tickMs: 300, bombsPerMinute: 20, appleCount: 20, powerUpChance: 0 });
     let spawned = 0;
     let before = 0;
     for (let i = 0; i < 300; i++) {
@@ -436,7 +436,7 @@ describe('bombs', () => {
     // Apples on every (x % 3 == 1, y % 3 == 1) cell: every 3x3 block holds one.
     const lattice = [];
     for (const y of [1, 4, 7]) for (const x of [1, 4, 7]) lattice.push([x, y]);
-    const e = setup({ a: [[[2, 3], [1, 3], [0, 3]], 'right'] }, { ...PU, gridSize: 10, wrapWalls: true, tickMs: 600, bombsPerMinute: 20, appleCount: 9, powerUpChance: 0 });
+    const e = setup({ a: [[[2, 3], [1, 3], [0, 3]], 'right'] }, { ...PU, gridSize: 10, wrapWalls: true, tickMs: 300, bombsPerMinute: 20, appleCount: 9, powerUpChance: 0 });
     e._debug.setApples(lattice);
     for (let i = 0; i < 100; i++) e.tick();
     assert.deepEqual(e.getState().bombs, []);
@@ -455,7 +455,7 @@ describe('bombs', () => {
   });
 
   test('no bombs while power-ups are off', () => {
-    const e = setup(loopers, { wrapWalls: true, tickMs: 600, bombsPerMinute: 20 });
+    const e = setup(loopers, { wrapWalls: true, tickMs: 300, bombsPerMinute: 20 });
     for (let i = 0; i < 100; i++) e.tick();
     assert.deepEqual(e.getState().bombs, []);
   });

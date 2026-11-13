@@ -127,7 +127,7 @@ describe('game controller', () => {
     const game = createGame({ log: quiet });
     const admin = fakeClient(game, { admin: true, isAuthorized: () => true });
     admin.send({ t: 'config', values: { tickMs: 1, appleCount: 999, gridSize: '50', evil: 1 } });
-    assert.equal(game.config.tickMs, 80);
+    assert.equal(game.config.tickMs, 50);
     assert.equal(game.config.appleCount, 30);
     assert.equal(game.config.gridSize, 30); // string ignored
     assert.equal(Object.hasOwn(game.config, 'evil'), false);
@@ -170,9 +170,9 @@ describe('game controller', () => {
     const game = createGame({ log: quiet });
     const c = fakeClient(game);
     c.send({ t: 'pause' });
-    c.send({ t: 'config', values: { tickMs: 600 } });
+    c.send({ t: 'config', values: { tickMs: 300 } });
     assert.equal(game.isPaused(), false);
-    assert.equal(game.config.tickMs, 150);
+    assert.equal(game.config.tickMs, 200);
   });
 
   test('messages beyond the per-second limit are dropped', () => {

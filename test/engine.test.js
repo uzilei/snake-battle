@@ -970,8 +970,8 @@ describe('kills', () => {
 });
 
 describe('win conditions', () => {
-  // A 40-wide board and slow ticks: snakes heading right live for 30+ ticks.
-  const LONG = { gridSize: 40, tickMs: 600 };
+  // An 80-wide board and the slowest ticks: snakes heading right live for 60+ ticks.
+  const LONG = { gridSize: 80, tickMs: 300 };
   // A straight snake of `length` heading right, tail at x.
   const row = (y, length, x = 3) => [Array.from({ length }, (_, i) => [x + length - 1 - i, y]), 'right'];
   const state = (e) => e.getState();
@@ -1000,12 +1000,12 @@ describe('win conditions', () => {
     const e = setup({ a: row(5, 5), b: row(10, 3), c: row(15, 4) }, { ...LONG, timeLimitWin: true, roundTimeLimitSec: 15 });
     assert.equal(state(e).timeRemainingMs, 15000);
     e.tick();
-    assert.equal(state(e).timeRemainingMs, 14400);
+    assert.equal(state(e).timeRemainingMs, 14700);
     const end = runUntilEnd(e);
     assert.equal(end.phase, 'intermission');
     assert.equal(end.endReason, 'time');
     assert.equal(end.winnerId, 'a');
-    assert.equal(end.tick, 1 + 25); // the setup tick, then 15 s at 600 ms per tick
+    assert.equal(end.tick, 1 + 50); // the setup tick, then 15 s at 300 ms per tick
   });
 
   test('time limit: a full tie is a draw', () => {
@@ -1075,7 +1075,7 @@ describe('win conditions', () => {
 
   test('same tick: last snake alive comes first, then target, then time', () => {
     // b dies on the wall while a reaches the target: last snake alive.
-    const a = setup({ a: row(5, 6), b: [[[39, 10], [38, 10], [37, 10]], 'right'] }, { ...LONG, targetLengthWin: true, targetLength: 5 });
+    const a = setup({ a: row(5, 6), b: [[[79, 10], [78, 10], [77, 10]], 'right'] }, { ...LONG, targetLengthWin: true, targetLength: 5 });
     a.tick();
     assert.equal(state(a).endReason, 'lastAlive');
     assert.equal(state(a).winnerId, 'a');
@@ -1084,7 +1084,7 @@ describe('win conditions', () => {
       { a: row(5, 4), b: row(10, 6) },
       { ...LONG, targetLengthWin: true, targetLength: 7, timeLimitWin: true, roundTimeLimitSec: 15 },
     );
-    for (let i = 0; i < 24; i++) t.tick();
+    for (let i = 0; i < 49; i++) t.tick();
     assert.equal(state(t).phase, 'playing');
     t._debug.setSnake('a', [[30, 5], [29, 5], [28, 5], [27, 5], [26, 5], [25, 5], [24, 5]], 'right');
     t.tick();

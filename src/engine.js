@@ -30,7 +30,7 @@ export const PHASES = Object.freeze({
 });
 
 export const CONFIG_LIMITS = Object.freeze({
-  tickMs: { min: 80, max: 600, default: 150 }, // below ~80 ms phone swipes over wifi can't keep up
+  tickMs: { min: 50, max: 300, default: 200 },
   appleCount: { min: 0, max: 30, default: 3 },
   growthPerApple: { min: 1, max: 10, default: 1 },
   maxPlayers: { min: 1, max: 24, default: 24 },
