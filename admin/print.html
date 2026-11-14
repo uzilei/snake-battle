@@ -48,7 +48,10 @@
     <div class="note" id="note"></div>
   </div>
   <script type="module">
-    import { STRINGS, fmt } from '/shared/strings.js';
+    import { STRINGS, LOCALE, fmt, setLocale } from '/shared/strings.js';
+    import startLocale from '/locale.js';
+    setLocale(startLocale); // the language chosen on /admin
+    document.documentElement.lang = LOCALE;
     const P = STRINGS.print;
     const $ = (id) => document.getElementById(id);
     document.title = P.title;

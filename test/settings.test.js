@@ -28,11 +28,11 @@ function gameOn(file, log = quiet) {
 
 const CHANGES = {
   config: { tickMs: 120, gridSize: 40, appleCount: 7, wrapWalls: true, corpseApples: true, timeLimitWin: true, roundTimeLimitSec: 90, timeLimitWinner: 'kills', targetLengthWin: true, targetLength: 25, lastPersonWins: true, powerUps: true, powerUpChance: 60, bombsPerMinute: 9, bombMode: 'kill', ratChance: 40, chickenChance: 15, badgerHealth: 7, spawnShieldSec: 7, weightGolden: 0, weightGun: 7, weightShield: 10 },
-  settings: { sidePanel: 'records', keyboardPlayers: true, leaderboard: true, leaderboardStat: 'kills', displayButtons: true, hats: false, corpseStyle: 'remains', badgerName: 'Re Tasso', bots: 5, botFill: true, reservedBots: [{ name: 'Rex', hat: 'cap' }, { name: 'Nina', hat: null }], botLevels: false, botWeight1: 2, botWeight2: 0, botWeight3: 5, particles: true, screenShake: true, snakeAnimations: false, killPopups: true, sounds: true, ...SOUND_VOLUME_DEFAULTS, soundVolume: 40, volumeEat: 150, volumeMove: 60, fruits: ['1f34e'] },
+  settings: { sidePanel: 'records', keyboardPlayers: true, leaderboard: true, leaderboardStat: 'kills', displayButtons: true, hats: false, corpseStyle: 'remains', locale: 'en', badgerName: 'Re Tasso', bots: 5, botFill: true, reservedBots: [{ name: 'Rex', hat: 'cap' }, { name: 'Nina', hat: null }], botLevels: false, botWeight1: 2, botWeight2: 0, botWeight3: 5, particles: true, screenShake: true, snakeAnimations: false, killPopups: true, sounds: true, ...SOUND_VOLUME_DEFAULTS, soundVolume: 40, volumeEat: 150, volumeMove: 60, fruits: ['1f34e'] },
 };
 
 // The non-config settings on a fresh start.
-const DEFAULT_SETTINGS = { sidePanel: 'auto', keyboardPlayers: false, leaderboard: false, leaderboardStat: 'auto', displayButtons: false, hats: true, corpseStyle: 'fruit', badgerName: '', bots: 0, botFill: false, reservedBots: [], botLevels: true, botWeight1: 0, botWeight2: 1, botWeight3: 0, particles: false, screenShake: false, snakeAnimations: true, killPopups: false, sounds: false, ...SOUND_VOLUME_DEFAULTS, fruits: [...FRUIT_CODES] };
+const DEFAULT_SETTINGS = { sidePanel: 'auto', keyboardPlayers: false, leaderboard: false, leaderboardStat: 'auto', displayButtons: false, hats: true, corpseStyle: 'fruit', locale: 'it', badgerName: '', bots: 0, botFill: false, reservedBots: [], botLevels: true, botWeight1: 0, botWeight2: 1, botWeight3: 0, particles: false, screenShake: false, snakeAnimations: true, killPopups: false, sounds: false, ...SOUND_VOLUME_DEFAULTS, fruits: [...FRUIT_CODES] };
 
 describe('reset all settings to defaults', () => {
   // A data folder like the real one: settings, records, banned words and the
@@ -61,15 +61,17 @@ describe('reset all settings to defaults', () => {
     send({ t: 'config', values: CHANGES.config });
     send({ t: 'settings', ...CHANGES.settings });
     send({ t: 'resetSettings' });
+    // All but the language, which isn't a game setting and stays as it was.
+    const expected = { ...DEFAULT_SETTINGS, locale: 'en' };
     assert.deepEqual(game.config, createDefaultConfig());
-    assert.deepEqual(game.settings, DEFAULT_SETTINGS);
+    assert.deepEqual(game.settings, expected);
     // Saved: a restart comes back with the defaults too.
     const saved = JSON.parse(fs.readFileSync(file('settings.json'), 'utf8'));
     assert.deepEqual(saved.config, createDefaultConfig());
-    assert.deepEqual(saved.settings, DEFAULT_SETTINGS);
+    assert.deepEqual(saved.settings, expected);
     const restarted = createGame({ log: quiet, savedSettings: loadSettings(file('settings.json'), { log: quiet }).initial });
     assert.deepEqual(restarted.config, createDefaultConfig());
-    assert.deepEqual(restarted.settings, DEFAULT_SETTINGS);
+    assert.deepEqual(restarted.settings, expected);
   });
 
   test('records, banned words and config.json are not touched', () => {

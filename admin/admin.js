@@ -1,7 +1,8 @@
 // /admin control panel. Every action goes over the admin WebSocket, which the
 // server only accepts with a valid session cookie (and re-checks per message).
 
-import { STRINGS, fmt } from '/shared/strings.js';
+import { STRINGS, LOCALE, LOCALES, fmt, setLocale } from '/shared/strings.js';
+import startLocale from '/locale.js';
 import { playerColor } from '/shared/colors.js';
 import { POWER_UPS, WEIGHTED_POWER_UPS, weightKey } from '/shared/powerups.js';
 import { FRUITS, FRUIT_CODES, APPLE_FRUIT } from '/shared/fruits.js';
@@ -11,6 +12,10 @@ import { MAX_NAME_LENGTH } from '/shared/limits.js';
 import { cleanName } from '/shared/names.js';
 import { SOUND_LIMITS, VOLUME_SLIDERS, soundVolumeKey } from '/shared/sounds.js';
 
+// The language chosen on /admin, before any text. Switching it reloads the
+// page (see update()), so everything here is built once in one language.
+setLocale(startLocale);
+document.documentElement.lang = LOCALE;
 const A = STRINGS.admin;
 const $ = (id) => document.getElementById(id);
 
@@ -188,6 +193,10 @@ function fillSelect(select, options) {
 fillSelect($('side-panel'), A.sidePanelOptions);
 fillSelect($('leaderboard-stat'), A.leaderboardStatOptions);
 fillSelect($('s-corpseStyle'), A.corpseStyleOptions);
+// Each language under its own name.
+$('l-locale').textContent = A.language;
+fillSelect($('s-locale'), Object.fromEntries(LOCALES.map((l) => [l, STRINGS.localeNames[l]])));
+$('s-locale').value = LOCALE;
 fillSelect($('c-timeLimitWinner'), A.timeLimitWinnerOptions);
 fillSelect($('c-bombMode'), A.bombModeOptions);
 
@@ -250,6 +259,10 @@ $('keyboard').addEventListener('change', (e) => send({ t: 'settings', keyboardPl
 $('leaderboard-stat').addEventListener('change', (e) => {
   send({ t: 'settings', leaderboardStat: e.target.value });
   e.target.blur();
+});
+$('s-locale').addEventListener('change', (e) => {
+  send({ t: 'settings', locale: e.target.value }); // the server's echo reloads the page
+  e.target.disabled = true;
 });
 $('s-corpseStyle').addEventListener('change', (e) => {
   send({ t: 'settings', corpseStyle: e.target.value });
@@ -332,6 +345,11 @@ let lastPlayersKey = '';
 
 function update(msg) {
   latest = msg;
+  // Another language: start over in it (this tab's change, or another's).
+  if (msg.settings.locale !== LOCALE && LOCALES.includes(msg.settings.locale)) {
+    location.reload();
+    return;
+  }
   if (!slidersBuilt) buildSliders(msg.limits);
 
   $('phase').textContent = (A.phase[msg.phase] ?? msg.phase) + (msg.paused ? A.pausedSuffix : '');

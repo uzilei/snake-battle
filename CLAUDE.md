@@ -7,7 +7,7 @@ Multiplayer snake for a school expo. One laptop runs the server and the admin pa
 - **Engine is input-agnostic.** The game logic module must not know about WebSockets, keyboards, phones, rendering, or the DOM. All input goes through `setDirection(id, dir)`. It must also be plain JavaScript that runs unchanged in a browser: no Node built-ins (`fs`, `path`, `http`, `process`, `Buffer`, etc.). Persistence and file access belong in the server layer.
 - **No external network requests at runtime.** No CDNs, no web fonts, no remote scripts. Every library and asset is installed via npm and served locally. The expo network has no internet.
 - **Plain http, bound to 0.0.0.0.** No https.
-- **All user-facing text is in Italian**, kept in a single strings file. Code, comments, and logs stay in English.
+- **All user-facing text is in Italian by default**, with English selectable on /admin. The text lives in `src/shared/strings.js` (Italian) and `src/shared/strings-en.js` (English), with the same keys in both. Code, comments, and logs stay in English.
 - **No audio files.** Sounds are jsfxr presets (JSON synth parameters in `sounds/`), synthesized in the browser. Snakes and effects are drawn procedurally on canvas. Apples and power-ups use Twemoji SVGs, installed via npm (the maintained `@twemoji` fork) and served locally, preloaded once and drawn with `drawImage`. Twemoji graphics are CC-BY 4.0: include a credit line on /admin and in the README.
 - **Never trust the client.** Validate every incoming message server-side (type, range, player ownership). One bad client must never crash the server.
 - **New features are toggles on /admin, default off,** unless stated otherwise.

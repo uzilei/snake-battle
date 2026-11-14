@@ -5,7 +5,7 @@
 // role. The WebSocket wiring lives in app.js.
 
 import { createEngine, createDefaultConfig, CONFIG_LIMITS, CONFIG_TOGGLES, CONFIG_CHOICES, PHASES } from '../engine.js';
-import { STRINGS } from '../shared/strings.js';
+import { DEFAULT_LOCALE, LOCALES, stringsFor } from '../shared/strings.js';
 import { createWordList } from './profanity.js';
 import { MAX_NAME_LENGTH } from '../shared/limits.js';
 import { nameKey } from './names.js';
@@ -69,6 +69,7 @@ const SETTING_RULES = Object.freeze({
   displayButtons: isBoolean,
   hats: isBoolean,
   corpseStyle: (v) => CORPSE_STYLES.includes(v),
+  locale: (v) => LOCALES.includes(v),
   bots: inLimits(BOT_LIMITS.bots),
   botFill: isBoolean,
   botLevels: isBoolean,
@@ -149,6 +150,7 @@ const defaultSettings = () => ({
   displayButtons: false, // mouse cursor and side panel buttons on /display
   hats: true, // /display draws the hats players picked on /play
   corpseStyle: 'fruit', // how /display draws corpse apples (CORPSE_STYLES)
+  locale: DEFAULT_LOCALE, // language of every page (LOCALES)
   badgerName: '', // drawn under the honey badger, like a boss name
   bots: BOT_LIMITS.bots.default, // computer players (0 = none)
   botFill: false, // bots only fill up to `bots`, making room for people
@@ -252,6 +254,7 @@ export function createGame({
       soundGains: settings.sounds ? soundGains(settings) : null, // sound name -> gain (master included)
       fruits: settings.fruits, // codes new apples are drawn as (none: all 🍎)
       corpseStyle: settings.corpseStyle,
+      locale: settings.locale,
       hats: settings.hats ? hatsOf(state) : null, // playerId -> hat id, for players wearing one
       // bot id -> 1-3, or BOT_HIDDEN_SKILL for all of them when the levels are hidden
       botSkills: Object.fromEntries([...bots].map(([id, b]) => [id, settings.botLevels ? b.skill : BOT_HIDDEN_SKILL])),
@@ -314,7 +317,7 @@ export function createGame({
     for (const c of clients) {
       if (c.role === 'display') safeSend(c, { ...display, localPlayers: localPlayersOf(c, state) });
       else if (c.role === 'admin') safeSend(c, admin);
-      else if (c.role === 'player') safeSend(c, { t: 'me', phase: state.phase, round: state.round, paused, players: localPlayersOf(c, state) });
+      else if (c.role === 'player') safeSend(c, { t: 'me', locale: settings.locale, phase: state.phase, round: state.round, paused, players: localPlayersOf(c, state) });
     }
   }
 
@@ -639,7 +642,9 @@ export function createGame({
         if (!slot) return badMessage(client);
         if (slot === SELF) return joinPhone(client, msg);
         if (!settings.keyboardPlayers) return safeSend(client, { t: 'error', code: 'keyboardDisabled' });
-        const name = slot === 'wasd' ? STRINGS.display.keyboardWasd : STRINGS.display.keyboardArrows;
+        // In the language of the moment: the name stays as it was when they joined.
+        const T = stringsFor(settings.locale).display;
+        const name = slot === 'wasd' ? T.keyboardWasd : T.keyboardArrows;
         const result = addOwnedPlayer(client, slot, name, 'keyboard');
         if (!result.ok) return safeSend(client, { t: 'error', code: result.reason === 'full' ? 'full' : 'badMessage', slot });
         if (!result.already) safeSend(client, { t: 'joined', slot, id: result.id, name, colorIndex: result.colorIndex });
@@ -715,11 +720,14 @@ export function createGame({
       // other /admin change: live values at once, round rules (and the grid
       // size) from the next round. Records, banned words, the server config
       // and sessions are not settings, so they're left alone.
-      case 'resetSettings':
+      case 'resetSettings': {
+        const { locale } = settings; // the language isn't a game setting: it stays
         applyDefaults();
+        settings.locale = locale;
         kickKeyboardPlayers(); // keyboard players are off by default
         log('[admin] all settings reset to defaults');
         break;
+      }
       case 'resetRecords':
         if (!RESET_TARGETS.includes(msg.stat) || !records.reset(msg.stat)) return badMessage(client);
         refreshRecords();

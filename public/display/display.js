@@ -1,7 +1,8 @@
 // /display: renders the server state and feeds two local keyboard players
 // (WASD and arrow keys) into the same input path as phones.
 
-import { STRINGS, fmt } from '/shared/strings.js';
+import { STRINGS, LOCALE, fmt, setLocale } from '/shared/strings.js';
+import startLocale from '/locale.js';
 import { playerColor } from '/shared/colors.js';
 import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt, buildChains } from '/shared/snake-path.js';
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
@@ -14,24 +15,34 @@ import { BOT_SKILL_TWEMOJI, BOT_SKILL_EMOJI, BOT_HIDDEN_SKILL, BOT_ROBOT_TWEMOJI
 import { soundsFor, spreadOverTick } from '/shared/sounds.js';
 import * as sfx from './sfx.js';
 
-const T = STRINGS.display;
 const $ = (id) => document.getElementById(id);
 
 // ---- static text --------------------------------------------------------------
-document.title = T.title;
-$('lb-title').textContent = T.scoreboard;
-$('lb-empty').textContent = T.noPlayers;
-$('join-title').textContent = STRINGS.join.title;
-$('join-step1-title').textContent = STRINGS.join.step1Title;
-$('join-step1-text').textContent = STRINGS.join.step1Text;
-$('join-step2-title').textContent = STRINGS.join.step2Title;
-$('join-step2-text').textContent = STRINGS.join.step2Text;
-$('join-step3').replaceChildren(STRINGS.join.step3, document.createElement('br'), STRINGS.join.browser);
-$('keyboard-hint').textContent = T.keyboardHint;
-$('rec-kicker').textContent = T.recordsTitle;
-$('rec-empty').textContent = T.noRecords;
-$('connection').textContent = T.disconnected;
-$('sound-hint').textContent = T.soundHint;
+// In the language chosen on /admin: the one at load, then whatever the state
+// messages say (switched in place: a reload would lose the sound unlock).
+let T;
+let joinInfo = null; // the last one from the server, re-worded on a switch
+setLocale(startLocale);
+applyText();
+function applyText() {
+  T = STRINGS.display;
+  document.documentElement.lang = LOCALE;
+  document.title = T.title;
+  $('lb-title').textContent = T.scoreboard;
+  $('lb-empty').textContent = T.noPlayers;
+  $('join-title').textContent = STRINGS.join.title;
+  $('join-step1-title').textContent = STRINGS.join.step1Title;
+  $('join-step1-text').textContent = STRINGS.join.step1Text;
+  $('join-step2-title').textContent = STRINGS.join.step2Title;
+  $('join-step2-text').textContent = STRINGS.join.step2Text;
+  $('join-step3').replaceChildren(STRINGS.join.step3, document.createElement('br'), STRINGS.join.browser);
+  $('keyboard-hint').textContent = T.keyboardHint;
+  $('rec-kicker').textContent = T.recordsTitle;
+  $('rec-empty').textContent = T.noRecords;
+  $('connection').textContent = T.disconnected;
+  $('sound-hint').textContent = T.soundHint;
+  showJoinText();
+}
 
 // ---- assets -------------------------------------------------------------------
 // Item sprites (Twemoji SVGs, served locally), loaded once.
@@ -119,13 +130,19 @@ function send(obj) {
 }
 
 function showJoinInfo(info) {
-  $('join-ssid').textContent = info.ssid ? fmt(STRINGS.join.wifiName, { ssid: info.ssid }) : '';
-  $('join-wifipass').textContent = info.wifiPassword ? fmt(STRINGS.join.wifiPassword, { password: info.wifiPassword }) : '';
-  $('join-url').textContent = info.playUrl ? fmt(STRINGS.join.gameUrl, { url: info.playUrl }) : '';
+  joinInfo = info;
+  showJoinText();
   // Bust the cache in case the server restarted with different settings.
   const v = Date.now();
   $('qr-wifi').src = `/qr/wifi.svg?v=${v}`;
   $('qr-play').src = `/qr/play.svg?v=${v}`;
+}
+function showJoinText() {
+  if (!joinInfo) return;
+  const info = joinInfo;
+  $('join-ssid').textContent = info.ssid ? fmt(STRINGS.join.wifiName, { ssid: info.ssid }) : '';
+  $('join-wifipass').textContent = info.wifiPassword ? fmt(STRINGS.join.wifiPassword, { password: info.wifiPassword }) : '';
+  $('join-url').textContent = info.playUrl ? fmt(STRINGS.join.gameUrl, { url: info.playUrl }) : '';
 }
 
 // ---- keyboard players --------------------------------------------------------------
@@ -1496,6 +1513,7 @@ function playSounds(msg, newTick) {
 sfx.onStateChange(() => $('sound-hint').classList.toggle('hidden', !latest?.effects?.sounds || !sfx.blocked()));
 
 function onState(msg) {
+  if (setLocale(msg.locale)) applyText();
   const s = msg.state;
   const key = `${s.round}:${s.tick}`;
   playSounds(msg, key !== tickKey);

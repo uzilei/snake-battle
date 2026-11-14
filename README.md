@@ -90,7 +90,7 @@ On in the expo setup. "Power-up attivi" on /admin switches them from the next ro
 
 Segments removed from a living snake (the part scissors cut off) become apples when "I serpenti morti diventano mele" is on, and vanish otherwise. The front a bomb blows off always vanishes.
 
-To add a power-up: an entry in `src/shared/powerups.js` (its weight slider, /admin label and sprite are generated from it), its effect in the engine's `EFFECTS` table, and its Italian name in `STRINGS.admin.powerUpNames`. A test checks all three are there.
+To add a power-up: an entry in `src/shared/powerups.js` (its weight slider, /admin label and sprite are generated from it), its effect in the engine's `EFFECTS` table, and its name in `STRINGS.admin.powerUpNames` (Italian and English). A test checks all three are there.
 
 ## Rats 🐀
 
@@ -191,6 +191,15 @@ The engine side is `command()` in `src/engine.js`. The server messages are `spaw
 - `/admin`: password-protected control panel. It is not linked from anywhere.
 - `/admin/print`: printable A4 page with the wifi and game QR codes.
 - `/health`: JSON status for whoever runs the laptop: uptime, phase, player and connection counts, and tick timing (configured interval, measured mean and worst of the last 100 ticks). No names or settings.
+
+## Language
+
+Every page is in Italian by default. The **Lingua / Language** menu in the /admin header switches all of them to English (or back), and the choice is saved in `settings.json` (`locale`). "Reset settings to defaults" leaves it alone.
+
+- /display and phones on /play switch in place, so the sound unlock, fullscreen and the game in progress are kept. /admin reloads itself in the new language; /admin/print and the login page use it the next time they load.
+- Pages read the language at load from `/locale.js` (never cached), then follow the server's messages.
+- The text is in `src/shared/strings.js` (Italian) and `src/shared/strings-en.js` (English). A test checks that both have the same keys, list lengths and `{placeholders}`, so a string added to one must be added to the other.
+- Names stay as they were given: "Bot N" is the same in both languages, and keyboard players keep the name they joined with ("Tastiera WASD" / "Keyboard WASD") until they rejoin. The kill popups were English already.
 
 ## Tests
 

@@ -2,14 +2,18 @@
 // player's color. The server validates everything; this page only sends
 // { t: 'join', name, session } and { t: 'dir', dir }.
 
-import { STRINGS } from '/shared/strings.js';
+import { STRINGS, LOCALE, setLocale } from '/shared/strings.js';
+import startLocale from '/locale.js';
 import { playerColor, contrastText } from '/shared/colors.js';
 import { MAX_NAME_LENGTH } from '/shared/limits.js';
 import { HATS, validHat } from '/shared/hats.js';
 import { cleanName } from '/shared/names.js';
 
-const P = STRINGS.play;
-const E = STRINGS.errors;
+// The language chosen on /admin: the one at load, then whatever the server's
+// messages say once joined (switched in place, so the game goes on).
+let P;
+let E;
+setLocale(startLocale);
 const $ = (id) => document.getElementById(id);
 
 const SWIPE_PX = 12;
@@ -55,19 +59,26 @@ function sessionToken() {
 const session = sessionToken();
 
 // ---- static text --------------------------------------------------------------
-document.title = P.title;
-$('title').textContent = P.title;
-$('name-label').textContent = P.namePrompt;
-$('name-input').placeholder = P.namePlaceholder;
 $('name-input').maxLength = MAX_NAME_LENGTH;
-$('join-btn').textContent = P.join;
-$('rejoin').textContent = P.rejoin;
-$('swipe-hint').textContent = P.swipeHint;
-$('hat-label').textContent = P.hatPrompt;
-$('gear').setAttribute('aria-label', P.toggleControls);
-for (const b of document.querySelectorAll('.pad .dir')) {
-  b.setAttribute('aria-label', P[`dir${b.dataset.dir[0].toUpperCase()}${b.dataset.dir.slice(1)}`]);
+function applyText() {
+  P = STRINGS.play;
+  E = STRINGS.errors;
+  document.documentElement.lang = LOCALE;
+  document.title = P.title;
+  $('title').textContent = P.title;
+  $('name-label').textContent = P.namePrompt;
+  $('name-input').placeholder = P.namePlaceholder;
+  if (!$('join-btn').disabled) $('join-btn').textContent = P.join;
+  $('rejoin').textContent = P.rejoin;
+  $('swipe-hint').textContent = P.swipeHint;
+  $('hat-label').textContent = P.hatPrompt;
+  $('gear').setAttribute('aria-label', P.toggleControls);
+  for (const b of document.querySelectorAll('.pad .dir')) {
+    b.setAttribute('aria-label', P[`dir${b.dataset.dir[0].toUpperCase()}${b.dataset.dir.slice(1)}`]);
+  }
+  for (const b of document.querySelectorAll('#hats button')) labelHat(b);
 }
+applyText();
 
 // ---- screens --------------------------------------------------------------------
 let name = fresh ? '' : (load(localStorage, NAME_KEY) ?? '');
@@ -216,6 +227,7 @@ function join() {
 }
 
 function onMe(msg) {
+  if (setLocale(msg.locale)) applyText();
   const p = msg.players?.self;
   if (!me || !p) return;
   // A new round (or our first one) starts from the snake's spawn direction.
@@ -239,21 +251,26 @@ const hatButtons = [{ id: null }, ...HATS].map((h) => {
   const b = document.createElement('button');
   b.type = 'button';
   b.setAttribute('role', 'radio');
-  b.setAttribute('aria-label', h.id ? (P.hatNames[h.id] ?? h.id) : P.hatNone);
   if (h.id) {
     const img = document.createElement('img');
     img.src = `/twemoji/${h.twemoji}.svg`;
     img.alt = '';
     b.append(img);
-  } else b.textContent = P.hatNone;
+  }
   b.addEventListener('click', () => {
     hat = h.id;
     save(localStorage, HAT_KEY, hat ?? '');
     markHat();
   });
   b.dataset.hat = h.id ?? '';
+  labelHat(b);
   return b;
 });
+function labelHat(b) {
+  const id = b.dataset.hat;
+  b.setAttribute('aria-label', id ? (P.hatNames[id] ?? id) : P.hatNone);
+  if (!id) b.textContent = P.hatNone;
+}
 $('hats').append(...hatButtons);
 function markHat() {
   for (const b of hatButtons) b.setAttribute('aria-checked', String(b.dataset.hat === (hat ?? '')));

@@ -1,8 +1,18 @@
-// All user-facing text, in Italian. Shared by the server (login page) and the
-// browser pages (served at /shared/strings.js). Use fmt() for placeholders.
+// All user-facing text: Italian here, English in strings-en.js (same keys,
+// same {placeholders}). Shared by the server (login page) and the browser
+// pages (served at /shared/strings.js). Use fmt() for placeholders.
+//
+// The language is an /admin setting (`locale`). The server picks a table with
+// stringsFor(locale). Each page calls setLocale() with the current one, read
+// from /locale.js at load and from the server's messages after, and reads
+// STRINGS: an ES module live binding, so it follows setLocale().
 
-export const STRINGS = Object.freeze({
+import { STRINGS_EN } from './strings-en.js';
+
+const STRINGS_IT = Object.freeze({
   appName: 'Snake Battle',
+  // Each language under its own name, the same in every table (the /admin menu).
+  localeNames: { it: 'Italiano', en: 'English' },
 
   // ---- /display ----------------------------------------------------------
   display: {
@@ -118,6 +128,7 @@ export const STRINGS = Object.freeze({
   admin: {
     title: 'Pannello di controllo',
     logout: 'Esci',
+    language: 'Lingua',
     connected: 'Connesso',
     disconnected: 'Disconnesso, riconnessione…',
     sessionExpired: 'Sessione scaduta. Accedi di nuovo.',
@@ -137,7 +148,7 @@ export const STRINGS = Object.freeze({
     confirmRestart: 'Ricominciare il round in corso?',
     resetSettings: 'Ripristina impostazioni predefinite',
     confirmResetSettings:
-      'Riportare tutte le impostazioni ai valori predefiniti? Cursori, regole, condizioni di vittoria, power-up, colonna laterale, classifica globale (attivazione) ed effetti tornano come al primo avvio. Le regole del round cambiano dal prossimo round. I dati della classifica globale, le parole vietate e la password non vengono toccati.',
+      'Riportare tutte le impostazioni ai valori predefiniti? Cursori, regole, condizioni di vittoria, power-up, colonna laterale, classifica globale (attivazione) ed effetti tornano come al primo avvio. Le regole del round cambiano dal prossimo round. I dati della classifica globale, le parole vietate, la lingua e la password non vengono toccati.',
     settings: 'Impostazioni',
     tickMs: 'Velocità (ms per passo, meno = più veloce)',
     appleCount: 'Numero di mele',
@@ -402,6 +413,25 @@ export const STRINGS = Object.freeze({
     nameProfane: 'Questo nome non è permesso. Scegline un altro.',
   },
 });
+
+export const LOCALES = Object.freeze(['it', 'en']);
+export const DEFAULT_LOCALE = 'it';
+const TABLES = Object.freeze({ it: STRINGS_IT, en: STRINGS_EN });
+
+// The table for a locale; Italian for anything unknown.
+export const stringsFor = (locale) => (Object.hasOwn(TABLES, locale) ? TABLES[locale] : STRINGS_IT);
+
+export let LOCALE = DEFAULT_LOCALE;
+export let STRINGS = STRINGS_IT;
+
+// Switches STRINGS (for every importer) to a known locale. Returns whether it
+// changed anything.
+export function setLocale(locale) {
+  if (!LOCALES.includes(locale) || locale === LOCALE) return false;
+  LOCALE = locale;
+  STRINGS = TABLES[locale];
+  return true;
+}
 
 // fmt('Round {n}', { n: 3 }) -> 'Round 3'
 export function fmt(template, values = {}) {

@@ -72,6 +72,8 @@ body.login button { min-height: 44px; }
 }
 .topbar h1 { margin: 0; font-size: 1.15rem; flex: 1 1 auto; }
 .topbar form { margin: 0; }
+.topbar .locale { white-space: nowrap; }
+.topbar .locale select { padding: 6px 8px; min-height: 36px; }
 .conn { white-space: nowrap; }
 .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); margin-right: 6px; }
 .status-dot.ok { background: var(--ok); }

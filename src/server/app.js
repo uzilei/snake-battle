@@ -9,7 +9,7 @@ import { WebSocketServer } from 'ws';
 import { createGame } from './game.js';
 import { createSessionStore, createLoginLimiter, passwordMatches, SESSION_COOKIE } from './auth.js';
 import { wifiPayload, qrSvg, playUrl, baseUrl, detectLanIp } from './network.js';
-import { STRINGS, fmt } from '../shared/strings.js';
+import { fmt, stringsFor } from '../shared/strings.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PUBLIC = path.join(ROOT, 'public');
@@ -21,11 +21,11 @@ const MAX_BUFFERED_BYTES = 1024 * 1024;
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-function loginPage({ error = '', next = '/admin' } = {}) {
-  const t = STRINGS.login;
+function loginPage({ strings, locale, error = '', next = '/admin' }) {
+  const t = strings.login;
   return `<!doctype html>
-<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(t.title)} – ${escapeHtml(STRINGS.appName)}</title>
+<html lang="${escapeHtml(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(t.title)} – ${escapeHtml(strings.appName)}</title>
 <link rel="stylesheet" href="/admin/assets/admin.css"></head>
 <body class="login"><form method="post" action="/admin/login" class="card">
 <h1>${escapeHtml(t.title)}</h1>
@@ -54,6 +54,8 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
   const joinInfo = { ssid: serverConfig.wifi.ssid, wifiPassword: serverConfig.wifi.password, playUrl: '' };
   const game = createGame({ random, log, joinInfo, wordList, records, defaults, savedSettings, saveSettings });
   const sessions = createSessionStore();
+  // The language of server-rendered pages (the login page).
+  const pageLocale = () => ({ locale: game.settings.locale, strings: stringsFor(game.settings.locale) });
   const limiter = createLoginLimiter(limiterOpts);
   const lanIp = detectLanIp();
   let port = serverConfig.port;
@@ -71,6 +73,12 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
   app.get('/play', (req, res) => res.sendFile(path.join(PUBLIC, 'play', 'index.html')));
   app.use('/static', express.static(PUBLIC, { index: false }));
   app.use('/shared', express.static(path.join(ROOT, 'src', 'shared'), { index: false }));
+  // The language chosen on /admin, as a module each page imports before its
+  // first text (live pages then follow the server's messages). Never cached.
+  app.get('/locale.js', (req, res) => {
+    res.type('text/javascript').set('Cache-Control', 'no-store').send(`export default ${JSON.stringify(game.settings.locale)};
+`);
+  });
   // Keeps phone screens awake on /play (a tiny looping video, since the Wake
   // Lock API needs https).
   app.use('/vendor/nosleep', express.static(path.join(ROOT, 'node_modules', 'nosleep.js', 'dist'), { index: false, maxAge: '1d' }));
@@ -122,7 +130,7 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
   app.get('/admin/login', (req, res) => {
     if (sessions.fromRequest(req)) return res.redirect('/admin');
     const next = LOGIN_TARGETS.has(req.query.next) ? req.query.next : '/admin';
-    res.type('html').send(loginPage({ next }));
+    res.type('html').send(loginPage({ ...pageLocale(), next }));
   });
 
   app.post('/admin/login', express.urlencoded({ extended: false, limit: '2kb' }), (req, res) => {
@@ -131,12 +139,12 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
     const wait = limiter.retryAfter(ip);
     if (wait > 0) {
       res.set('Retry-After', String(wait));
-      return res.status(429).type('html').send(loginPage({ error: fmt(STRINGS.login.tooManyAttempts, { s: wait }), next }));
+      return res.status(429).type('html').send(loginPage({ ...pageLocale(), error: fmt(pageLocale().strings.login.tooManyAttempts, { s: wait }), next }));
     }
     if (!passwordMatches(req.body?.password, serverConfig.adminPassword)) {
       limiter.fail(ip);
       log(`[auth] failed admin login from ${ip}`);
-      return res.status(401).type('html').send(loginPage({ error: STRINGS.login.wrongPassword, next }));
+      return res.status(401).type('html').send(loginPage({ ...pageLocale(), error: pageLocale().strings.login.wrongPassword, next }));
     }
     limiter.succeed(ip);
     const token = sessions.create();
