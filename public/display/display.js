@@ -359,7 +359,8 @@ function drawRemains(apples, cell, n) {
         run.push(list[i]);
         continue;
       }
-      chains.push(...buildChains(run, n));
+      // u counts segments from the body's head, so stripes keep their place.
+      for (const chain of buildChains(run, n)) chains.push(chain.map((p) => ({ ...p, u: p.u + run[0].seg })));
       run = [list[i]];
     }
   }
@@ -376,9 +377,32 @@ function drawRemains(apples, cell, n) {
     for (let i = 1; i < chain.length; i++) ctx.lineTo((chain[i].x + 0.5) * cell, (chain[i].y + 0.5) * cell);
   }
   ctx.stroke();
-  // Every other segment a shade darker, like a snake's stripes.
+  // Every other segment a shade darker, drawn like a living snake's stripes:
+  // a band across the body along its path, clipped to the body's outline.
+  ctx.save();
+  clipToBody(chains, -Infinity, Infinity, cell, width / 2);
+  ctx.lineCap = 'butt';
+  ctx.lineWidth = cell * STRIPE_REACH * 2;
+  ctx.strokeStyle = REMAINS_LOOK.dark;
   ctx.fillStyle = REMAINS_LOOK.dark;
-  for (const a of corpses) if (a.seg % 2 === 1) disc((a.x + 0.5) * cell, (a.y + 0.5) * cell, width * 0.36);
+  ctx.beginPath();
+  const caps = [];
+  for (const chain of chains) {
+    const first = chain[0].u;
+    const last = chain[chain.length - 1].u;
+    for (let j = Math.ceil(first); j <= last; j++) {
+      if (j % 2 === 0) continue;
+      const pts = smoothSubPath(chain, j - 0.5, j + 0.5);
+      if (!pts || pts.length < 2) continue;
+      ctx.moveTo((pts[0].x + 0.5) * cell, (pts[0].y + 0.5) * cell);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo((pts[i].x + 0.5) * cell, (pts[i].y + 0.5) * cell);
+    }
+    // A dark segment at either end of a piece: its round cap is dark too.
+    for (const p of [chain[0], chain[chain.length - 1]]) if (p.u % 2 === 1) caps.push(p);
+  }
+  ctx.stroke();
+  for (const p of caps) disc((p.x + 0.5) * cell, (p.y + 0.5) * cell, width / 2);
+  ctx.restore();
   // Heads: the dead face, X X eyes.
   for (const a of corpses) {
     if (!a.head) continue;
