@@ -158,6 +158,7 @@ export const STRINGS = Object.freeze({
     bots: 'Numero di bot (0 = nessuno)',
     botFill:
       'Riempi: i bot completano i posti fino al numero scelto e lasciano il posto a chi si unisce (es. 4: con 1 telefono 3 bot, con 4 o più nessuno)',
+    botLevels: 'Mostra il livello dei bot (🐣 ⚔️ ☠️ accanto al nome; spento: 🤖 per tutti)',
     // One weight slider per bot skill (the emoji is added in front).
     botWeights: {
       1: 'Peso abilità 1 (lenti, spesso sbagliano)',

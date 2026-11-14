@@ -4,7 +4,7 @@ import { createEngine } from '../src/engine.js';
 import { createBotBrain, BOT_BRAIN } from '../src/bot-brain.js';
 import { createGame, resolveSidePanel } from '../src/server/game.js';
 import { createRecords } from '../src/server/records.js';
-import { botTarget, botName, BOT_NAME_PATTERN, MAX_SNAKES, pickBotSkill, validReservedBots } from '../src/shared/bots.js';
+import { botTarget, botName, BOT_NAME_PATTERN, MAX_SNAKES, pickBotSkill, validReservedBots, BOT_HIDDEN_SKILL } from '../src/shared/bots.js';
 import { HAT_IDS } from '../src/shared/hats.js';
 
 // Deterministic RNG (mulberry32).
@@ -1044,6 +1044,22 @@ describe('server: bots', () => {
     phone(game, 'Anna');
     game.tickOnce();
     assert.equal(Object.keys(display.last('state').botSkills).length, botsOf(game).length);
+  });
+
+  test('"mostra il livello dei bot": on by default; off, /display gets the robot for every bot', () => {
+    const { game, admin } = newGame({ bots: 3, botWeight1: 0, botWeight2: 0, botWeight3: 1 });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    game.tickOnce();
+    assert.equal(game.settings.botLevels, true);
+    const skills = () => Object.values(display.last('state').botSkills);
+    assert.deepEqual(skills(), [3, 3, 3]);
+    admin.send({ t: 'settings', botLevels: false });
+    assert.deepEqual(skills(), [BOT_HIDDEN_SKILL, BOT_HIDDEN_SKILL, BOT_HIDDEN_SKILL]);
+    admin.send({ t: 'settings', botLevels: 'no' });
+    assert.equal(admin.last('error').code, 'badMessage');
+    admin.send({ t: 'settings', botLevels: true });
+    assert.deepEqual(skills(), [3, 3, 3]); // the skills themselves never changed
   });
 
   test('settings saved with the old single bot skill keep it as the only weight', () => {

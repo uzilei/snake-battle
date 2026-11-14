@@ -15,7 +15,7 @@ import { FRUIT_CODES } from '../shared/fruits.js';
 import { validHat, HAT_IDS } from '../shared/hats.js';
 import { cleanName } from '../shared/names.js';
 import { SOUND_LIMITS, SOUND_VOLUME_DEFAULTS, soundGains } from '../shared/sounds.js';
-import { BOT_LIMITS, BOT_NAME_PATTERN, BOT_SKILLS, MAX_SNAKES, botName, botTarget, botWeightKey, pickBotSkill, validReservedBots, normalizeReservedBots } from '../shared/bots.js';
+import { BOT_HIDDEN_SKILL, BOT_LIMITS, BOT_NAME_PATTERN, BOT_SKILLS, MAX_SNAKES, botName, botTarget, botWeightKey, pickBotSkill, validReservedBots, normalizeReservedBots } from '../shared/bots.js';
 import { createBotBrain } from '../bot-brain.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
@@ -71,6 +71,7 @@ const SETTING_RULES = Object.freeze({
   corpseStyle: (v) => CORPSE_STYLES.includes(v),
   bots: inLimits(BOT_LIMITS.bots),
   botFill: isBoolean,
+  botLevels: isBoolean,
   reservedBots: validReservedBots,
   ...Object.fromEntries(BOT_SKILLS.map((k) => [botWeightKey(k), inLimits(BOT_LIMITS[botWeightKey(k)])])),
   ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, isBoolean])),
@@ -152,6 +153,7 @@ const defaultSettings = () => ({
   bots: BOT_LIMITS.bots.default, // computer players (0 = none)
   botFill: false, // bots only fill up to `bots`, making room for people
   reservedBots: [], // { name, hat }: names bots play under before "Bot N"
+  botLevels: true, // /display shows each bot's skill emoji (off: 🤖 for all)
   // Skill weights for new bots (botWeight1..3).
   ...Object.fromEntries(BOT_SKILLS.map((k) => [botWeightKey(k), BOT_LIMITS[botWeightKey(k)].default])),
   ...EFFECT_DEFAULTS,
@@ -251,7 +253,8 @@ export function createGame({
       fruits: settings.fruits, // codes new apples are drawn as (none: all 🍎)
       corpseStyle: settings.corpseStyle,
       hats: settings.hats ? hatsOf(state) : null, // playerId -> hat id, for players wearing one
-      botSkills: Object.fromEntries([...bots].map(([id, b]) => [id, b.skill])), // bot id -> 1-3
+      // bot id -> 1-3, or BOT_HIDDEN_SKILL for all of them when the levels are hidden
+      botSkills: Object.fromEntries([...bots].map(([id, b]) => [id, settings.botLevels ? b.skill : BOT_HIDDEN_SKILL])),
       badgerName: settings.badgerName || null,
       records: settings.leaderboard ? recordsView : null, // { wins, kills, score }: top 10 each
       leaderboardStat: settings.leaderboardStat,

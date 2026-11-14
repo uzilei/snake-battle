@@ -126,6 +126,7 @@ const RULE_TOGGLES = {
   powerUps: 'config',
   leaderboard: 'settings',
   botFill: 'settings',
+  botLevels: 'settings',
   particles: 'settings',
   screenShake: 'settings',
   snakeAnimations: 'settings',

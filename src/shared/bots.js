@@ -19,6 +19,10 @@ export const botWeightKey = (skill) => `botWeight${skill}`;
 // Drawn by a bot's name on /display: 🐣 learner, ⚔️ fighter, ☠️ deadly.
 export const BOT_SKILL_TWEMOJI = Object.freeze({ 1: '1f423', 2: '2694', 3: '2620' });
 export const BOT_SKILL_EMOJI = Object.freeze({ 1: '🐣', 2: '⚔️', 3: '☠️' });
+// With "mostra il livello dei bot" off, /display gets this instead of the
+// skill, and draws 🤖 for every bot.
+export const BOT_HIDDEN_SKILL = 'robot';
+export const BOT_ROBOT_TWEMOJI = '1f916';
 
 // A skill for a new bot, by the /admin weights (all 0: each as likely).
 export function pickBotSkill(settings, random = Math.random) {

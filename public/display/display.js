@@ -10,7 +10,7 @@ import { CHICKEN_RULES } from '/shared/chicken.js';
 import { BADGER_RULES, badgerLabel } from '/shared/badger.js';
 import { FRUIT_CODES } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
-import { BOT_SKILL_TWEMOJI, BOT_SKILL_EMOJI } from '/shared/bots.js';
+import { BOT_SKILL_TWEMOJI, BOT_SKILL_EMOJI, BOT_HIDDEN_SKILL, BOT_ROBOT_TWEMOJI } from '/shared/bots.js';
 import { soundsFor, spreadOverTick } from '/shared/sounds.js';
 import * as sfx from './sfx.js';
 
@@ -57,6 +57,8 @@ const ITEM_IMAGES = {
   ...Object.fromEntries(HATS.map((h) => [`hat-${h.id}`, loadImage(`/twemoji/${h.twemoji}.svg`)])),
   // A bot's skill, by its name: 🐣 / ⚔️ / ☠️.
   ...Object.fromEntries(Object.entries(BOT_SKILL_TWEMOJI).map(([k, code]) => [`skill-${k}`, loadImage(`/twemoji/${code}.svg`)])),
+  // Any bot, when /admin hides their skills: 🤖.
+  [`skill-${BOT_HIDDEN_SKILL}`]: loadImage(`/twemoji/${BOT_ROBOT_TWEMOJI}.svg`),
 };
 // A random fruit out of the ones in use (only 🍎 when none is).
 function randomFruit(enabled) {
