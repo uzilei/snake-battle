@@ -840,7 +840,7 @@ describe('config toggles', () => {
     const e = createEngine();
     assert.equal(e.config.wrapWalls, false);
     assert.equal(e.config.corpseApples, false);
-    assert.deepEqual(e.getState().rules, { corpseApples: false, wrapWalls: false, timeLimitWin: false, targetLengthWin: false, powerUps: false });
+    assert.deepEqual(e.getState().rules, { corpseApples: false, wrapWalls: false, timeLimitWin: false, targetLengthWin: false, lastPersonWins: false, powerUps: false });
   });
 });
 

@@ -29,10 +29,11 @@ Names are cleaned the same way on /play and on the server (`src/shared/names.js`
 
 Swipes are queued (up to 3) and one turn is applied per tick. A queued turn that would put the head straight into the snake's own body (not counting a tail that moves away) is skipped and the snake goes straight on, so one swipe too many isn't suicide; going straight into your own body still kills. Other snakes and walls get no such protection.
 
-The game rules (dead snakes become apples, wrap-around walls) are /admin toggles, off by default, applied from the next round. Extra apples (from dead snakes and the 🍗 feast) come on top of the number of apples: the regular items stay at that number however many extras there are, and extras are never removed when it's lowered. So are two extra win conditions on top of "last snake alive", which always applies; when several are on, whichever triggers first ends the round:
+The game rules (dead snakes become apples, wrap-around walls) are /admin toggles, off by default, applied from the next round. Extra apples (from dead snakes and the 🍗 feast) come on top of the number of apples: the regular items stay at that number however many extras there are, and extras are never removed when it's lowered. So are three extra win conditions on top of "last snake alive", which always applies; when several are on, whichever triggers first ends the round:
 
 - **Time limit** (`roundTimeLimitSec`): when it runs out, the longest living snake wins, or the one with the most kills this round (ties broken by length), as chosen on /admin. A full tie is a draw. /display shows the remaining time and flashes it in the last 10 seconds.
 - **Target length** (`targetLength`): the first snake to reach it wins at once. If several reach it on the same tick the longest wins; a full tie is a draw.
+- **Last person standing** (`lastPersonWins`): when only one person is left alive and every other living snake is a bot, the round ends and that person wins (it counts toward the global leaderboard like any win). Only in rounds that started with at least two people, so a lone player against bots still has to outlast them; /display says why the round ended.
 
 In a solo round these can end the round, but nobody wins.
 

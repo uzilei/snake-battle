@@ -32,6 +32,7 @@ export const STRINGS = Object.freeze({
     target: 'Obiettivo: lunghezza {n}',
     timeUp: 'Tempo scaduto!',
     targetReached: 'Lunghezza {n} raggiunta!',
+    lastPerson: 'Ultimo giocatore rimasto, contro solo bot!',
     // global leaderboard (one stat at a time)
     recordsTitle: 'Classifica globale',
     stats: { wins: 'Più vittorie', kills: 'Più eliminazioni', score: 'Punteggio più alto' },
@@ -227,6 +228,7 @@ export const STRINGS = Object.freeze({
     },
     targetLengthWin: 'Lunghezza obiettivo (vince chi la raggiunge per primo)',
     targetLength: 'Lunghezza obiettivo',
+    lastPersonWins: 'Vince l’ultimo giocatore rimasto, anche se restano dei bot (round con almeno 2 giocatori)',
     // power-ups card
     powerUpsTitle: 'Power-up',
     powerUps: 'Power-up attivi (dal prossimo round)',

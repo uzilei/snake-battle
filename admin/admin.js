@@ -85,6 +85,7 @@ const RULE_TOGGLES = {
   wrapWalls: 'config',
   timeLimitWin: 'config',
   targetLengthWin: 'config',
+  lastPersonWins: 'config',
   powerUps: 'config',
   leaderboard: 'settings',
   botFill: 'settings',

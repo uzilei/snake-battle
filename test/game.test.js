@@ -590,7 +590,7 @@ describe('global leaderboard', () => {
     assert.equal(game.config.timeLimitWinner, 'kills');
     assert.equal(game.config.targetLength, 4); // clamped above the start length
     const msg = admin.last('admin');
-    assert.deepEqual(msg.toggles, ['corpseApples', 'wrapWalls', 'timeLimitWin', 'targetLengthWin', 'powerUps']);
+    assert.deepEqual(msg.toggles, ['corpseApples', 'wrapWalls', 'timeLimitWin', 'targetLengthWin', 'lastPersonWins', 'powerUps']);
     assert.deepEqual(msg.choices.timeLimitWinner, ['longest', 'kills']);
   });
 

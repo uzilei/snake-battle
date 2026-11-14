@@ -112,6 +112,48 @@ describe('engine: bot players', () => {
     assert.equal(player(e, 'h').status, 'alive');
   });
 
+  describe('last person standing (/admin rule)', () => {
+    // People h1 and h2, bot b; h2 drives into the right wall on the first tick.
+    const round = (lastPersonWins, people = ['h1', 'h2']) => {
+      const e = createEngine({ config: { gridSize: 20, appleCount: 0, spawnShieldSec: 0, lastPersonWins }, random: seeded(42) });
+      for (const id of people) e.addPlayer(id, id);
+      e.addPlayer('b', 'Bot', { bot: true });
+      e.tick(); // waiting -> playing
+      e._debug.setApples([]);
+      e._debug.setSnake('h1', row(5, 5, 3), 'right');
+      e._debug.setSnake('b', row(10, 5, 3), 'right');
+      if (people.includes('h2')) e._debug.setSnake('h2', row(15, 19, 17), 'right');
+      return e;
+    };
+
+    test('off by default', () => {
+      assert.equal(createEngine().getState().rules.lastPersonWins, false);
+    });
+
+    test('on: the last person alive among bots wins at once', () => {
+      const e = round(true);
+      e.tick();
+      assert.equal(player(e, 'h2').status, 'dead');
+      const s = e.getState();
+      assert.equal(s.phase, 'intermission');
+      assert.equal(s.winnerId, 'h1');
+      assert.equal(s.endReason, 'lastPerson');
+    });
+
+    test('off: the round plays on with the bot', () => {
+      const e = round(false);
+      e.tick();
+      assert.equal(player(e, 'h2').status, 'dead');
+      assert.equal(e.getState().phase, 'playing');
+    });
+
+    test('a round that started with one person: no free win against bots', () => {
+      const e = round(true, ['h1']);
+      e.tick();
+      assert.equal(e.getState().phase, 'playing');
+    });
+  });
+
   test('people spawn first: on a board too small for everyone, a bot waits', () => {
     const e = createEngine({ config: { gridSize: 10, appleCount: 0 }, random: seeded(4) });
     for (let i = 1; i <= 40; i++) e.addPlayer(`b${i}`, `Bot ${i}`, { bot: true });

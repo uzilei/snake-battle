@@ -1230,7 +1230,27 @@ function drawKillPopups(cell, size, now) {
 // a tick is identified by round + tick number and handled only once.
 let tickKey = '';
 let tickAt = 0; // when the latest tick arrived
-let prevSnakes = new Map(); // id -> snake one tick before the latest
+// id -> { snake, at, ms, chain? }: the snake before its latest move, sliding
+// from it to the latest over `ms` from `at`. A frozen snake moves every
+// second tick, so its slide spans both ticks instead of stopping and
+// starting. A move that arrives before the slide is over (the freeze just
+// ended) doesn't jump: `chain` { snake, p } is the unfinished slide (from
+// chain.snake, p done), and the same `ms` covers the rest of it and then the
+// new move, at one steady speed.
+let prevSnakes = new Map();
+
+// Where a slide is at `now`: the snake to draw (its segments), the one it
+// slides from and how far (0..1); `done` is the progress of its latest move.
+function slideAt(slide, cur, now) {
+  if (!slide) return { shown: cur, from: null, t: 1, done: 1 };
+  const f = slide.ms > 0 ? clamp((now - slide.at) / slide.ms, 0, 1) : 1;
+  const c = slide.chain;
+  if (!c) return { shown: cur, from: slide.snake, t: f, done: f };
+  const a = (1 - c.p) / (2 - c.p); // the share of `ms` that finishes the old slide
+  if (f < a) return { shown: { ...cur, segments: slide.snake.segments }, from: c.snake, t: c.p + (f / a) * (1 - c.p), done: 0 };
+  const t = (f - a) / (1 - a);
+  return { shown: cur, from: slide.snake, t, done: t };
+}
 let prevProjectiles = new Map(); // id -> projectile one tick before the latest
 const diedAt = new Map(); // id -> when it died (for the fade)
 let eaten = []; // { x, y, color, until, item?, sprite? }
@@ -1331,7 +1351,29 @@ function onState(msg) {
   if (key !== tickKey) {
     const now = performance.now();
     const sameRound = latest?.state.round === s.round;
-    prevSnakes = sameRound ? new Map(latest.state.snakes.map((x) => [x.id, x])) : new Map();
+    const before = prevSnakes;
+    prevSnakes = new Map();
+    if (sameRound) {
+      for (const old of latest.state.snakes) {
+        const cur = s.snakes.find((x) => x.id === old.id);
+        if (!cur) continue;
+        const moved = cur.segments[0]?.x !== old.segments[0]?.x || cur.segments[0]?.y !== old.segments[0]?.y;
+        if (!moved) {
+          // Frozen, sitting this tick out: carry on with the slide it's in.
+          if (cur.frozen && before.has(old.id)) prevSnakes.set(old.id, before.get(old.id));
+          continue;
+        }
+        // Frozen snakes sit out odd ticks (as in the engine).
+        const skipsNext = cur.frozen && (s.tick + 1) % 2 === 1;
+        const entry = { snake: old, at: now, ms: msg.tickMs * (skipsNext ? 2 : 1) };
+        const last = before.get(old.id);
+        if (last) {
+          const { done } = slideAt(last, old, now);
+          if (done < 1) entry.chain = { snake: last.snake, p: done };
+        }
+        prevSnakes.set(old.id, entry);
+      }
+    }
     prevProjectiles = sameRound ? new Map((latest.state.projectiles ?? []).map((x) => [x.id, x])) : new Map();
     if (!sameRound) {
       diedAt.clear();
@@ -1528,7 +1570,8 @@ function drawBoard(msg, now, dt) {
   for (const s of state.snakes) if (!s.alive) drawSnake(s, null, 1, cell, n, now, animFor(s), frame);
   for (const s of state.snakes) {
     if (!s.alive) continue;
-    const head = drawSnake(s, prevSnakes.get(s.id), t, cell, n, now, animFor(s), frame, msg.hats?.[s.id] ?? null);
+    const { shown, from, t: st } = slideAt(prevSnakes.get(s.id), s, now);
+    const head = drawSnake(shown, from, st, cell, n, now, animFor(s), frame, msg.hats?.[s.id] ?? null);
     if (head) labels.push({ ...head, name: names.get(s.id) ?? '', skill: msg.botSkills?.[s.id] ?? null });
     if (head) heads.set(s.id, head);
     if (head && s.effect) badges.push({ ...head, effect: s.effect });
@@ -1870,7 +1913,14 @@ function updateOverlay(msg) {
     const winner = s.players.find((p) => p.id === s.winnerId);
     const next = fmt(T.nextRound, { s: Math.max(1, Math.ceil(s.intermissionRemainingMs / 1000)) });
     // Say why the round ended when it wasn't the last snake standing.
-    const reason = s.endReason === 'time' ? T.timeUp : s.endReason === 'target' ? fmt(T.targetReached, { n: s.win.targetLength }) : '';
+    const reason =
+      s.endReason === 'time'
+        ? T.timeUp
+        : s.endReason === 'target'
+          ? fmt(T.targetReached, { n: s.win.targetLength })
+          : s.endReason === 'lastPerson'
+            ? T.lastPerson
+            : '';
     const sub = reason ? `${reason} ${next}` : next;
     if (winner) return setOverlay({ title: fmt(T.winner, { name: winner.name }), sub, banner: playerColor(winner.colorIndex), dim: true });
     return setOverlay({ title: T.draw, sub, dim: true });

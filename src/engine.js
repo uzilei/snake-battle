@@ -88,6 +88,9 @@ export const CONFIG_TOGGLES = Object.freeze({
   // whichever triggers first ends the round.
   timeLimitWin: false, // the round ends after roundTimeLimitSec
   targetLengthWin: false, // the first snake to reach targetLength wins
+  // The last person alive wins even with bots still alive (only in a round
+  // that started with at least two people).
+  lastPersonWins: false,
   powerUps: false, // power-ups spawn in place of some apples, plus bombs
 });
 
@@ -145,7 +148,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   let rules = lockRules(); // locked per round too
   let win = lockWin(); // the numbers behind rules.timeLimitWin / targetLengthWin
   let playingElapsed = 0; // ms of PLAYING ticks this round, for the time limit
-  let endReason = null; // why the last round ended: 'lastAlive' | 'time' | 'target'
+  let endReason = null; // why the last round ended: 'lastAlive' | 'lastPerson' | 'time' | 'target'
   // Board items. Apples, power-ups ({ x, y, type }) and creatures (rats and
   // chickens: { x, y, type: 'rat' | 'chicken', id, dir, ... }, see
   // moveCreatures) share one list in spawn order.
@@ -169,6 +172,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   let badgerDueFactor = null;
   let winnerId = null;
   let participants = 0; // snakes spawned at round start
+  let peopleSpawned = 0; // of them, people (not bots)
   let intermissionElapsed = 0;
   let countdownElapsed = 0;
   // What happened during the latest tick, for renderers (effects, sounds...):
@@ -485,6 +489,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     intermissionElapsed = 0;
     playingElapsed = 0;
     participants = 0;
+    peopleSpawned = 0;
     const occupied = new Set();
     const others = []; // cells of the snakes spawned so far
     recolor();
@@ -512,6 +517,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     p.snake = snake;
     p.status = 'alive';
     participants++;
+    if (!p.bot) peopleSpawned++;
     if (cfg.spawnShieldSec > 0) setEffect(p, 'shield', cfg.spawnShieldSec * 1000);
     return true;
   }
@@ -544,6 +550,11 @@ export function createEngine({ config, random = Math.random } = {}) {
     // to join, so a lone player can't block the queue indefinitely.
     if (solo && (alivePlayers.length === 0 || [...players.values()].some((p) => p.status === 'queued'))) {
       return endRound(null, 'lastAlive');
+    }
+    // Only one person left, the rest bots: that person wins (an /admin rule).
+    if (rules.lastPersonWins && peopleSpawned >= 2) {
+      const people = alivePlayers.filter((p) => !p.bot);
+      if (people.length === 1) return endRound(people[0].id, 'lastPerson');
     }
     // Only bots left alive and a person waiting: no point making them watch.
     if (alivePlayers.every((p) => p.bot) && [...players.values()].some((p) => !p.bot && p.status === 'queued')) {
