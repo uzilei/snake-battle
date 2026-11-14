@@ -1104,8 +1104,12 @@ describe('kills', () => {
     // (4, 5) along row 5, down column 0 and along row 19.
     const trail = [...row(5, 4, 0), ...column(0, 6, 19), ...row(19, 1, 19)];
     const victim = (length) => [trail.slice(0, length), 'right'];
-    const scene = (vLength, others = {}) =>
-      setup({ v: victim(vLength), k: [[[5, 7], [5, 6], [5, 5], [5, 4]], 'down'], c: bystander, ...others });
+    // Not the round's first kill (see the first blood tests), unless `first`.
+    const scene = (vLength, others = {}, { first = false } = {}) => {
+      const e = setup({ v: victim(vLength), k: [[[5, 7], [5, 6], [5, 5], [5, 4]], 'down'], c: bystander, ...others });
+      if (!first) e._debug.setKilledThisRound(true);
+      return e;
+    };
     const takedownOf = (e) => {
       e.tick();
       assert.equal(player(e, 'v').status, 'dead');
@@ -1156,6 +1160,49 @@ describe('kills', () => {
       assert.deepEqual(deathOf(e, 'v'), { type: 'death', id: 'v', killerId: null });
     });
 
+    test("the round's first credited kill is first blood, over MVP but not a streak", () => {
+      assert.equal(takedownOf(scene(5, {}, { first: true })), 'firstBlood');
+      assert.equal(takedownOf(scene(5)), undefined);
+      assert.equal(takedownOf(scene(22, {}, { first: true })), 'firstBlood');
+      const streak = scene(3, {}, { first: true });
+      streak._debug.setSnakeKills('v', 3);
+      assert.equal(takedownOf(streak), 'streak');
+    });
+
+    test('first blood: every credited kill on that tick, none after, again next round', () => {
+      // c gets a and b at once (both first blood), then e a tick later (not).
+      const e = setup({
+        a: [[[4, 5], [3, 5], [2, 5]], 'right'],
+        b: [[[6, 5], [7, 5], [8, 5], [9, 5]], 'left'],
+        c: [[[5, 7], [5, 6], [5, 5], [5, 4]], 'down'],
+        d: bystander,
+        e: [[[3, 7], [2, 7], [1, 7]], 'right'],
+      });
+      e.tick();
+      assert.deepEqual(['a', 'b'].map((id) => deathOf(e, id).takedown), ['firstBlood', 'firstBlood']);
+      e.tick();
+      assert.equal(deathOf(e, 'e').takedown, undefined);
+      // A new round: first blood again.
+      for (let i = 0; i < 400 && e.getState().round === 1; i++) e.tick();
+      for (let i = 0; i < 20 && e.getState().phase !== 'playing'; i++) e.tick();
+      assert.equal(e.getState().round, 2);
+      e._debug.setSnake('a', [[4, 5], [3, 5], [2, 5]], 'right');
+      e._debug.setSnake('c', [[5, 7], [5, 6], [5, 5], [5, 4]], 'down');
+      e.tick();
+      assert.equal(deathOf(e, 'a').takedown, 'firstBlood');
+    });
+
+    test('a death nobody gets does not use up first blood', () => {
+      const e = setup({ w: [[[19, 5], [18, 5], [17, 5]], 'right'], v: victim(3), k: [[[5, 7], [5, 6], [5, 5], [5, 4]], 'down'], c: bystander });
+      e._debug.setSnake('v', [[4, 9], [3, 9], [2, 9]], 'right'); // v waits a tick
+      e.tick(); // w into the wall: no kill
+      assert.deepEqual(deathOf(e, 'w'), { type: 'death', id: 'w', killerId: null });
+      e._debug.setSnake('v', victim(3)[0], 'right');
+      e._debug.setSnake('k', [[5, 7], [5, 6], [5, 5], [5, 4]], 'down');
+      e.tick();
+      assert.equal(deathOf(e, 'v').takedown, 'firstBlood');
+    });
+
     test('leaders are taken as the tick began: a third kill on the tick it dies does not count', () => {
       // a runs into c's body (c's third kill) while c runs into d's body.
       const e = setup({
@@ -1165,6 +1212,7 @@ describe('kills', () => {
         z: bystander,
       });
       e._debug.setSnakeKills('c', 2);
+      e._debug.setKilledThisRound(true);
       e.tick();
       assert.equal(deathOf(e, 'a').killNo, 3);
       assert.equal(deathOf(e, 'c').killerId, 'd');

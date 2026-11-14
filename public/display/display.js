@@ -10,7 +10,7 @@ import { CHICKEN_RULES } from '/shared/chicken.js';
 import { BADGER_RULES } from '/shared/badger.js';
 import { FRUIT_CODES } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
-import { BOT_SKILL_TWEMOJI } from '/shared/bots.js';
+import { BOT_SKILL_TWEMOJI, BOT_SKILL_EMOJI } from '/shared/bots.js';
 
 const T = STRINGS.display;
 const $ = (id) => document.getElementById(id);
@@ -1120,7 +1120,7 @@ const KILL_POPUP_MS = 1500;
 const KILL_TIERS = ['#ffffff', '#ffe066', '#ffa726', '#ff5252', '#e040fb']; // fill per kill number
 // Killing the leader in kills or length (the death's takedown) adds a second
 // text below, with the same tilt, that drops instead of rising.
-const TAKEDOWN_FILL = { streak: '#4de3ff', mvp: '#ffd700' };
+const TAKEDOWN_FILL = { streak: '#4de3ff', mvp: '#ffd700', firstBlood: '#ff3344' };
 const TAKEDOWN_DELAY_MS = 140; // lands just after the KILL!
 const killPopups = []; // { x, y, n, text, color, start, tilt, end, takedown? }
 
@@ -1879,7 +1879,7 @@ const STATUS_ORDER = { alive: 0, dead: 1, queued: 2 };
 
 // hats: playerId -> hat id (null when the hats toggle is off).
 const KILL_ICON = '/twemoji/1f3af.svg'; // 🎯: kills, in the scoreboard
-function updateLeaderboard(state, hats) {
+function updateLeaderboard(state, hats, botSkills) {
   $('lb-round').textContent = state.round > 0 ? fmt(T.round, { n: state.round }) : '';
   const players = [...state.players].sort(
     (a, b) =>
@@ -1900,7 +1900,8 @@ function updateLeaderboard(state, hats) {
       line.className = 'name-line';
       const text = document.createElement('span');
       text.className = 'name-text';
-      text.textContent = p.bot ? `🤖 ${p.name}` : p.name; // textContent: names come from clients
+      // A bot: its skill's emoji (🤖 if unknown). textContent: names come from clients.
+      text.textContent = p.bot ? `${BOT_SKILL_EMOJI[botSkills?.[p.id]] ?? '🤖'} ${p.name}` : p.name;
       line.append(text);
       const hat = HATS.find((h) => h.id === hats?.[p.id]);
       if (hat) {
@@ -2096,7 +2097,7 @@ function render(now) {
     const key = JSON.stringify([state.round, state.players, $('side').className, latest.keyboardPlayers, innerHeight, latest.hats]);
     if (key !== lastSideKey) {
       lastSideKey = key;
-      updateLeaderboard(state, latest.hats);
+      updateLeaderboard(state, latest.hats, latest.botSkills);
     }
   } else lastSideKey = '';
 }

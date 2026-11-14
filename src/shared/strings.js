@@ -51,8 +51,9 @@ export const STRINGS = Object.freeze({
     killPopups: ['KILL!', 'DOUBLE KILL!!', 'TRIPLE KILL!!!', 'QUADRA KILL!!!!', 'PENTA KILL!!!!!'],
     killPopupMore: '{n}× KILL!!!!!',
     // Below it, dropping, when the snake killed led the round in kills
-    // (streak) or was the longest (mvp). Also English on purpose.
-    takedowns: { streak: 'STREAK SHUTDOWN!', mvp: 'MVP DOWN!' },
+    // (streak) or was the longest (mvp), or for the round's first kill
+    // (firstBlood). Also English on purpose.
+    takedowns: { streak: 'SHUTDOWN!', mvp: 'MVP KILL!', firstBlood: 'FIRST BLOOD!' },
   },
 
   // ---- join panel (display side column and /admin/print) ------------------

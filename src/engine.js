@@ -175,7 +175,9 @@ export function createEngine({ config, random = Math.random } = {}) {
   // { type: 'eat', id, x, y } | { type: 'death', id, killerId, killNo? } |
   // { type: 'headOn', ids }. killNo: which of the killer's snake kills this
   // round it is (1, 2, ...), only when someone got the kill. takedown:
-  // 'streak' or 'mvp' when the victim was a leader (see LEADERS), only then.
+  // 'streak' or 'mvp' when the victim was a leader (see LEADERS), or
+  // 'firstBlood' for the round's first credited kills (all on that tick),
+  // only then.
   // Rebuilt every tick; read-only output, never input.
   let events = [];
 
@@ -471,6 +473,7 @@ export function createEngine({ config, random = Math.random } = {}) {
 
   function startRound() {
     round++;
+    killedThisRound = false;
     gridSize = cfg.gridSize;
     rules = lockRules();
     win = lockWin();
@@ -695,7 +698,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   // kills and growth during the tick don't matter): the most snake kills
   // this round (above LEADERS.streakAbove) and the longest (above
   // LEADERS.mvpAbove). Ties: all of them.
-  let leaders = { streak: new Set(), mvp: new Set() };
+  let leaders = { streak: new Set(), mvp: new Set(), firstBlood: false };
+  let killedThisRound = false; // a credited snake kill yet this round
   function findLeaders(alive) {
     const top = (value, above) => {
       const best = Math.max(above + 1, ...alive.map(value));
@@ -704,6 +708,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     return {
       streak: top((p) => p.snakeKills ?? 0, LEADERS.streakAbove),
       mvp: top((p) => p.snake.segments.length, LEADERS.mvpAbove),
+      firstBlood: !killedThisRound,
     };
   }
 
@@ -720,7 +725,9 @@ export function createEngine({ config, random = Math.random } = {}) {
     }
     credited.kills++;
     credited.snakeKills = (credited.snakeKills ?? 0) + 1;
-    const takedown = leaders.streak.has(p) ? 'streak' : leaders.mvp.has(p) ? 'mvp' : null; // a streak counts first
+    killedThisRound = true;
+    // Only one: a streak first, then first blood, then MVP.
+    const takedown = leaders.streak.has(p) ? 'streak' : leaders.firstBlood ? 'firstBlood' : leaders.mvp.has(p) ? 'mvp' : null;
     events.push({ type: 'death', id: p.id, killerId: credited.id, killNo: credited.snakeKills, ...(takedown ? { takedown } : {}) });
   }
 
@@ -1835,6 +1842,10 @@ export function createEngine({ config, random = Math.random } = {}) {
       if (!p) throw new Error(`unknown player ${id}`);
       p.snake = { segments: segments.map(([x, y]) => ({ x, y })), dir, dirQueue: [], pendingGrowth: 0, effect: null };
       p.status = 'alive';
+    },
+    // Whether the round has had a credited kill yet (false: first blood to come).
+    setKilledThisRound(value) {
+      killedThisRound = value;
     },
     // Sets how many snakes a player has killed this round.
     setSnakeKills(id, n) {
