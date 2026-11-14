@@ -715,13 +715,13 @@ describe('display effects toggles', () => {
     const { game, display } = setup();
     game.tickOnce();
     const msg = display.last('state');
-    assert.deepEqual(msg.effects, { deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true, killPopups: false });
+    assert.deepEqual(msg.effects, { particles: false, screenShake: false, snakeAnimations: true, killPopups: false });
     assert.equal(msg.tickMs, game.config.tickMs);
   });
 
   test('the admin turns each one on and off, live', () => {
     const { game, display, admin } = setup();
-    for (const key of ['deathParticles', 'appleRings', 'screenShake', 'snakeAnimations', 'killPopups']) {
+    for (const key of ['particles', 'screenShake', 'snakeAnimations', 'killPopups']) {
       admin.send({ t: 'settings', [key]: true });
       assert.equal(display.last('state').effects[key], true);
       admin.send({ t: 'settings', [key]: false });
@@ -740,15 +740,15 @@ describe('display effects toggles', () => {
   });
 
   test('a settings.json saved before the snake animations existed keeps them on', () => {
-    const game = createGame({ log: quiet, savedSettings: { config: {}, settings: { deathParticles: true } } });
-    assert.equal(game.settings.deathParticles, true);
+    const game = createGame({ log: quiet, savedSettings: { config: {}, settings: { particles: true } } });
+    assert.equal(game.settings.particles, true);
     assert.equal(game.settings.snakeAnimations, true);
   });
 
   test('effects are not open to non-admin clients', () => {
     const { game, display } = setup();
-    display.send({ t: 'settings', deathParticles: true });
-    assert.equal(game.settings.deathParticles, false);
+    display.send({ t: 'settings', particles: true });
+    assert.equal(game.settings.particles, false);
   });
 });
 
@@ -905,7 +905,7 @@ describe('fruit toggles', () => {
   test('a saved list is restored; a bad one is ignored', () => {
     assert.deepEqual(setup({ config: {}, settings: { fruits: ['1f353', '1f34e'] } }).game.settings.fruits, ['1f34e', '1f353']);
     assert.deepEqual(setup({ config: {}, settings: { fruits: ['1f353', 'x'] } }).game.settings.fruits, FRUIT_CODES);
-    assert.deepEqual(setup({ config: {}, settings: { deathParticles: true } }).game.settings.fruits, FRUIT_CODES);
+    assert.deepEqual(setup({ config: {}, settings: { particles: true } }).game.settings.fruits, FRUIT_CODES);
   });
 
   test('changing the admin message can not change the setting', () => {

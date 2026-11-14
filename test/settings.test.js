@@ -9,6 +9,7 @@ import { loadRecords } from '../src/server/records.js';
 import { loadWordList } from '../src/server/profanity.js';
 import { createDefaultConfig } from '../src/engine.js';
 import { FRUIT_CODES } from '../src/shared/fruits.js';
+import { EXPO_DEFAULTS } from '../src/server/expo-defaults.js';
 
 const quiet = () => {};
 const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'snake-settings-')), 'settings.json');
@@ -26,11 +27,11 @@ function gameOn(file, log = quiet) {
 
 const CHANGES = {
   config: { tickMs: 120, gridSize: 40, appleCount: 7, wrapWalls: true, corpseApples: true, timeLimitWin: true, roundTimeLimitSec: 90, timeLimitWinner: 'kills', targetLengthWin: true, targetLength: 25, lastPersonWins: true, powerUps: true, powerUpChance: 60, bombsPerMinute: 9, bombMode: 'kill', ratChance: 40, chickenChance: 15, badgerHealth: 7, spawnShieldSec: 7, weightGolden: 0, weightGun: 7, weightShield: 10 },
-  settings: { sidePanel: 'records', keyboardPlayers: true, leaderboard: true, leaderboardStat: 'kills', displayButtons: true, hats: false, badgerName: 'Re Tasso', bots: 5, botFill: true, botWeight1: 2, botWeight2: 0, botWeight3: 5, deathParticles: true, appleRings: true, screenShake: true, snakeAnimations: false, killPopups: true, fruits: ['1f34e'] },
+  settings: { sidePanel: 'records', keyboardPlayers: true, leaderboard: true, leaderboardStat: 'kills', displayButtons: true, hats: false, badgerName: 'Re Tasso', bots: 5, botFill: true, botWeight1: 2, botWeight2: 0, botWeight3: 5, particles: true, screenShake: true, snakeAnimations: false, killPopups: true, fruits: ['1f34e'] },
 };
 
 // The non-config settings on a fresh start.
-const DEFAULT_SETTINGS = { sidePanel: 'auto', keyboardPlayers: false, leaderboard: false, leaderboardStat: 'auto', displayButtons: false, hats: true, badgerName: '', bots: 0, botFill: false, botWeight1: 0, botWeight2: 1, botWeight3: 0, deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true, killPopups: false, fruits: [...FRUIT_CODES] };
+const DEFAULT_SETTINGS = { sidePanel: 'auto', keyboardPlayers: false, leaderboard: false, leaderboardStat: 'auto', displayButtons: false, hats: true, badgerName: '', bots: 0, botFill: false, botWeight1: 0, botWeight2: 1, botWeight3: 0, particles: false, screenShake: false, snakeAnimations: true, killPopups: false, fruits: [...FRUIT_CODES] };
 
 describe('reset all settings to defaults', () => {
   // A data folder like the real one: settings, records, banned words and the
@@ -231,5 +232,38 @@ describe('settings persistence', () => {
     assert.doesNotThrow(() => admin(game)({ t: 'settings', leaderboard: true }));
     assert.equal(game.settings.leaderboard, true);
     assert.equal(logs.length, 1);
+  });
+});
+
+describe('expo defaults (what index.js starts with)', () => {
+  test('every value is a valid /admin value and is applied on a fresh start', () => {
+    const game = createGame({ log: quiet, defaults: EXPO_DEFAULTS });
+    // Every key is applied as is: none skipped by validation, none missing.
+    assert.deepEqual(game.config, { ...EXPO_DEFAULTS.config });
+    assert.deepEqual(game.settings, { ...EXPO_DEFAULTS.settings, fruits: [...EXPO_DEFAULTS.settings.fruits] });
+  });
+
+  test('a reset goes back to them, and saved settings still win at startup', () => {
+    const file = tmpFile();
+    const store = loadSettings(file, { log: quiet });
+    const game = createGame({ log: quiet, defaults: EXPO_DEFAULTS, saveSettings: store.save });
+    const send = admin(game);
+    send({ t: 'config', values: CHANGES.config });
+    send({ t: 'settings', ...CHANGES.settings });
+    send({ t: 'resetSettings' });
+    assert.deepEqual(game.config, { ...EXPO_DEFAULTS.config });
+    assert.deepEqual(game.settings.fruits, ['1f34e']);
+    assert.equal(game.settings.badgerName, 'Torquato Tasso');
+    send({ t: 'config', values: { countdownMs: 0 } });
+    const saved = loadSettings(file, { log: quiet }).initial;
+    const restarted = createGame({ log: quiet, defaults: EXPO_DEFAULTS, savedSettings: saved });
+    assert.equal(restarted.config.countdownMs, 0);
+    assert.equal(restarted.config.powerUps, true);
+  });
+
+  test('without them the neutral defaults apply (rules off)', () => {
+    const game = createGame({ log: quiet });
+    assert.deepEqual(game.config, createDefaultConfig());
+    assert.equal(game.config.powerUps, false);
   });
 });

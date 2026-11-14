@@ -185,9 +185,8 @@ export const STRINGS = Object.freeze({
     displayButtons: 'Mouse e pulsanti ← → sullo schermo per cambiare la colonna (non in «Automatica»)',
     effects: 'Effetti grafici',
     effectsHint: 'Solo grafica, valgono subito.',
-    deathParticles: 'Esplosione di particelle quando un serpente muore',
-    appleRings: 'Anello quando si mangia una mela',
-    screenShake: 'Scossa dello schermo negli scontri frontali',
+    particles: 'Effetti particellari (esplosioni e scintille quando qualcosa muore o viene colpito, anelli quando si mangia una mela)',
+    screenShake: 'Scossa dello schermo',
     snakeAnimations: 'Animazioni dei serpenti (sguardo, battito di ciglia, lingua, bocca, boccone che scende, occhiolino dopo un’eliminazione)',
     killPopups: 'Scritta «KILL!» con particelle su ogni eliminazione («DOUBLE KILL!!», «TRIPLE KILL!!!»… per chi ne fa di più nel round)',
     fruitsTitle: 'Frutta',
@@ -196,8 +195,8 @@ export const STRINGS = Object.freeze({
     fruitsAppleOnly: 'Solo mela',
     // One per entry of src/shared/fruits.js, by Twemoji code.
     fruitNames: {
-      '1f34f': 'Mela verde',
       '1f34e': 'Mela rossa',
+      '1f34f': 'Mela verde',
       '1f350': 'Pera',
       '1f34a': 'Arancia',
       '1f34b': 'Limone',
@@ -233,8 +232,13 @@ export const STRINGS = Object.freeze({
     powerUpsTitle: 'Power-up',
     powerUps: 'Power-up attivi (dal prossimo round)',
     powerUpsHint:
-      'L’interruttore vale dal prossimo round; i cursori valgono subito. Un power-up prende il posto di una mela e conta nel numero di mele. Le bombe compaiono a parte e spariscono dopo 10 secondi.',
+      'L’interruttore vale dal prossimo round; i cursori valgono subito. Un power-up prende il posto di una mela e conta nel numero di mele.',
     powerUpChance: 'Probabilità che una nuova mela sia un power-up (%)',
+    // creatures and hazards card
+    creaturesTitle: 'Creature e pericoli',
+    creaturesHint: 'Valgono subito.',
+    bombsTitle: 'Bombe 💣',
+    bombsHint: 'Compaiono a parte, non contano nel numero di mele, e spariscono dopo 10 secondi. Solo con i power-up attivi.',
     bombsPerMinute: 'Bombe al minuto (0 = nessuna)',
     bombMode: 'Effetto delle bombe (vale subito)',
     bombModeOptions: {

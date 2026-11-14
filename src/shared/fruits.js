@@ -7,8 +7,8 @@
 
 export const FRUITS = Object.freeze(
   [
+    { code: '1f34e', emoji: '🍎' }, // first: the default
     { code: '1f34f', emoji: '🍏' },
-    { code: '1f34e', emoji: '🍎' },
     { code: '1f350', emoji: '🍐' },
     { code: '1f34a', emoji: '🍊' },
     { code: '1f34b', emoji: '🍋' },

@@ -4,143 +4,198 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="dark">
   <title>Snake Battle – Admin</title>
   <link rel="stylesheet" href="/admin/assets/admin.css">
 </head>
 <body>
   <div class="topbar">
     <h1 id="title"></h1>
-    <span><span id="conn-dot" class="status-dot"></span><span id="conn-text"></span></span>
+    <span class="conn"><span id="conn-dot" class="status-dot"></span><span id="conn-text"></span></span>
     <form method="post" action="/admin/logout"><button type="submit" id="logout"></button></form>
   </div>
 
+  <!-- Each category is a <details>: collapsible, remembered per browser (see admin.js). -->
   <div class="grid">
-    <section class="card">
-      <h2 id="h-game"></h2>
-      <div class="phase" id="phase"></div>
-      <div class="muted" id="round"></div>
-      <div class="controls">
-        <button id="btn-pause" class="primary"></button>
-        <button id="btn-restart"></button>
+    <details class="card" id="cat-game" open>
+      <summary><h2 id="h-game"></h2></summary>
+      <div class="card-body">
+        <div class="phase" id="phase"></div>
+        <div class="muted" id="round"></div>
+        <div class="controls">
+          <button id="btn-pause" class="primary"></button>
+          <button id="btn-restart"></button>
+        </div>
+        <div class="controls">
+          <button id="btn-reset-settings" class="danger"></button>
+        </div>
       </div>
-      <div class="controls">
-        <button id="btn-reset-settings" class="danger"></button>
+    </details>
+
+    <details class="card" id="cat-settings" open>
+      <summary><h2 id="h-settings"></h2></summary>
+      <div class="card-body">
+        <div class="settings" id="sliders"></div>
       </div>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2 id="h-settings"></h2>
-      <div id="sliders"></div>
-      <h3 id="h-bots"></h3>
-      <p class="muted" id="bots-hint"></p>
-      <label class="check"><input type="checkbox" id="t-botFill"><span id="l-botFill"></span></label>
-      <div id="sliders-bots"></div>
-      <p class="muted" id="bot-weights-hint"></p>
-      <div id="sliders-bot-weights"></div>
-    </section>
-
-    <section class="card">
-      <h2 id="h-display"></h2>
-      <label class="field"><span id="l-side"></span>
-        <select id="side-panel"></select>
-      </label>
-      <p class="muted" id="side-hint"></p>
-      <p class="note" id="side-records-off" hidden></p>
-      <label class="check"><input type="checkbox" id="keyboard"><span id="l-keyboard"></span></label>
-      <label class="check"><input type="checkbox" id="t-displayButtons"><span id="l-displayButtons"></span></label>
-      <label class="check"><input type="checkbox" id="t-hats"><span id="l-hats"></span></label>
-      <h3 id="h-effects"></h3>
-      <p class="muted" id="effects-hint"></p>
-      <label class="check"><input type="checkbox" id="t-deathParticles"><span id="l-deathParticles"></span></label>
-      <label class="check"><input type="checkbox" id="t-appleRings"><span id="l-appleRings"></span></label>
-      <label class="check"><input type="checkbox" id="t-screenShake"><span id="l-screenShake"></span></label>
-      <label class="check"><input type="checkbox" id="t-snakeAnimations"><span id="l-snakeAnimations"></span></label>
-      <label class="check"><input type="checkbox" id="t-killPopups"><span id="l-killPopups"></span></label>
-      <h3 id="h-fruits"></h3>
-      <p class="muted" id="fruits-hint"></p>
-      <div class="fruit-grid" id="fruit-grid"></div>
-      <div class="controls">
-        <button type="button" id="fruits-all"></button>
-        <button type="button" id="fruits-apple"></button>
+    <details class="card" id="cat-display" open>
+      <summary><h2 id="h-display"></h2></summary>
+      <div class="card-body">
+        <div class="settings">
+          <div class="field-group">
+            <label class="field"><span id="l-side"></span>
+              <select id="side-panel"></select>
+            </label>
+            <p class="muted" id="side-hint"></p>
+            <p class="note" id="side-records-off" hidden></p>
+          </div>
+          <label class="check"><input type="checkbox" id="keyboard"><span id="l-keyboard"></span></label>
+          <label class="check"><input type="checkbox" id="t-displayButtons"><span id="l-displayButtons"></span></label>
+          <label class="check"><input type="checkbox" id="t-hats"><span id="l-hats"></span></label>
+        </div>
+        <h3 id="h-effects"></h3>
+        <p class="muted" id="effects-hint"></p>
+        <div class="settings">
+          <label class="check"><input type="checkbox" id="t-particles"><span id="l-particles"></span></label>
+          <label class="check"><input type="checkbox" id="t-screenShake"><span id="l-screenShake"></span></label>
+          <label class="check"><input type="checkbox" id="t-snakeAnimations"><span id="l-snakeAnimations"></span></label>
+          <label class="check"><input type="checkbox" id="t-killPopups"><span id="l-killPopups"></span></label>
+        </div>
+        <h3 id="h-fruits"></h3>
+        <p class="muted" id="fruits-hint"></p>
+        <div class="fruit-grid" id="fruit-grid"></div>
+        <div class="controls">
+          <button type="button" id="fruits-all"></button>
+          <button type="button" id="fruits-apple"></button>
+        </div>
       </div>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2 id="h-rules"></h2>
-      <p class="muted" id="rules-hint"></p>
-      <label class="check"><input type="checkbox" id="t-corpseApples"><span id="l-corpseApples"></span></label>
-      <label class="check"><input type="checkbox" id="t-wrapWalls"><span id="l-wrapWalls"></span></label>
-      <h3 id="h-win"></h3>
-      <p class="muted" id="win-hint"></p>
-      <label class="check"><input type="checkbox" id="t-timeLimitWin"><span id="l-timeLimitWin"></span></label>
-      <div class="sub-settings">
-        <div id="sliders-time"></div>
-        <label class="field"><span id="l-timeLimitWinner"></span>
-          <select id="c-timeLimitWinner"></select>
-        </label>
+    <details class="card" id="cat-rules" open>
+      <summary><h2 id="h-rules"></h2></summary>
+      <div class="card-body">
+        <p class="muted" id="rules-hint"></p>
+        <div class="settings">
+          <label class="check"><input type="checkbox" id="t-corpseApples"><span id="l-corpseApples"></span></label>
+          <label class="check"><input type="checkbox" id="t-wrapWalls"><span id="l-wrapWalls"></span></label>
+        </div>
+        <h3 id="h-win"></h3>
+        <p class="muted" id="win-hint"></p>
+        <div class="settings">
+          <label class="check"><input type="checkbox" id="t-timeLimitWin"><span id="l-timeLimitWin"></span></label>
+          <div class="sub-settings">
+            <div class="settings" id="sliders-time"></div>
+            <label class="field"><span id="l-timeLimitWinner"></span>
+              <select id="c-timeLimitWinner"></select>
+            </label>
+          </div>
+          <label class="check"><input type="checkbox" id="t-targetLengthWin"><span id="l-targetLengthWin"></span></label>
+          <div class="sub-settings">
+            <div class="settings" id="sliders-target"></div>
+          </div>
+          <label class="check"><input type="checkbox" id="t-lastPersonWins"><span id="l-lastPersonWins"></span></label>
+        </div>
+        <p class="muted" id="rules-active"></p>
       </div>
-      <label class="check"><input type="checkbox" id="t-targetLengthWin"><span id="l-targetLengthWin"></span></label>
-      <div class="sub-settings">
-        <div id="sliders-target"></div>
+    </details>
+
+    <details class="card" id="cat-powerups" open>
+      <summary><h2 id="h-powerups"></h2></summary>
+      <div class="card-body">
+        <p class="muted" id="powerups-hint"></p>
+        <div class="settings">
+          <label class="check"><input type="checkbox" id="t-powerUps"><span id="l-powerUps"></span></label>
+        </div>
+        <div class="sub-settings" id="powerup-settings">
+          <div class="settings" id="sliders-powerups"></div>
+          <h3 id="h-weights"></h3>
+          <p class="muted" id="weights-hint"></p>
+          <div class="settings" id="sliders-weights"></div>
+        </div>
       </div>
-      <label class="check"><input type="checkbox" id="t-lastPersonWins"><span id="l-lastPersonWins"></span></label>
-      <p class="muted" id="rules-active"></p>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2 id="h-powerups"></h2>
-      <p class="muted" id="powerups-hint"></p>
-      <label class="check"><input type="checkbox" id="t-powerUps"><span id="l-powerUps"></span></label>
-      <div class="sub-settings" id="powerup-settings">
-        <div id="sliders-powerups"></div>
-        <label class="field"><span id="l-bombMode"></span>
-          <select id="c-bombMode"></select>
-        </label>
-        <h3 id="h-weights"></h3>
-        <p class="muted" id="weights-hint"></p>
-        <div id="sliders-weights"></div>
+    <details class="card" id="cat-creatures" open>
+      <summary><h2 id="h-creatures"></h2></summary>
+      <div class="card-body">
+        <p class="muted" id="creatures-hint"></p>
+        <div class="settings" id="sliders-creatures"></div>
+        <h3 id="h-bombs"></h3>
+        <p class="muted" id="bombs-hint"></p>
+        <div class="settings" id="bomb-settings">
+          <div class="settings" id="sliders-bombs"></div>
+          <label class="field"><span id="l-bombMode"></span>
+            <select id="c-bombMode"></select>
+          </label>
+        </div>
       </div>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2 id="h-global"></h2>
-      <label class="check"><input type="checkbox" id="t-leaderboard"><span id="l-leaderboard"></span></label>
-      <label class="field"><span id="l-leaderboardStat"></span>
-        <select id="leaderboard-stat"></select>
-      </label>
-      <div class="controls reset-buttons">
-        <button id="btn-reset-wins" class="danger"></button>
-        <button id="btn-reset-kills" class="danger"></button>
-        <button id="btn-reset-score" class="danger"></button>
-        <button id="btn-reset-all" class="danger"></button>
+    <details class="card" id="cat-bots" open>
+      <summary><h2 id="h-bots"></h2></summary>
+      <div class="card-body">
+        <p class="muted" id="bots-hint"></p>
+        <div class="settings">
+          <label class="check"><input type="checkbox" id="t-botFill"><span id="l-botFill"></span></label>
+          <div class="settings" id="sliders-bots"></div>
+        </div>
+        <p class="muted" id="bot-weights-hint"></p>
+        <div class="settings" id="sliders-bot-weights"></div>
       </div>
-    </section>
+    </details>
 
-    <section class="card" style="grid-column: 1 / -1">
-      <h2 id="h-players"></h2>
-      <table>
-        <thead><tr><th id="c-name"></th><th id="c-status"></th><th id="c-length"></th><th id="c-kills"></th><th id="c-source"></th><th id="c-hat"></th><th></th></tr></thead>
-        <tbody id="players"></tbody>
-      </table>
-      <p class="muted" id="no-players"></p>
-    </section>
+    <details class="card" id="cat-global" open>
+      <summary><h2 id="h-global"></h2></summary>
+      <div class="card-body">
+        <div class="settings">
+          <label class="check"><input type="checkbox" id="t-leaderboard"><span id="l-leaderboard"></span></label>
+          <label class="field"><span id="l-leaderboardStat"></span>
+            <select id="leaderboard-stat"></select>
+          </label>
+        </div>
+        <div class="controls reset-buttons">
+          <button id="btn-reset-wins" class="danger"></button>
+          <button id="btn-reset-kills" class="danger"></button>
+          <button id="btn-reset-score" class="danger"></button>
+          <button id="btn-reset-all" class="danger"></button>
+        </div>
+      </div>
+    </details>
 
-    <section class="card words">
-      <h2 id="h-words"></h2>
-      <p class="muted" id="words-hint"></p>
-      <form id="word-form" class="word-form">
-        <input type="text" id="word-input" maxlength="30" autocomplete="off" spellcheck="false">
-        <button type="submit" id="word-add" class="primary"></button>
-      </form>
-      <p class="error" id="word-error" role="alert"></p>
-      <div class="muted" id="word-count"></div>
-      <ul class="word-list" id="word-list"></ul>
-    </section>
+    <details class="card wide" id="cat-players" open>
+      <summary><h2 id="h-players"></h2></summary>
+      <div class="card-body">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th id="c-name"></th><th id="c-status"></th><th id="c-length"></th><th id="c-kills"></th><th id="c-source"></th><th id="c-hat"></th><th></th></tr></thead>
+            <tbody id="players"></tbody>
+          </table>
+        </div>
+        <p class="muted" id="no-players"></p>
+      </div>
+    </details>
 
-    <section class="card links">
-      <h2 id="h-links"></h2>
-      <div id="links"></div>
-    </section>
+    <details class="card words" id="cat-words" open>
+      <summary><h2 id="h-words"></h2></summary>
+      <div class="card-body">
+        <p class="muted" id="words-hint"></p>
+        <form id="word-form" class="word-form">
+          <input type="text" id="word-input" maxlength="30" autocomplete="off" spellcheck="false">
+          <button type="submit" id="word-add" class="primary"></button>
+        </form>
+        <p class="error" id="word-error" role="alert"></p>
+        <div class="muted" id="word-count"></div>
+        <ul class="word-list" id="word-list"></ul>
+      </div>
+    </details>
+
+    <details class="card links" id="cat-links" open>
+      <summary><h2 id="h-links"></h2></summary>
+      <div class="card-body">
+        <div id="links"></div>
+      </div>
+    </details>
   </div>
 
   <footer class="credits" id="credits"></footer>

@@ -7,6 +7,7 @@ import { createApp } from './app.js';
 import { loadWordList } from './profanity.js';
 import { loadRecords } from './records.js';
 import { loadSettings } from './settings-store.js';
+import { EXPO_DEFAULTS } from './expo-defaults.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const configPath = path.join(ROOT, 'config.json');
@@ -18,7 +19,7 @@ const wordList = loadWordList(path.join(ROOT, 'banned-words.json'), path.join(RO
 const records = loadRecords(path.join(ROOT, 'records.json'));
 // /admin settings and game config, kept across restarts.
 const settings = loadSettings(path.join(ROOT, 'settings.json'));
-const { listen } = createApp({ serverConfig, wordList, records, savedSettings: settings.initial, saveSettings: settings.save });
+const { listen } = createApp({ serverConfig, wordList, records, defaults: EXPO_DEFAULTS, savedSettings: settings.initial, saveSettings: settings.save });
 
 // A single bad client must never take the server down.
 process.on('uncaughtException', (err) => console.error('[server] uncaught exception:', err));

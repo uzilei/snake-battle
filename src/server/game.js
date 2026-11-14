@@ -26,7 +26,7 @@ const RESET_TARGETS = Object.freeze([...RECORD_STATS, 'all']);
 // Cosmetic /display effects: applied live, no effect on the game itself.
 // Each with its default: the snake animations (eyes, blinking, tongue, mouth,
 // swallow bumps) are on unless the admin turns them off.
-const EFFECT_DEFAULTS = Object.freeze({ deathParticles: false, appleRings: false, screenShake: false, snakeAnimations: true, killPopups: false });
+const EFFECT_DEFAULTS = Object.freeze({ particles: false, screenShake: false, snakeAnimations: true, killPopups: false });
 export const EFFECT_SETTINGS = Object.freeze(Object.keys(EFFECT_DEFAULTS));
 export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
 const SELF = 'self';
@@ -154,6 +154,7 @@ export function createGame({
   joinInfo = {},
   wordList = createWordList(),
   records = createRecords(),
+  defaults = null, // { config, settings } on top of the neutral defaults: the fresh start and what a reset goes back to
   savedSettings = null, // { config, settings } from settings.json, applied at startup
   saveSettings = () => {}, // called with { version, config, settings } after every change
 } = {}) {
@@ -161,6 +162,13 @@ export function createGame({
   const engine = createEngine({ config, random });
   const brain = createBotBrain({ random, onError: (err) => log(`[bots] think failed: ${err.stack ?? err}`) });
   const settings = defaultSettings();
+  // The neutral defaults with `defaults` on top, each value validated like
+  // an /admin change.
+  function applyDefaults() {
+    engine.updateConfig({ ...createDefaultConfig(), ...defaults?.config });
+    Object.assign(settings, defaultSettings(), pickValidSettings(defaults?.settings));
+  }
+  applyDefaults();
 
   // Restore what /admin set before the last restart. Every value goes through
   // the same validation as an /admin message; anything invalid is skipped.
@@ -666,8 +674,7 @@ export function createGame({
       // size) from the next round. Records, banned words, the server config
       // and sessions are not settings, so they're left alone.
       case 'resetSettings':
-        engine.updateConfig(createDefaultConfig());
-        Object.assign(settings, defaultSettings());
+        applyDefaults();
         kickKeyboardPlayers(); // keyboard players are off by default
         log('[admin] all settings reset to defaults');
         break;

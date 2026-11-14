@@ -45,13 +45,14 @@ ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}
  * @param {object} [opts.wordList] banned-word list for names (see profanity.js)
  * @param {object} [opts.records] global leaderboard store (see records.js); in-memory by default
  * @param {number} [opts.heartbeatMs] how often sockets are pinged; dead ones are dropped
+ * @param {object} [opts.defaults] { config, settings } for a fresh start and a reset (see expo-defaults.js)
  * @param {object} [opts.savedSettings] /admin settings and config from settings.json
  * @param {Function} [opts.saveSettings] called after every settings or config change
  * @param {number} [opts.maxBufferedBytes] a socket with more unsent data than this is dropped
  */
-export function createApp({ serverConfig, log = console.log, random, limiter: limiterOpts, wordList, records, savedSettings, saveSettings, heartbeatMs = 5000, maxBufferedBytes = MAX_BUFFERED_BYTES } = {}) {
+export function createApp({ serverConfig, log = console.log, random, limiter: limiterOpts, wordList, records, defaults, savedSettings, saveSettings, heartbeatMs = 5000, maxBufferedBytes = MAX_BUFFERED_BYTES } = {}) {
   const joinInfo = { ssid: serverConfig.wifi.ssid, wifiPassword: serverConfig.wifi.password, playUrl: '' };
-  const game = createGame({ random, log, joinInfo, wordList, records, savedSettings, saveSettings });
+  const game = createGame({ random, log, joinInfo, wordList, records, defaults, savedSettings, saveSettings });
   const sessions = createSessionStore();
   const limiter = createLoginLimiter(limiterOpts);
   const lanIp = detectLanIp();

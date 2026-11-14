@@ -1462,18 +1462,18 @@ function onState(msg) {
         } else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item, sprite: fruit, flip });
         if (ev.item === 'bomb') {
           if (fx.screenShake) shakeStart = now;
-          if (fx.deathParticles) explosion(ev.x, ev.y, now);
+          if (fx.particles) explosion(ev.x, ev.y, now);
         }
       } else if (ev.type === 'bombExpired') {
-        if (fx.deathParticles && ev.x !== undefined) fizzle(ev.x, ev.y, now);
+        if (fx.particles && ev.x !== undefined) fizzle(ev.x, ev.y, now);
       } else if (ev.type === 'badgerGone') {
         // Its lifetime ran out: it has faded, and goes in a puff the size of its block.
         const at = badgerDrawnAt ?? ev;
-        if (fx.deathParticles) fizzle(at.x, at.y, now, BADGER_RULES.width / POWER_UP_RULES.bombSize, BADGER_RULES.height / POWER_UP_RULES.bombSize);
+        if (fx.particles) fizzle(at.x, at.y, now, BADGER_RULES.width / POWER_UP_RULES.bombSize, BADGER_RULES.height / POWER_UP_RULES.bombSize);
       } else if (ev.type === 'badgerKilled') {
         // Shot: a bomb's burst, the size of its block. The shooter winks.
         const at = badgerDrawnAt ?? ev;
-        if (fx.deathParticles) explosion(at.x, at.y, now, BADGER_RULES.width, BADGER_RULES.height);
+        if (fx.particles) explosion(at.x, at.y, now, BADGER_RULES.width, BADGER_RULES.height);
         if (fx.screenShake) shakeStart = now;
         const shooter = ev.byId && s.snakes.find((x) => x.id === ev.byId);
         if (fx.snakeAnimations && shooter?.alive) wink(shooter, now);
@@ -1482,28 +1482,28 @@ function onState(msg) {
       } else if (ev.type === 'badgerHit') {
         // A scissors hit: it flashes white, a segment of its bar goes.
         if (b) badgerHit = { id: b.id, at: now, hp: ev.hp };
-        if (fx.deathParticles) sparks(ev.x, ev.y, now, 16, ['#ffffff', '#e0e0e0', '#ff5252']);
+        if (fx.particles) sparks(ev.x, ev.y, now, 16, ['#ffffff', '#e0e0e0', '#ff5252']);
         if (fx.screenShake) shakeStart = now;
       } else if (ev.type === 'badgerBite') {
         if (fx.screenShake) shakeStart = now;
       } else if (ev.type === 'ratCaught') {
-        if (fx.deathParticles) sparks(ev.x, ev.y, now, 14, ['#bdbdbd', '#9e9e9e', '#ff5252']);
+        if (fx.particles) sparks(ev.x, ev.y, now, 14, ['#bdbdbd', '#9e9e9e', '#ff5252']);
       } else if (ev.type === 'chickenDied') {
         // Shot or caught by the badger: a poof of feathers (a feast power-up takes its place).
-        if (fx.deathParticles) sparks(ev.x, ev.y, now, 16, ['#ffffff', '#ffe0b2', '#ff5252']);
+        if (fx.particles) sparks(ev.x, ev.y, now, 16, ['#ffffff', '#ffe0b2', '#ff5252']);
       } else if (ev.type === 'projectileEnd') {
-        if (fx.deathParticles) sparks(ev.x, ev.y, now, ev.hit ? 22 : 10, ['#fffde7', '#ffe082', '#ffb74d']);
+        if (fx.particles) sparks(ev.x, ev.y, now, ev.hit ? 22 : 10, ['#fffde7', '#ffe082', '#ffb74d']);
         if (ev.hit && fx.screenShake) shakeStart = now;
       } else if (ev.type === 'shieldPop') {
         const snake = s.snakes.find((x) => x.id === ev.id);
-        if (snake && fx.appleRings) rings.push({ x: snake.segments[0].x, y: snake.segments[0].y, color: '#8cdcff', start: now });
+        if (snake && fx.particles) rings.push({ x: snake.segments[0].x, y: snake.segments[0].y, color: '#8cdcff', start: now });
         if (fx.screenShake) shakeStart = now;
       } else if (ev.type === 'cut') {
         if (fx.screenShake) shakeStart = now;
       } else if (ev.type === 'death') {
         diedAt.set(ev.id, now);
         const snake = s.snakes.find((x) => x.id === ev.id);
-        if (fx.deathParticles && snake) burst(snake, now);
+        if (fx.particles && snake) burst(snake, now);
         if (fx.killPopups && snake && ev.killNo) {
           const head = snake.segments[0];
           addKillPopup(head.x, head.y, ev.killNo, colorOf(ev.killerId), now, ev.takedown ?? null);
@@ -1535,7 +1535,7 @@ function drawBoard(msg, now, dt) {
   for (const e of eaten) {
     if (now >= e.until && !e.done) {
       e.done = true;
-      if (msg.effects?.appleRings) rings.push({ x: e.x, y: e.y, color: e.color, start: now });
+      if (msg.effects?.particles) rings.push({ x: e.x, y: e.y, color: e.color, start: now });
     }
   }
   eaten = eaten.filter((e) => !e.done);
@@ -1669,7 +1669,7 @@ function drawRats(cell, n, now, fx, frozen) {
   }
   eatenRats = eatenRats.filter((r) => {
     if (now >= r.start + r.ms) {
-      if (fx?.appleRings) rings.push({ x: r.to.x, y: r.to.y, color: r.color, start: now });
+      if (fx?.particles) rings.push({ x: r.to.x, y: r.to.y, color: r.color, start: now });
       return false;
     }
     const at = ratAt(r, now);
@@ -1869,7 +1869,7 @@ function drawFlights(heads, cell, n, now, fx) {
     const head = heads.get(f.id);
     const e = (now - f.start) / FLIGHT_MS;
     if (!head || e >= 1) {
-      if (head && fx?.appleRings) rings.push({ x: head.x / cell - 0.5, y: head.y / cell - 0.5, color: f.color, start: now });
+      if (head && fx?.particles) rings.push({ x: head.x / cell - 0.5, y: head.y / cell - 0.5, color: f.color, start: now });
       return false;
     }
     let tx = head.x / cell - 0.5;

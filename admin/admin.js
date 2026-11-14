@@ -11,17 +11,12 @@ import { BOT_LIMITS, BOT_SKILLS, BOT_SKILL_EMOJI, botWeightKey } from '/shared/b
 const A = STRINGS.admin;
 const $ = (id) => document.getElementById(id);
 
-// parent: the element the slider goes in (default: the Settings card).
+// parent: the element the slider goes in (default: the Settings category).
 // label: shown instead of A[key].
 const SLIDERS = [
   { key: 'tickMs', step: 10 },
   { key: 'appleCount', step: 1 },
   { key: 'growthPerApple', step: 1 },
-  { key: 'ratChance', step: 1 },
-  { key: 'chickenChance', step: 1 },
-  { key: 'badgerEverySec', step: 30 },
-  { key: 'badgerLifetimeSec', step: 5 },
-  { key: 'badgerHealth', step: 1 },
   { key: 'maxPlayers', step: 1 },
   { key: 'gridSize', step: 1 },
   { key: 'countdownMs', step: 500 },
@@ -30,7 +25,12 @@ const SLIDERS = [
   { key: 'roundTimeLimitSec', step: 15, parent: 'sliders-time' },
   { key: 'targetLength', step: 1, parent: 'sliders-target' },
   { key: 'powerUpChance', step: 5, parent: 'sliders-powerups' },
-  { key: 'bombsPerMinute', step: 1, parent: 'sliders-powerups' },
+  { key: 'ratChance', step: 1, parent: 'sliders-creatures' },
+  { key: 'chickenChance', step: 1, parent: 'sliders-creatures' },
+  { key: 'badgerEverySec', step: 30, parent: 'sliders-creatures' },
+  { key: 'badgerLifetimeSec', step: 5, parent: 'sliders-creatures' },
+  { key: 'badgerHealth', step: 1, parent: 'sliders-creatures' },
+  { key: 'bombsPerMinute', step: 1, parent: 'sliders-bombs' },
   // Server settings, not engine config.
   { key: 'bots', step: 1, parent: 'sliders-bots', kind: 'settings' },
   // One weight per bot skill.
@@ -76,6 +76,32 @@ $('h-bots').textContent = A.botsTitle;
 $('bots-hint').textContent = A.botsHint;
 $('bot-weights-hint').textContent = A.botWeightsHint;
 $('effects-hint').textContent = A.effectsHint;
+$('h-creatures').textContent = A.creaturesTitle;
+$('creatures-hint').textContent = A.creaturesHint;
+$('h-bombs').textContent = A.bombsTitle;
+$('bombs-hint').textContent = A.bombsHint;
+
+// Categories: collapsible, and remembered per browser. Storage can be
+// missing or blocked; the page works the same without it (all open).
+const COLLAPSED_KEY = 'snake-battle.admin.collapsed';
+let collapsed = new Set();
+try {
+  collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]'));
+} catch {
+  /* all open */
+}
+for (const cat of document.querySelectorAll('details.card')) {
+  if (collapsed.has(cat.id)) cat.open = false;
+  cat.addEventListener('toggle', () => {
+    if (cat.open) collapsed.delete(cat.id);
+    else collapsed.add(cat.id);
+    try {
+      localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
+    } catch {
+      /* not remembered */
+    }
+  });
+}
 
 // Engine rules go through 'config'; the records and effects toggles are server settings.
 const RULE_TOGGLES = {
@@ -89,8 +115,7 @@ const RULE_TOGGLES = {
   powerUps: 'config',
   leaderboard: 'settings',
   botFill: 'settings',
-  deathParticles: 'settings',
-  appleRings: 'settings',
+  particles: 'settings',
   screenShake: 'settings',
   snakeAnimations: 'settings',
   killPopups: 'settings',
@@ -316,6 +341,7 @@ function update(msg) {
   $('sliders-time').parentElement.classList.toggle('off', !msg.config.timeLimitWin);
   $('sliders-target').parentElement.classList.toggle('off', !msg.config.targetLengthWin);
   $('powerup-settings').classList.toggle('off', !msg.config.powerUps);
+  $('bomb-settings').classList.toggle('off', !msg.config.powerUps); // bombs only spawn with power-ups on
   for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
     $(`t-${key}`).checked = Boolean(kind === 'config' ? msg.config[key] : msg.settings[key]);
   }
