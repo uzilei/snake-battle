@@ -210,7 +210,7 @@ function setConnected(ok, text) {
 }
 
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws/admin`);
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/admin`);
   let sessionGone = false;
   ws.onopen = () => setConnected(true);
   ws.onmessage = (ev) => {

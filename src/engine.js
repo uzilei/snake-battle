@@ -187,10 +187,11 @@ export function createEngine({ config, random = Math.random } = {}) {
   // { type: 'headOn', ids }. killNo: which of the killer's kills this round
   // it is (1, 2, ...; the badger counts too), only when someone got the
   // kill. takedown: 'streak' or 'mvp' when the victim was a leader (see
-  // LEADERS), 'firstBlood' for the round's first credited snake kills (all
-  // on that tick), else 'hit' when a projectile did it; only then, one at
-  // most, in that order. badgerKilled carries killNo (and takedown 'hit'
-  // when shot) the same way.
+  // LEADERS), else 'firstBlood' for the round's first credited snake kills
+  // (all on that tick); one at most, in that order. how, alongside it: 'hit'
+  // when a projectile did it, 'crash' for a head-on, 'boxed' for a snake
+  // with no way out (see cornerer). badgerKilled carries killNo (and how
+  // 'hit' when shot) the same way.
   // Rebuilt every tick; read-only output, never input.
   let events = [];
   // Commands from /admin (see command()), applied at the start of the next
@@ -741,9 +742,9 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   // Marks a player dead. The kill counts only if the killer is still in the
-  // game (it may have left mid-round), and never for yourself. `shot`: a
-  // projectile did it.
-  function kill(p, by, shot = false) {
+  // game (it may have left mid-round), and never for yourself. `how`: 'hit',
+  // 'crash' or 'boxed' (see events), or null.
+  function kill(p, by, how = null) {
     p.status = 'dead';
     p.snake.effect = null;
     fallen.push(p.snake);
@@ -754,17 +755,12 @@ export function createEngine({ config, random = Math.random } = {}) {
     }
     credited.kills++;
     killedThisRound = true;
-    // Only one: a streak first, then first blood, then MVP, then a shot.
-    const takedown = leaders.streak.has(p)
-      ? 'streak'
-      : leaders.firstBlood
-        ? 'firstBlood'
-        : leaders.mvp.has(p)
-          ? 'mvp'
-          : shot
-            ? 'hit'
-            : null;
-    events.push({ type: 'death', id: p.id, killerId: credited.id, killNo: credited.kills, ...(takedown ? { takedown } : {}) });
+    // Only one: a streak first, then first blood, then MVP.
+    const takedown = leaders.streak.has(p) ? 'streak' : leaders.firstBlood ? 'firstBlood' : leaders.mvp.has(p) ? 'mvp' : null;
+    events.push({
+      type: 'death', id: p.id, killerId: credited.id, killNo: credited.kills,
+      ...(takedown ? { takedown } : {}), ...(how ? { how } : {}),
+    });
   }
 
   // A shield takes the hit: it pops and the snake is a ghost for a moment,
@@ -779,7 +775,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   function shot(p, shooterId) {
     if (p.status !== 'alive') return;
     if (effectOf(p, 'shield')) return popShield(p);
-    kill(p, players.get(shooterId) ?? null, true);
+    kill(p, players.get(shooterId) ?? null, 'hit');
   }
 
   // Segments taken off a snake that stays alive (scissors, and any future
@@ -1023,6 +1019,26 @@ export function createEngine({ config, random = Math.random } = {}) {
     return body.some((c) => c.x === cell.x && c.y === cell.y);
   }
 
+  // For a snake that died this sub-step with nobody to blame: the other snake
+  // it was boxed in by, or null when it had a way out. Its ways are straight
+  // on and the two sides of the direction it had before turning; each must
+  // end in a wall, the badger or a segment still there after the moves
+  // (`body`). The first of them that is another snake's segment, straight on
+  // first, is the one.
+  function cornerer(m, body) {
+    let by = null;
+    for (const dir of [m.fromDir, ...PERPENDICULAR[m.fromDir]]) {
+      const target = nextCell(m.head, dir);
+      if (!inBounds(target.x, target.y)) continue;
+      const { cell } = throughPortal(target);
+      if (badgerAt(cell.x, cell.y)) continue;
+      const hits = body.get(cellKey(cell.x, cell.y));
+      if (!hits) return null; // a way out
+      by ??= hits.find((h) => h.p !== m.player)?.p ?? null;
+    }
+    return by;
+  }
+
   // ---- creatures: rats and chickens ----
   // Every moveEveryTicks ticks (twice that while freeze slows creatures) a
   // rat runs one cell on, at the start of the
@@ -1138,6 +1154,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     }
     const moves = movers.map((p) => {
       const s = p.snake;
+      const fromDir = s.dir; // the ways it could go this move: all but back
       if (s.dirQueue.length) {
         // One queued turn per move. A turn that would take the head straight
         // into the snake's own body is dropped and the snake goes straight on
@@ -1152,6 +1169,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       return {
         player: p,
         snake: s,
+        fromDir,
         head,
         newHead: via.cell,
         portal: via.portal,
@@ -1261,7 +1279,7 @@ export function createEngine({ config, random = Math.random } = {}) {
 
     // Heads: body hits and head-ons.
     const killer = new Map(); // move -> killing player
-    const shotDead = new Set(); // moves whose killer is the shooter
+    const how = new Map(); // move -> 'hit' | 'crash' | 'boxed', for its killer
     const headOnGroups = [];
     const byCell = new Map();
     for (const m of solid) {
@@ -1293,9 +1311,14 @@ export function createEngine({ config, random = Math.random } = {}) {
       const minLength = Math.min(...group.map((m) => m.length));
       const shortest = group.filter((m) => m.length === minLength);
       for (const m of group) if (m.length !== minLength || shortest.length > 1) lostHeadOn.add(m);
-      if (shortest.length === 1) {
-        // A body hit found above takes precedence over the head-on.
-        for (const m of group) if (m !== shortest[0] && !killer.has(m)) killer.set(m, shortest[0].player);
+      // A body hit found above takes precedence over the head-on. A tie: each
+      // of the shortest is the other's kill (the first other one of them).
+      for (const m of group) {
+        if (!lostHeadOn.has(m) || killer.has(m)) continue;
+        const by = shortest.find((o) => o !== m);
+        if (!by) continue;
+        killer.set(m, by.player);
+        how.set(m, 'crash');
       }
     }
 
@@ -1327,15 +1350,26 @@ export function createEngine({ config, random = Math.random } = {}) {
       dead.add(m);
       if (!killer.has(m) && wasShot) {
         killer.set(m, players.get(shooterOf.get(p)) ?? null);
-        shotDead.add(m);
+        how.set(m, 'hit');
       }
+    }
+    // Cornered: a death with no killer (a wall, its own body) when every way
+    // it could have gone was deadly too, and one of them was another snake.
+    // That snake gets the kill, as if it had been run into: a player boxed in
+    // shouldn't pick the wall just to deny it.
+    for (const m of dead) {
+      if (killer.has(m) || m.ghost) continue;
+      const by = cornerer(m, body);
+      if (!by) continue;
+      killer.set(m, by);
+      how.set(m, 'boxed');
     }
     // Snakes hit by a projectile while standing still this sub-step.
     for (const [p, shooterId] of shooterOf) if (!moving.has(p)) shot(p, shooterId);
 
     for (const m of moves) {
       if (dead.has(m)) {
-        kill(m.player, killer.get(m) ?? null, shotDead.has(m));
+        kill(m.player, killer.get(m) ?? null, how.get(m) ?? null);
         continue;
       }
       if (m.player.status !== 'alive') continue;
@@ -1602,14 +1636,14 @@ export function createEngine({ config, random = Math.random } = {}) {
 
   // A projectile got it (whatever its HP), or a scissors hit took its last
   // HP: gone at once, a kill for the shooter or the snake that dealt the
-  // final hit (if still in the game). `shot`: a projectile did it.
+  // final hit (if still in the game). `shot`: a projectile did it (how 'hit').
   function killBadger(b, by, shot = false) {
     const credited = by && players.get(by.id) === by ? by : null;
     const ev = { type: 'badgerKilled', badgerId: b.id, x: b.x, y: b.y, byId: credited ? credited.id : null };
     if (credited) {
       credited.kills++;
       ev.killNo = credited.kills;
-      if (shot) ev.takedown = 'hit';
+      if (shot) ev.how = 'hit';
     }
     events.push(ev);
     removeBadger(b);

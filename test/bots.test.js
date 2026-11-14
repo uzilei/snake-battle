@@ -302,23 +302,17 @@ describe('bot brain: survive', () => {
       ...others,
     });
 
-  test('no way out: into another snake (its kill) over itself or a wall', () => {
-    assert.equal(pick(cornered()), 'down');
+  test('no way out: anything but the wall, and no spite move into another snake', () => {
+    // up is its own body, down b's: no preference for b (the engine credits
+    // b either way), so the first one that isn't the wall.
+    assert.equal(pick(cornered()), 'up');
   });
 
-  test('no way out: another snake over the badger too', () => {
-    // up (19, 4) now the badger's, down still b's body.
-    const e = cornered({ a: [[[19, 5], [18, 5], [17, 5], [16, 5]], 'right'] });
-    e._debug.setBadger([17, 3], { moveAt: 1e9 }); // x 15-19, y 2-4: covers (19, 4)
-    assert.equal(pick(e), 'down');
-  });
-
-  test('no way out between decisions too: the reflex goes into the other snake', () => {
+  test('no way out between decisions too: never the wall', () => {
     const state = cornered().getState();
     const brain = createBotBrain({ random: seeded(5), onError: (err) => { throw err; } });
     const dirs = Array.from({ length: 400 }, () => brain.think(state, ['a'], { skill: 1 }).get('a'));
-    assert.ok(dirs.filter((d) => d === 'down').length > 300, `down ${dirs.filter((d) => d === 'down').length}`);
-    assert.ok(dirs.every((d) => d === 'down' || d === undefined));
+    assert.ok(dirs.every((d) => d !== 'right'));
   });
 
   test('a golden snake (two moves a tick) checks the cell after next too', () => {

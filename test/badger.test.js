@@ -649,7 +649,7 @@ describe('badger, rats and projectiles', () => {
     assert.ok(badger(e));
     e.tick(); // x 8: in
     assert.equal(badger(e), null);
-    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a', killNo: 1, takedown: 'hit' }]);
+    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a', killNo: 1, how: 'hit' }]);
     assert.equal(player(e, 'a').kills, 1);
     assert.equal(e.getState().projectiles.length, 0);
   });
@@ -682,7 +682,7 @@ describe('badger, rats and projectiles', () => {
     assert.equal(badger(e), null);
     assert.equal(events(e, 'badgerKilled')[0].byId, null);
     assert.equal(events(e, 'badgerKilled')[0].killNo, undefined);
-    assert.equal(events(e, 'badgerKilled')[0].takedown, undefined);
+    assert.equal(events(e, 'badgerKilled')[0].how, undefined);
   });
 
   test("a gun fired right next to it is a HIT, numbered after the shooter's kills", () => {
@@ -692,7 +692,7 @@ describe('badger, rats and projectiles', () => {
     e._debug.setKills('a', 3);
     e._debug.addPowerUps([[7, 10, 'gun']]);
     e.tick();
-    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a', killNo: 4, takedown: 'hit' }]);
+    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a', killNo: 4, how: 'hit' }]);
   });
 
   test('the badger counts in the kill numbers: the next snake kill goes on from it', () => {
@@ -822,7 +822,7 @@ describe('badger health', () => {
     e._debug.addProjectile([7, 10], 'right', 'a');
     e.tick();
     assert.equal(badger(e), null);
-    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a', killNo: 1, takedown: 'hit' }]);
+    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a', killNo: 1, how: 'hit' }]);
     assert.equal(player(e, 'a').kills, 1);
   });
 

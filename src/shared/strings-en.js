@@ -46,7 +46,8 @@ export const STRINGS_EN = Object.freeze({
     panelNext: '{name} →',
     killPopups: ['KILL!', 'DOUBLE KILL!!', 'TRIPLE KILL!!!', 'QUADRA KILL!!!!', 'PENTA KILL!!!!!'],
     killPopupMore: '{n}× KILL!!!!!',
-    takedowns: { streak: 'SHUTDOWN!', mvp: 'MVP KILL!', firstBlood: 'FIRST BLOOD!', hit: 'HIT!' },
+    takedowns: { streak: 'SHUTDOWN!', mvp: 'MVP KILL!', firstBlood: 'FIRST BLOOD!' },
+    killHow: { hit: 'HIT!', crash: 'CRASH!', boxed: 'BOXED!' },
   },
 
   // ---- join panel (display side column and /admin/print) ------------------

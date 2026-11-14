@@ -8,8 +8,8 @@
 // priority order:
 //   1. Survive: never a move that dies next tick when another one doesn't,
 //      and not one into a pocket too small for the snake. When every move
-//      dies, one into another snake (its kill) over a wall, itself or the
-//      badger.
+//      dies, anything but a wall (the engine credits the kill to a snake
+//      that boxed it in either way).
 //   2. Flee: keep away from heads that would win (or tie) a head-on, the
 //      badger and bombs.
 //   3. Hunt: the best food it can reach (chickens and rats first), or, with
@@ -302,14 +302,6 @@ function decide(board, me, { skill, bombMode, budget, random, reflex = false }) 
     return tier;
   }
 
-  // Entering `cell` now runs into another snake's segment, and nothing else
-  // there would kill first: the death is that snake's kill.
-  function intoOther(cell) {
-    const k = key(cell.x, cell.y);
-    if (board.freeAt[k] <= 1 || board.owner[k] === myIndex || board.deadly[k]) return false;
-    return !(board.badgerActive && board.inBadger(cell.x, cell.y)) && !board.inBomb(cell.x, cell.y);
-  }
-
   // Free cells reachable from `start` (entered on move 1), up to `cap`,
   // counting segments that will have left by the time they're reached.
   function space(start, cap) {
@@ -350,10 +342,11 @@ function decide(board, me, { skill, bombMode, budget, random, reflex = false }) 
     moves.push({ dir, cell, tier, space: 0, flee: 0, hunt: 0 });
   }
   const best = Math.min(...moves.map((m) => m.tier));
-  // Every move is deadly: into another snake if it can (a kill for it, at
-  // least), else at least not a wall (another snake might move).
+  // Every move is deadly: at least not a wall (another snake might move).
+  // Which snake gets the kill doesn't depend on it: the engine credits a
+  // snake that boxed this one in, whichever way it goes.
   if (best === DEADLY) {
-    const into = moves.find((m) => m.cell && intoOther(m.cell)) ?? moves.find((m) => m.cell) ?? moves[0];
+    const into = moves.find((m) => m.cell) ?? moves[0];
     return { dir: reflex && into.dir === me.dir ? null : into.dir, nodes };
   }
   if (reflex) {

@@ -102,7 +102,7 @@ let dirty = true;
 
 // ---- connection -------------------------------------------------------------------
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
   ws.onopen = () => {
     $('connection').classList.add('hidden');
     ws.send(JSON.stringify({ t: 'hello', role: 'display' }));
@@ -1268,41 +1268,57 @@ function applyShake(now) {
 // kills the killer has this round, the bigger and hotter it gets.
 const KILL_POPUP_MS = 1500;
 const KILL_TIERS = ['#ffffff', '#ffe066', '#ffa726', '#ff5252', '#e040fb']; // fill per kill number
-// Killing the leader in kills or length, first blood or a projectile kill
-// (the death's takedown) adds a second text below, with the same tilt, that
-// drops instead of rising.
-const TAKEDOWN_FILL = { streak: '#4de3ff', mvp: '#ffd700', firstBlood: '#ff3344', hit: '#ff9100' };
+// Killing the leader in kills or length, or first blood (the death's
+// takedown), adds a second text below that drops instead of rising. How it
+// died (a projectile, a head-on, boxed in) adds a third that drifts off to a
+// random side. Each text has its own random tilt.
+const TAKEDOWN_FILL = { streak: '#4de3ff', mvp: '#ffd700', firstBlood: '#ff3344' };
+const HOW_FILL = { hit: '#ff9100', crash: '#ff4fa3', boxed: '#b07cff' };
 const TAKEDOWN_DELAY_MS = 140; // lands just after the KILL!
-const killPopups = []; // { x, y, n, text, color, start, tilt, end, takedown? }
+const HOW_DELAY_MS = 220; // and this after that
+const killPopups = []; // { x, y, n, text, color, start, tilt, end, fill?, drop?, side? }
+
+const randomTilt = () => (Math.random() < 0.5 ? -1 : 1) * (0.08 + Math.random() * 0.12);
 
 function killText(n) {
   const names = STRINGS.display.killPopups;
   return n <= names.length ? names[n - 1] : fmt(STRINGS.display.killPopupMore, { n });
 }
 
-function addKillPopup(x, y, n, color, now, takedown = null) {
+// A burst for a second or third text: a fan of stars (angle a0 to a1) and a ring.
+function popupBurst(x, y, fill, start, a0, a1) {
+  for (let i = 0; i < 26 && particles.length < MAX_PARTICLES; i++) {
+    const a = a0 + Math.random() * (a1 - a0);
+    const v = 4 + Math.random() * 5;
+    particles.push({
+      x: x + 0.5, y: y + 0.5, vx: Math.cos(a) * v, vy: Math.sin(a) * v, born: start,
+      life: 700 + Math.random() * 500, r: 0.12 + Math.random() * 0.12, color: i % 2 ? fill : '#ffffff', star: true, spin: Math.random() * Math.PI,
+    });
+  }
+  rings.push({ x, y, color: fill, start, ms: 600, r0: 0.5, r1: 2.6, width: 0.2 });
+}
+
+function addKillPopup(x, y, n, color, now, takedown = null, how = null) {
   // Kills close together: the older popups nearby make way, fading out fast
   // (before this kill's own texts go in, so they don't).
   for (const p of killPopups) {
     if (Math.abs(p.x - x) < 5 && Math.abs(p.y - y) < 3) p.end = Math.min(p.end, now + 200);
   }
-  const side = Math.random() < 0.5 ? -1 : 1;
-  const tilt = side * (0.08 + Math.random() * 0.12);
-  killPopups.push({ x, y, n, text: killText(n), color, start: now, tilt, end: now + KILL_POPUP_MS });
+  killPopups.push({ x, y, n, text: killText(n), color, start: now, tilt: randomTilt(), end: now + KILL_POPUP_MS });
   if (takedown && TAKEDOWN_FILL[takedown]) {
     const start = now + TAKEDOWN_DELAY_MS;
-    killPopups.push({ x, y, n: 2, text: STRINGS.display.takedowns[takedown], color, start, tilt, end: start + KILL_POPUP_MS, takedown });
-    // Its own burst, falling.
     const fill = TAKEDOWN_FILL[takedown];
-    for (let i = 0; i < 26 && particles.length < MAX_PARTICLES; i++) {
-      const a = Math.PI * (0.15 + Math.random() * 0.7); // downward fan
-      const v = 4 + Math.random() * 5;
-      particles.push({
-        x: x + 0.5, y: y + 1, vx: Math.cos(a) * v, vy: Math.sin(a) * v, born: start,
-        life: 700 + Math.random() * 500, r: 0.12 + Math.random() * 0.12, color: i % 2 ? fill : '#ffffff', star: true, spin: Math.random() * Math.PI,
-      });
-    }
-    rings.push({ x, y, color: fill, start, ms: 600, r0: 0.5, r1: 2.6, width: 0.2 });
+    killPopups.push({ x, y, n: 2, text: STRINGS.display.takedowns[takedown], color, start, tilt: randomTilt(), end: start + KILL_POPUP_MS, fill, drop: true });
+    popupBurst(x, y + 0.5, fill, start, Math.PI * 0.15, Math.PI * 0.85); // falling
+  }
+  if (how && HOW_FILL[how]) {
+    const start = now + (takedown ? HOW_DELAY_MS : TAKEDOWN_DELAY_MS);
+    const fill = HOW_FILL[how];
+    const side = Math.random() < 0.5 ? -1 : 1;
+    killPopups.push({ x, y, n: 2, text: STRINGS.display.killHow[how], color, start, tilt: randomTilt(), end: start + KILL_POPUP_MS, fill, side });
+    // Its burst fans out to its side.
+    const a = side > 0 ? 0 : Math.PI;
+    popupBurst(x, y, fill, start, a - Math.PI * 0.3, a + Math.PI * 0.3);
   }
   const hot = KILL_TIERS[Math.min(n, KILL_TIERS.length) - 1];
   const colors = ['#ffd54f', '#ffffff', color, hot];
@@ -1331,24 +1347,28 @@ function drawKillPopups(cell, size, now) {
       killPopups.splice(i, 1);
       continue;
     }
-    if (e < 0) continue; // a takedown text, not in yet
+    if (e < 0) continue; // a second or third text, not in yet
     const tier = Math.min(p.n, 6);
     // Readable on any board: at least 2% of the board, half a cell otherwise.
     const fontPx = Math.round(Math.max(cell * 0.53, size * 0.02) * (1 + 0.22 * (tier - 1)));
     const font = `900 ${fontPx}px system-ui, "Segoe UI", Roboto, sans-serif`;
     const pop = easeOutBack(clamp(e / 0.16, 0, 1)); // 0 -> 1, overshooting
     const fade = Math.min(e < 0.65 ? 1 : 1 - (e - 0.65) / 0.35, (p.end - now) / 200); // making way: gone in 200 ms
-    const rise = cell * 0.9 * (1 - (1 - e) ** 2); // up, or down for a takedown
+    const rise = cell * 0.9 * (1 - (1 - e) ** 2); // up; down or sideways for the others
+    const special = !!p.fill;
     ctx.save();
     ctx.font = font;
     const w = ctx.measureText(p.text).width;
     const pad = fontPx * 0.4;
-    const x = clamp((p.x + 0.5) * cell, w / 2 + pad, size - w / 2 - pad);
+    const mid = (p.x + 0.5) * cell;
+    // Sideways: starts beside the head, its near edge a cell out, and drifts off.
+    const cx = p.side ? mid + p.side * (cell + w / 2 + rise * 1.6) : mid;
+    const x = clamp(cx, w / 2 + pad, size - w / 2 - pad);
     const head = (p.y + 0.5) * cell;
-    const y = clamp(p.takedown ? head + cell * 0.8 + rise : head - cell * 0.6 - rise, fontPx, size - fontPx);
+    const y = clamp(p.side ? head : p.drop ? head + cell * 0.8 + rise : head - cell * 0.6 - rise, fontPx, size - fontPx);
     ctx.translate(x, y);
     // From 3 kills on it shakes a little as it lands.
-    const wobble = tier >= 3 || p.takedown ? Math.sin((now - p.start) / 28) * 0.06 * (1 - clamp(e / 0.35, 0, 1)) : 0;
+    const wobble = tier >= 3 || special ? Math.sin((now - p.start) / 28) * 0.06 * (1 - clamp(e / 0.35, 0, 1)) : 0;
     ctx.rotate(p.tilt + wobble);
     ctx.scale(pop, pop);
     ctx.globalAlpha = clamp(fade, 0, 1);
@@ -1362,10 +1382,10 @@ function drawKillPopups(cell, size, now) {
     ctx.lineWidth = fontPx * 0.14;
     ctx.strokeStyle = p.color;
     ctx.strokeText(p.text, 0, 0);
-    const fill = p.takedown
-      ? TAKEDOWN_FILL[p.takedown]
+    const fill = special
+      ? p.fill
       : p.n > KILL_TIERS.length ? `hsl(${((now - p.start) / 4) % 360}, 100%, 70%)` : KILL_TIERS[p.n - 1];
-    if (tier >= 3 || p.takedown) {
+    if (tier >= 3 || special) {
       ctx.shadowColor = fill;
       ctx.shadowBlur = fontPx * 0.5;
     }
@@ -1657,7 +1677,7 @@ function onState(msg) {
         const shooter = ev.byId && s.snakes.find((x) => x.id === ev.byId);
         if (fx.snakeAnimations && shooter?.alive) wink(shooter, now);
         // A credited kill: its popup over the badger's middle, like a snake's.
-        if (fx.killPopups && ev.killNo) addKillPopup(Math.floor(at.x), Math.floor(at.y), ev.killNo, colorOf(ev.byId), now, ev.takedown ?? null);
+        if (fx.killPopups && ev.killNo) addKillPopup(Math.floor(at.x), Math.floor(at.y), ev.killNo, colorOf(ev.byId), now, ev.takedown ?? null, ev.how ?? null);
       } else if (ev.type === 'badgerHit') {
         // A scissors hit: it flashes white, a segment of its bar goes.
         if (ev.badgerId !== undefined) badgerHit = { id: ev.badgerId, at: now, hp: ev.hp };
@@ -1686,7 +1706,7 @@ function onState(msg) {
         if (fx.screenShake) shakeStart = now; // every death, however it happened
         if (fx.killPopups && snake && ev.killNo) {
           const head = snake.segments[0];
-          addKillPopup(head.x, head.y, ev.killNo, colorOf(ev.killerId), now, ev.takedown ?? null);
+          addKillPopup(head.x, head.y, ev.killNo, colorOf(ev.killerId), now, ev.takedown ?? null, ev.how ?? null);
         }
         // The killer winks, with a little sparkle by its head.
         const killer = ev.killerId && s.snakes.find((x) => x.id === ev.killerId);

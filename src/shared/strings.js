@@ -65,7 +65,10 @@ const STRINGS_IT = Object.freeze({
     // Below it, dropping, when the snake killed led the round in kills
     // (streak) or was the longest (mvp), or for the round's first kill
     // (firstBlood). Also English on purpose.
-    takedowns: { streak: 'SHUTDOWN!', mvp: 'MVP KILL!', firstBlood: 'FIRST BLOOD!', hit: 'HIT!' },
+    takedowns: { streak: 'SHUTDOWN!', mvp: 'MVP KILL!', firstBlood: 'FIRST BLOOD!' },
+    // Beside it, drifting to one side, how it died: shot (hit), a head-on
+    // (crash), boxed in with no way out (boxed). Also English on purpose.
+    killHow: { hit: 'HIT!', crash: 'CRASH!', boxed: 'BOXED!' },
   },
 
   // ---- join panel (display side column and /admin/print) ------------------
