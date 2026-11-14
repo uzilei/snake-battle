@@ -15,7 +15,7 @@ import { FRUIT_CODES } from '../shared/fruits.js';
 import { validHat, HAT_IDS } from '../shared/hats.js';
 import { cleanName } from '../shared/names.js';
 import { SOUND_LIMITS, SOUND_VOLUME_DEFAULTS, soundGains } from '../shared/sounds.js';
-import { BOT_LIMITS, BOT_NAME_PATTERN, BOT_SKILLS, MAX_SNAKES, botName, botTarget, botWeightKey, pickBotSkill } from '../shared/bots.js';
+import { BOT_LIMITS, BOT_NAME_PATTERN, BOT_SKILLS, MAX_SNAKES, botName, botTarget, botWeightKey, pickBotSkill, validReservedBots, normalizeReservedBots } from '../shared/bots.js';
 import { createBotBrain } from '../bot-brain.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
@@ -71,6 +71,7 @@ const SETTING_RULES = Object.freeze({
   corpseStyle: (v) => CORPSE_STYLES.includes(v),
   bots: inLimits(BOT_LIMITS.bots),
   botFill: isBoolean,
+  reservedBots: validReservedBots,
   ...Object.fromEntries(BOT_SKILLS.map((k) => [botWeightKey(k), inLimits(BOT_LIMITS[botWeightKey(k)])])),
   ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, isBoolean])),
   ...Object.fromEntries(Object.entries(SOUND_LIMITS).map(([k, l]) => [k, inLimits(l)])),
@@ -85,6 +86,7 @@ const SETTING_NORMALIZE = Object.freeze({
   fruits: (v) => FRUIT_CODES.filter((c) => v.includes(c)),
   // Cleaned like a player name; nothing visible left means no name.
   badgerName: (v) => cleanName(v, MAX_BADGER_NAME_LENGTH),
+  reservedBots: normalizeReservedBots,
 });
 const normalized = (key, value) => (SETTING_NORMALIZE[key] ? SETTING_NORMALIZE[key](value) : value);
 
@@ -149,6 +151,7 @@ const defaultSettings = () => ({
   badgerName: '', // drawn under the honey badger, like a boss name
   bots: BOT_LIMITS.bots.default, // computer players (0 = none)
   botFill: false, // bots only fill up to `bots`, making room for people
+  reservedBots: [], // { name, hat }: names bots play under before "Bot N"
   // Skill weights for new bots (botWeight1..3).
   ...Object.fromEntries(BOT_SKILLS.map((k) => [botWeightKey(k), BOT_LIMITS[botWeightKey(k)].default])),
   ...EFFECT_DEFAULTS,
@@ -368,14 +371,26 @@ export function createGame({
   // Computer players: engine players with { bot: true }, owned by no client.
   // They join and leave only between rounds (or at a restart); the brain
   // steers them right before each tick.
-  const bots = new Map(); // playerId -> { n: number in its name, skill: 1-3 }
+  const bots = new Map(); // playerId -> { n: 1, 2... in joining order, skill: 1-3, reserved: playing a reserved profile }
   let nextBotId = 1;
   const thinkStats = { samples: [] }; // ms per think, last TICK_WINDOW
+
+  // A shuffled copy of `list` (Fisher-Yates, with the game's random).
+  function shuffled(list) {
+    const out = [...list];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  }
 
   // `now`: whatever the phase (right before a restart, which respawns
   // everyone; a bot added mid-round would only be queued).
   // Every round the bots are refreshed: they all leave and the right number
-  // join again as Bot 1, Bot 2..., each with a newly picked hat.
+  // join again. They take reserved profiles first (a random pick of them,
+  // skipping any whose name a person is using), then Bot 1, Bot 2..., each
+  // of those with a newly picked hat.
   function syncBots({ now = false } = {}) {
     const state = engine.getState();
     // During the intermission only on its last tick, so the winner (maybe a
@@ -386,22 +401,27 @@ export function createGame({
     const target = botTarget(settings, people);
     if (!target && !bots.size) return;
     for (const id of [...bots.keys()]) removeOwnedPlayer(id);
+    const taken = new Set(state.players.filter((p) => !p.bot).map((p) => nameKey(p.name)));
+    const profiles = shuffled(settings.reservedBots.filter((b) => !taken.has(nameKey(b.name))));
+    let generic = 0;
     for (let n = 1; n <= target; n++) {
       const id = `b${nextBotId++}`;
-      const name = botName(n);
+      const profile = profiles[n - 1] ?? null;
+      const name = profile ? profile.name : botName(++generic);
       if (!engine.addPlayer(id, name, { bot: true }).ok) break;
-      bots.set(id, { n, skill: pickBotSkill(settings, random) });
-      // A random hat, or none, kept while it stays.
+      bots.set(id, { n, skill: pickBotSkill(settings, random), reserved: Boolean(profile) });
+      // A reserved profile's hat; otherwise a random hat, or none, kept while it stays.
       const choices = [null, ...HAT_IDS];
-      const hat = choices[Math.floor(random() * choices.length)];
+      const hat = profile ? profile.hat : choices[Math.floor(random() * choices.length)];
       owners.set(id, { client: null, slot: null, source: 'bot', session: null, hat });
     }
     log(`[bots] ${bots.size} this round`);
   }
 
-  // The lowest-numbered bot leaves (the next round renumbers them).
+  // A "Bot N" leaves before a reserved one, the lowest-numbered first (the
+  // next round renumbers them).
   function removeBot() {
-    const [id] = [...bots].sort((a, b) => a[1].n - b[1].n)[0];
+    const [id] = [...bots].sort((a, b) => a[1].reserved - b[1].reserved || a[1].n - b[1].n)[0];
     removeOwnedPlayer(id);
     log(`[bots] ${id} left to make room`);
   }

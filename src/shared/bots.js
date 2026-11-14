@@ -2,6 +2,8 @@
 // the server and /admin.
 
 import { STRINGS, fmt } from './strings.js';
+import { cleanName } from './names.js';
+import { HAT_IDS } from './hats.js';
 
 export const BOT_LIMITS = Object.freeze({
   bots: Object.freeze({ min: 0, max: 24, default: 0 }), // 0 = no bots
@@ -47,3 +49,37 @@ export function botTarget({ bots, botFill }, people) {
   const fill = botFill || bots + people > MAX_SNAKES;
   return fill ? Math.max(0, bots - people) : bots;
 }
+
+// Reserved bots: names (and hats) set on /admin that bots play under before
+// any "Bot N". Each name is cleaned like a player's and must be visible, not
+// look like "Bot N", and differ from the others in the list (compared like
+// player names: case-sensitive, NFC). hat: one of the hats, or null.
+export const MAX_RESERVED_BOTS = 50;
+const reservedKey = (name) => name.normalize('NFC');
+
+// Why `raw` can't be the name of a reserved bot next to `others` (names
+// already in the list), or null: 'empty' | 'botName' | 'duplicate'.
+export function reservedNameProblem(raw, others = []) {
+  const name = cleanName(raw);
+  if (!name) return 'empty';
+  if (BOT_NAME_PATTERN.test(name)) return 'botName';
+  const key = reservedKey(name);
+  return others.some((o) => reservedKey(cleanName(o)) === key) ? 'duplicate' : null;
+}
+
+// Whether `list` is a valid reserved bot list ({ name, hat } entries).
+export function validReservedBots(list) {
+  if (!Array.isArray(list) || list.length > MAX_RESERVED_BOTS) return false;
+  const names = [];
+  for (const b of list) {
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return false;
+    if (typeof b.name !== 'string' || b.name.length > 200) return false;
+    if (!(b.hat === null || b.hat === undefined || HAT_IDS.includes(b.hat))) return false;
+    if (reservedNameProblem(b.name, names)) return false;
+    names.push(b.name);
+  }
+  return true;
+}
+
+// A valid list as it is stored: cleaned names, hat null when none.
+export const normalizeReservedBots = (list) => list.map((b) => ({ name: cleanName(b.name), hat: b.hat ?? null }));

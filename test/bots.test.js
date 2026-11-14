@@ -4,7 +4,7 @@ import { createEngine } from '../src/engine.js';
 import { createBotBrain, BOT_BRAIN } from '../src/bot-brain.js';
 import { createGame, resolveSidePanel } from '../src/server/game.js';
 import { createRecords } from '../src/server/records.js';
-import { botTarget, botName, BOT_NAME_PATTERN, MAX_SNAKES, pickBotSkill } from '../src/shared/bots.js';
+import { botTarget, botName, BOT_NAME_PATTERN, MAX_SNAKES, pickBotSkill, validReservedBots } from '../src/shared/bots.js';
 import { HAT_IDS } from '../src/shared/hats.js';
 
 // Deterministic RNG (mulberry32).
@@ -901,6 +901,80 @@ describe('server: bots', () => {
     const top = records.top();
     assert.deepEqual(top.kills, [{ name: 'Anna', value: 1 }]);
     assert.ok([...top.score, ...top.kills, ...top.wins].every((e) => !/^Bot/.test(e.name)), JSON.stringify(top));
+  });
+
+  describe('reserved bots', () => {
+    const names = (game) => botsOf(game).map((p) => p.name);
+    const hatOf = (admin, name) => admin.last('admin').players.find((p) => p.name === name).hat;
+
+    test('none by default; names are cleaned, must be visible, unique and not "Bot N"; hats checked', () => {
+      const { game, admin } = newGame();
+      assert.deepEqual(game.settings.reservedBots, []);
+      admin.send({ t: 'settings', reservedBots: [{ name: '  Rex   il\u200b Re ', hat: 'cap' }, { name: 'Nina' }] });
+      assert.deepEqual(game.settings.reservedBots, [{ name: 'Rex il Re', hat: 'cap' }, { name: 'Nina', hat: null }]);
+      const bad = [
+        [{ name: '' }],
+        [{ name: ' \u3164 ' }],
+        [{ name: 'Bot 7' }],
+        [{ name: 'bot3' }],
+        [{ name: 'Nina' }, { name: ' Nina ' }],
+        [{ name: 'Rex', hat: 'crown' }],
+        [{ name: 42 }],
+        [null],
+        'Rex',
+        Array.from({ length: 51 }, (_, i) => ({ name: `R${i}` })),
+      ];
+      for (const reservedBots of bad) {
+        admin.send({ t: 'settings', reservedBots });
+        assert.equal(admin.last('error').code, 'badMessage', JSON.stringify(reservedBots));
+      }
+      assert.equal(game.settings.reservedBots.length, 2);
+      assert.ok(validReservedBots([{ name: 'Nina' }, { name: 'nina' }])); // case-sensitive, like player names
+    });
+
+    test('they fill first, with their own hats; the rest are "Bot 1", "Bot 2"...; all still bots', () => {
+      const { game, admin } = newGame({ bots: 4, reservedBots: [{ name: 'Rex', hat: 'tophat' }, { name: 'Nina', hat: null }] });
+      admin.send({ t: 'hello', role: 'admin' });
+      game.tickOnce();
+      const list = names(game);
+      assert.deepEqual([...list.slice(0, 2)].sort(), ['Nina', 'Rex']);
+      assert.deepEqual(list.slice(2), ['Bot 1', 'Bot 2']);
+      assert.ok(game.engine.getState().players.every((p) => p.bot));
+      assert.equal(hatOf(admin, 'Rex'), 'tophat');
+      assert.equal(hatOf(admin, 'Nina'), null);
+      assert.ok(admin.last('admin').players.every((p) => p.source === 'bot'));
+    });
+
+    test('more profiles than bots: a random pick of them each round, no "Bot N"', () => {
+      const pool = ['Ada', 'Bea', 'Cid', 'Dan', 'Eva', 'Fil'];
+      const { game, admin } = newGame({ bots: 2, reservedBots: pool.map((name) => ({ name })) });
+      game.tickOnce();
+      const picks = new Set();
+      for (let i = 0; i < 12; i++) {
+        const list = names(game);
+        assert.equal(list.length, 2);
+        assert.ok(list.every((n) => pool.includes(n)), list.join());
+        picks.add([...list].sort().join());
+        admin.send({ t: 'restart' }); // between rounds: the bots are refreshed
+      }
+      assert.ok(picks.size > 3, [...picks].join(' | '));
+    });
+
+    test('a profile whose name a person is using sits the round out', () => {
+      const { game } = newGame({ bots: 2, reservedBots: [{ name: 'Rex' }, { name: 'Nina' }] });
+      phone(game, 'Rex');
+      game.tickOnce();
+      assert.deepEqual(names(game), ['Nina', 'Bot 1']);
+    });
+
+    test('never recorded, whatever their name', () => {
+      const records = createRecords({}, { now: () => 5000 });
+      const { game, admin } = newGame({ bots: 2, leaderboard: true, reservedBots: [{ name: 'Rex' }] }, { records });
+      for (let i = 0; i < 6; i++) game.tickOnce();
+      admin.send({ t: 'restart' });
+      const top = records.top();
+      assert.deepEqual([...top.score, ...top.kills, ...top.wins], []);
+    });
   });
 
   test('records: a round won by a bot has no winner', () => {

@@ -6,7 +6,9 @@ import { playerColor } from '/shared/colors.js';
 import { POWER_UPS, WEIGHTED_POWER_UPS, weightKey } from '/shared/powerups.js';
 import { FRUITS, FRUIT_CODES, APPLE_FRUIT } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
-import { BOT_LIMITS, BOT_SKILLS, BOT_SKILL_EMOJI, botWeightKey } from '/shared/bots.js';
+import { BOT_LIMITS, BOT_SKILLS, BOT_SKILL_EMOJI, MAX_RESERVED_BOTS, botWeightKey, reservedNameProblem } from '/shared/bots.js';
+import { MAX_NAME_LENGTH } from '/shared/limits.js';
+import { cleanName } from '/shared/names.js';
 import { SOUND_LIMITS, VOLUME_SLIDERS, soundVolumeKey } from '/shared/sounds.js';
 
 const A = STRINGS.admin;
@@ -351,6 +353,7 @@ function update(msg) {
   if (document.activeElement !== $('leaderboard-stat')) $('leaderboard-stat').value = msg.settings.leaderboardStat;
   if (document.activeElement !== $('s-corpseStyle')) $('s-corpseStyle').value = msg.settings.corpseStyle;
   $('corpse-settings').classList.toggle('off', !msg.config.corpseApples);
+  renderReservedBots(msg.settings.reservedBots);
   for (const key of ['timeLimitWinner', 'bombMode']) {
     if (document.activeElement !== $(`c-${key}`)) $(`c-${key}`).value = msg.config[key];
   }
@@ -519,6 +522,126 @@ function updateDirector(msg) {
   for (const b of snakeButtons) b.disabled = !live || !alive.length;
   $('btn-remove-badgers').disabled = !live || !msg.badgers;
 }
+
+// ---- reserved bots ----------------------------------------------------------------
+// Names (and hats) bots play under before "Bot N". Every change sends the
+// whole list; the server checks it again (same rules) and echoes it back.
+$('h-reserved-bots').textContent = A.reservedBotsTitle;
+$('reserved-bots-hint').textContent = A.reservedBotsHint;
+$('reserved-name').placeholder = A.reservedBotPlaceholder;
+$('reserved-name').maxLength = MAX_NAME_LENGTH;
+$('reserved-add').textContent = A.reservedBotAdd;
+function hatSelect(select, value) {
+  const options = [[null, A.reservedBotNoHat], ...HATS.map((h) => [h.id, `${h.emoji} ${STRINGS.play.hatNames[h.id] ?? h.id}`])];
+  for (const [id, label] of options) {
+    const opt = document.createElement('option');
+    opt.value = id ?? '';
+    opt.textContent = label;
+    select.append(opt);
+  }
+  select.value = value ?? '';
+  return select;
+}
+hatSelect($('reserved-hat'), null);
+
+let reservedBots = [];
+let reservedShown = null; // the list as last drawn (JSON)
+const reservedError = (code) => {
+  $('reserved-error').textContent = code ? (A.reservedBotErrors[code] ?? '') : '';
+};
+// Sends `list` if every name is fine; otherwise shows why and returns false.
+function sendReserved(list) {
+  if (list.length > MAX_RESERVED_BOTS) {
+    reservedError('full');
+    return false;
+  }
+  for (let i = 0; i < list.length; i++) {
+    const problem = reservedNameProblem(list[i].name, list.slice(0, i).map((b) => b.name));
+    if (problem) {
+      reservedError(problem);
+      return false;
+    }
+  }
+  reservedError(null);
+  const clean = list.map((b) => ({ name: cleanName(b.name), hat: b.hat ?? null }));
+  send({ t: 'settings', reservedBots: clean });
+  // The next change builds on this one, even before the server echoes it.
+  reservedBots = clean;
+  pending = { text: JSON.stringify(clean), at: performance.now() };
+  reservedShown = null;
+  return true;
+}
+// A change sent but not echoed yet: older lists still on their way are ignored.
+let pending = null;
+
+function renderReservedBots(list) {
+  const incoming = JSON.stringify(list ?? []);
+  if (pending) {
+    if (incoming !== pending.text && performance.now() - pending.at < 3000) return;
+    pending = null;
+  }
+  reservedBots = list ?? [];
+  const text = incoming;
+  // Don't redraw under someone typing in it.
+  if (text === reservedShown || $('reserved-list').contains(document.activeElement)) return;
+  reservedShown = text;
+  if (!reservedBots.length) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = A.reservedBotsEmpty;
+    $('reserved-list').replaceChildren(li);
+    return;
+  }
+  $('reserved-list').replaceChildren(
+    ...reservedBots.map((b, i) => {
+      const li = document.createElement('li');
+      const name = document.createElement('input');
+      name.type = 'text';
+      name.value = b.name;
+      name.maxLength = MAX_NAME_LENGTH;
+      name.spellcheck = false;
+      name.autocomplete = 'off';
+      name.setAttribute('aria-label', A.reservedBotPlaceholder);
+      name.addEventListener('change', () => {
+        const next = reservedBots.map((x, j) => (j === i ? { ...x, name: name.value } : x));
+        if (!sendReserved(next)) name.value = b.name;
+        reservedShown = null; // redraw from the server's echo
+      });
+      name.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') name.blur();
+      });
+      const hat = hatSelect(document.createElement('select'), b.hat);
+      hat.addEventListener('change', () => {
+        sendReserved(reservedBots.map((x, j) => (j === i ? { ...x, hat: hat.value || null } : x)));
+        reservedShown = null;
+        hat.blur();
+      });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'danger';
+      remove.textContent = '×';
+      remove.title = fmt(A.reservedBotRemove, { name: b.name });
+      remove.setAttribute('aria-label', remove.title);
+      remove.addEventListener('click', () => {
+        sendReserved(reservedBots.filter((_, j) => j !== i));
+        reservedShown = null;
+        remove.blur();
+      });
+      li.append(name, hat, remove);
+      return li;
+    }),
+  );
+}
+
+$('reserved-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const entry = { name: $('reserved-name').value, hat: $('reserved-hat').value || null };
+  if (sendReserved([...reservedBots, entry])) {
+    $('reserved-name').value = '';
+    $('reserved-hat').value = '';
+  }
+});
+$('reserved-name').addEventListener('input', () => reservedError(null));
 
 // ---- banned words -------------------------------------------------------------
 $('word-form').addEventListener('submit', (e) => {
