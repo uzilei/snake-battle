@@ -7,7 +7,9 @@
 // Each bot that will move this tick weighs its (up to) three moves, in
 // priority order:
 //   1. Survive: never a move that dies next tick when another one doesn't,
-//      and not one into a pocket too small for the snake.
+//      and not one into a pocket too small for the snake. When every move
+//      dies, one into another snake (its kill) over a wall, itself or the
+//      badger.
 //   2. Flee: keep away from heads that would win (or tie) a head-on, the
 //      badger and bombs.
 //   3. Hunt: the best food it can reach (chickens and rats first), or, with
@@ -29,8 +31,10 @@ const OPPOSITE = Object.freeze({ up: 'down', down: 'up', left: 'right', right: '
 
 export const BOT_BRAIN = Object.freeze({
   nodeBudget: 60000, // search nodes per tick, shared by every bot
-  spaceCap: 150, // a flood fill stops counting here
-  spaceExtra: 20, // and wants room for the snake's length plus this many cells
+  // A flood fill stops counting at the snake's length plus this many cells
+  // (never less than its length, or a long snake couldn't tell a big pocket
+  // from open board); only the tick's node budget cuts it shorter.
+  spaceExtra: 20,
   huntNodes: 1500, // nodes per bot's food search
   fleeRadius: 3, // cells (Manhattan)
   ghostSafeMs: 2000, // a ghost with more than this left ignores danger
@@ -288,6 +292,14 @@ function decide(board, me, { skill, bombMode, budget, random, reflex = false }) 
     return tier;
   }
 
+  // Entering `cell` now runs into another snake's segment, and nothing else
+  // there would kill first: the death is that snake's kill.
+  function intoOther(cell) {
+    const k = key(cell.x, cell.y);
+    if (board.freeAt[k] <= 1 || board.owner[k] === myIndex || board.deadly[k]) return false;
+    return !(board.badgerActive && board.inBadger(cell.x, cell.y)) && !board.inBomb(cell.x, cell.y);
+  }
+
   // Free cells reachable from `start` (entered on move 1), up to `cap`,
   // counting segments that will have left by the time they're reached.
   function space(start, cap) {
@@ -328,14 +340,18 @@ function decide(board, me, { skill, bombMode, budget, random, reflex = false }) 
     moves.push({ dir, cell, tier, space: 0, flee: 0, hunt: 0 });
   }
   const best = Math.min(...moves.map((m) => m.tier));
+  // Every move is deadly: into another snake if it can (a kill for it, at
+  // least), else at least not a wall (another snake might move).
+  if (best === DEADLY) {
+    const into = moves.find((m) => m.cell && intoOther(m.cell)) ?? moves.find((m) => m.cell) ?? moves[0];
+    return { dir: reflex && into.dir === me.dir ? null : into.dir, nodes };
+  }
   if (reflex) {
     const ahead = moves.find((m) => m.dir === me.dir);
-    if ((ahead && ahead.tier < DEADLY) || best === DEADLY) return { dir: null, nodes };
+    if (ahead && ahead.tier < DEADLY) return { dir: null, nodes };
     const ways = moves.filter((m) => m.tier === best);
     return { dir: ways[Math.floor(random() * ways.length)].dir, nodes };
   }
-  // Every move is deadly: at least not a wall (another snake might move).
-  if (best === DEADLY) return { dir: (moves.find((m) => m.cell) ?? moves[0]).dir, nodes };
   const options = moves.filter((m) => m.tier === best); // each with a cell: walls are deadly
   if (options.length === 1) return { dir: options[0].dir, nodes };
 
@@ -343,11 +359,13 @@ function decide(board, me, { skill, bombMode, budget, random, reflex = false }) 
   if (left() <= 0) return { dir: (options.find((m) => m.dir === me.dir) ?? options[0]).dir, nodes };
 
   // 1. Room: a pocket smaller than the snake is a trap.
-  const want = Math.min(me.length + BOT_BRAIN.spaceExtra, BOT_BRAIN.spaceCap);
+  const want = me.length + BOT_BRAIN.spaceExtra;
   for (const m of options) {
     m.space = carefree ? want : space(m.cell, want);
-    m.trapped = m.space < Math.min(me.length, want);
+    m.trapped = m.space < me.length;
   }
+  // The budget ran out mid-count: the counts can't be compared.
+  if (left() <= 0) return { dir: (options.find((m) => m.dir === me.dir) ?? options[0]).dir, nodes };
 
   // 2. Flee: heads that win or tie a head-on, the badger, bombs.
   const threats = carefree

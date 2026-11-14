@@ -53,7 +53,7 @@ export const STRINGS = Object.freeze({
     // Below it, dropping, when the snake killed led the round in kills
     // (streak) or was the longest (mvp), or for the round's first kill
     // (firstBlood). Also English on purpose.
-    takedowns: { streak: 'SHUTDOWN!', mvp: 'MVP KILL!', firstBlood: 'FIRST BLOOD!' },
+    takedowns: { streak: 'SHUTDOWN!', mvp: 'MVP KILL!', firstBlood: 'FIRST BLOOD!', hit: 'HIT!' },
   },
 
   // ---- join panel (display side column and /admin/print) ------------------

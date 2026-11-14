@@ -1064,7 +1064,7 @@ describe('kills', () => {
     assert.equal(kills(e, 'a'), 0);
   });
 
-  test("credited deaths number the killer's snake kills this round", () => {
+  test("credited deaths number the killer's kills this round", () => {
     // c gets a and b at once, then e runs into c's body a tick later.
     const e = setup({
       a: [[[4, 5], [3, 5], [2, 5]], 'right'],
@@ -1131,31 +1131,31 @@ describe('kills', () => {
       assert.equal(takedownOf(scene(21, { c: long(21) })), 'mvp');
     });
 
-    test('the most snake kills this round, above 2: a streak takedown', () => {
+    test('the most kills this round, above 2: a streak takedown', () => {
       for (const [kills, want] of [[3, 'streak'], [2, undefined]]) {
         const e = scene(3);
-        e._debug.setSnakeKills('v', kills);
+        e._debug.setKills('v', kills);
         assert.equal(takedownOf(e), want, `${kills} kills`);
       }
       const e = scene(3);
-      e._debug.setSnakeKills('v', 3);
-      e._debug.setSnakeKills('c', 4); // c leads
+      e._debug.setKills('v', 3);
+      e._debug.setKills('c', 4); // c leads
       assert.equal(takedownOf(e), undefined);
       const tie = scene(3);
-      tie._debug.setSnakeKills('v', 4);
-      tie._debug.setSnakeKills('c', 4);
+      tie._debug.setKills('v', 4);
+      tie._debug.setKills('c', 4);
       assert.equal(takedownOf(tie), 'streak');
     });
 
     test('both leaders at once: the streak wins', () => {
       const e = scene(22);
-      e._debug.setSnakeKills('v', 3);
+      e._debug.setKills('v', 3);
       assert.equal(takedownOf(e), 'streak');
     });
 
     test('only a credited kill is a takedown', () => {
       const e = setup({ v: [[[19, 5], [18, 5], [17, 5]], 'right'], c: bystander }); // into the wall
-      e._debug.setSnakeKills('v', 5);
+      e._debug.setKills('v', 5);
       e.tick();
       assert.deepEqual(deathOf(e, 'v'), { type: 'death', id: 'v', killerId: null });
     });
@@ -1165,7 +1165,7 @@ describe('kills', () => {
       assert.equal(takedownOf(scene(5)), undefined);
       assert.equal(takedownOf(scene(22, {}, { first: true })), 'firstBlood');
       const streak = scene(3, {}, { first: true });
-      streak._debug.setSnakeKills('v', 3);
+      streak._debug.setKills('v', 3);
       assert.equal(takedownOf(streak), 'streak');
     });
 
@@ -1211,12 +1211,51 @@ describe('kills', () => {
         d: [[[6, 7], [5, 7], [4, 7]], 'right'],
         z: bystander,
       });
-      e._debug.setSnakeKills('c', 2);
+      e._debug.setKills('c', 2);
       e._debug.setKilledThisRound(true);
       e.tick();
       assert.equal(deathOf(e, 'a').killNo, 3);
       assert.equal(deathOf(e, 'c').killerId, 'd');
       assert.equal(deathOf(e, 'c').takedown, undefined);
+    });
+
+    // s shoots v: a projectile at (6, 9) flying left meets v's head at (5, 9).
+    const shooter = [[[10, 12], [9, 12], [8, 12]], 'right'];
+    const shotScene = (vSnake = [[[4, 9], [3, 9], [2, 9]], 'right'], { first = false } = {}) => {
+      const e = setup({ v: vSnake, s: shooter, c: bystander });
+      if (!first) e._debug.setKilledThisRound(true);
+      const head = vSnake[0][0];
+      e._debug.addProjectile([head[0] + 2, head[1]], 'left', 's');
+      return e;
+    };
+
+    test('a projectile kill is a HIT', () => {
+      const e = shotScene();
+      e.tick();
+      assert.deepEqual(deathOf(e, 'v'), { type: 'death', id: 'v', killerId: 's', killNo: 1, takedown: 'hit' });
+    });
+
+    test('a gun fired right next to a body is a HIT too', () => {
+      const e = setup({ v: [[[8, 9], [8, 8], [8, 7]], 'down'], s: [[[6, 9], [5, 9], [4, 9]], 'right'], c: bystander });
+      e._debug.setKilledThisRound(true);
+      e._debug.addPowerUps([[7, 9, 'gun']]); // eaten at x 7: fires into (8, 9), v's body by then
+      e.tick();
+      assert.deepEqual(deathOf(e, 'v'), { type: 'death', id: 'v', killerId: 's', killNo: 1, takedown: 'hit' });
+    });
+
+    test('HIT comes last: a streak, first blood or MVP takedown wins over it', () => {
+      const streak = shotScene();
+      streak._debug.setKills('v', 3);
+      assert.equal(takedownOf(streak), 'streak');
+      assert.equal(takedownOf(shotScene(undefined, { first: true })), 'firstBlood');
+      assert.equal(takedownOf(shotScene(victim(21))), 'mvp');
+    });
+
+    test('shot while running into a body: the body gets the kill, no HIT', () => {
+      const e = scene(3);
+      e._debug.addProjectile([6, 5], 'left', 'c'); // meets v at (5, 5), k's body
+      e.tick();
+      assert.deepEqual(deathOf(e, 'v'), { type: 'death', id: 'v', killerId: 'k', killNo: 1 });
     });
   });
 

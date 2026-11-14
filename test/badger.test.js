@@ -644,7 +644,7 @@ describe('badger, rats and projectiles', () => {
     assert.ok(badger(e));
     e.tick(); // x 8: in
     assert.equal(badger(e), null);
-    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a' }]);
+    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a', killNo: 1, takedown: 'hit' }]);
     assert.equal(player(e, 'a').kills, 1);
     assert.equal(e.getState().projectiles.length, 0);
   });
@@ -676,6 +676,50 @@ describe('badger, rats and projectiles', () => {
     e.tick();
     assert.equal(badger(e), null);
     assert.equal(events(e, 'badgerKilled')[0].byId, null);
+    assert.equal(events(e, 'badgerKilled')[0].killNo, undefined);
+    assert.equal(events(e, 'badgerKilled')[0].takedown, undefined);
+  });
+
+  test("a gun fired right next to it is a HIT, numbered after the shooter's kills", () => {
+    const e = setup({ a: [row(10, 7, 5), 'right'], ...far });
+    e._debug.setBadger([10, 10], STILL);
+    e._debug.setSnake('a', row(10, 6, 4), 'right');
+    e._debug.setKills('a', 3);
+    e._debug.addPowerUps([[7, 10, 'gun']]);
+    e.tick();
+    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a', killNo: 4, takedown: 'hit' }]);
+  });
+
+  test('the badger counts in the kill numbers: the next snake kill goes on from it', () => {
+    // w runs into a's body at (6, 10) a tick after a shoots the badger.
+    const e = setup({ a: [row(10, 7, 5), 'right'], w: [[[6, 12], [6, 13], [6, 14]], 'up'], ...far });
+    e._debug.setBadger([10, 10], STILL);
+    e._debug.setSnake('a', row(10, 6, 4), 'right');
+    e._debug.addPowerUps([[7, 10, 'gun']]);
+    e.tick();
+    assert.equal(events(e, 'badgerKilled')[0].killNo, 1);
+    e.tick();
+    const death = events(e, 'death').find((d) => d.id === 'w');
+    assert.equal(death.killerId, 'a');
+    assert.equal(death.killNo, 2);
+  });
+
+  test('the badger counts toward the kill lead: 2 snakes and the badger, then killed, is a SHUTDOWN', () => {
+    const e = setup({ a: [row(10, 7, 5), 'right'], w: [[[16, 3], [16, 2], [16, 1]], 'down'], ...far });
+    e._debug.setBadger([10, 10], STILL);
+    e._debug.setSnake('a', row(10, 6, 4), 'right');
+    e._debug.setKills('a', 2);
+    e._debug.setKilledThisRound(true);
+    e._debug.addPowerUps([[7, 10, 'gun']]);
+    e.tick();
+    assert.equal(player(e, 'a').kills, 3);
+    // a runs into w's body at (5, 5).
+    e._debug.setSnake('a', [[4, 5], [3, 5], [2, 5]], 'right');
+    e._debug.setSnake('w', [[5, 7], [5, 6], [5, 5], [5, 4]], 'down');
+    e.tick();
+    const death = events(e, 'death').find((d) => d.id === 'a');
+    assert.equal(death.killerId, 'w');
+    assert.equal(death.takedown, 'streak');
   });
 });
 
@@ -746,7 +790,7 @@ describe('badger health', () => {
     e.tick(); // b in at (10, 9)
     assert.equal(badger(e), null);
     assert.deepEqual(events(e, 'badgerHit'), [{ type: 'badgerHit', id: 'b', x: 10, y: 9, hp: 0 }]);
-    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'b' }]);
+    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'b', killNo: 1 }]);
     assert.equal(player(e, 'b').kills, 1);
     assert.equal(player(e, 'a').kills, 0);
     assert.equal(player(e, 'a').status, 'alive');
@@ -773,7 +817,7 @@ describe('badger health', () => {
     e._debug.addProjectile([7, 10], 'right', 'a');
     e.tick();
     assert.equal(badger(e), null);
-    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a' }]);
+    assert.deepEqual(events(e, 'badgerKilled'), [{ type: 'badgerKilled', x: 10, y: 10, byId: 'a', killNo: 1, takedown: 'hit' }]);
     assert.equal(player(e, 'a').kills, 1);
   });
 

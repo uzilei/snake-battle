@@ -200,6 +200,85 @@ describe('bot brain: survive', () => {
     assert.notEqual(pick(e), 'up');
   });
 
+  test('a long snake still tells a big pocket from open board', () => {
+    // An inward spiral fills the top-left 19 x 19 cells: one wall chain of w
+    // (growing, so it stays put), entrance at (18, 0), 163 free cells inside:
+    // more than a fill capped at 150 would count, fewer than a's 200. a's
+    // head is at (19, 0), facing the top wall: left into the spiral (an
+    // apple just inside), right onto open board.
+    const S = 18;
+    const D = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+    const turn = { down: 'left', left: 'up', up: 'right', right: 'down' };
+    const taken = new Set([`${S},0`]); // the entrance stays open
+    const open = (x, y) => !taken.has(`${x},${y}`);
+    const free = (x, y) => x >= 0 && y >= 0 && x <= S && y <= S && open(x, y);
+    const wall = [[S, 1]];
+    taken.add(`${S},1`);
+    // Straight on while the cell ahead and the one after are free, else turn.
+    for (let dir = 'down', turns = 0, [x, y] = wall[0]; turns < 2; ) {
+      const [dx, dy] = D[dir];
+      if (free(x + dx, y + dy) && open(x + 2 * dx, y + 2 * dy)) {
+        x += dx;
+        y += dy;
+        wall.push([x, y]);
+        taken.add(`${x},${y}`);
+        turns = 0;
+      } else {
+        dir = turn[dir];
+        turns++;
+      }
+    }
+    // a: down column 19, then back and forth along the bottom rows.
+    const body = [...column(19, 0, 39)];
+    for (let y = 39; body.length < 200; y--) body.push(...((39 - y) % 2 ? row(y, 39, 20) : row(y, 20, 39)));
+    const e = setup(
+      { a: [body.slice(0, 200), 'up'], w: [wall.reverse(), 'left'], z: [[[30, 20], [29, 20], [28, 20]], 'right'] },
+      { gridSize: 40 },
+    );
+    e._debug.setApples([[17, 0]]);
+    const state = e.getState();
+    state.snakes.find((s) => s.id === 'w').pendingGrowth = 1000;
+    // The spiral is what this test says it is.
+    const pocket = new Set([`${S},0`]);
+    for (const queue = [[S, 0]]; queue.length; ) {
+      const [x, y] = queue.pop();
+      for (const [dx, dy] of Object.values(D)) {
+        const k = `${x + dx},${y + dy}`;
+        if (free(x + dx, y + dy) && !pocket.has(k)) pocket.add(k) && queue.push([x + dx, y + dy]);
+      }
+    }
+    assert.equal(pocket.size, 163);
+    assert.equal(pick({ getState: () => state }), 'right');
+  });
+
+  // a's head at (19, 5), facing the right wall: up is its own body, down b's.
+  const cornered = (others = {}) =>
+    setup({
+      a: [[[19, 5], [18, 5], [18, 4], [19, 4], [19, 3], [19, 2]], 'right'],
+      b: [[[19, 8], [19, 7], [19, 6], [18, 6], [17, 6]], 'down'],
+      ...far,
+      ...others,
+    });
+
+  test('no way out: into another snake (its kill) over itself or a wall', () => {
+    assert.equal(pick(cornered()), 'down');
+  });
+
+  test('no way out: another snake over the badger too', () => {
+    // up (19, 4) now the badger's, down still b's body.
+    const e = cornered({ a: [[[19, 5], [18, 5], [17, 5], [16, 5]], 'right'] });
+    e._debug.setBadger([17, 3], { moveAt: 1e9 }); // x 15-19, y 2-4: covers (19, 4)
+    assert.equal(pick(e), 'down');
+  });
+
+  test('no way out between decisions too: the reflex goes into the other snake', () => {
+    const state = cornered().getState();
+    const brain = createBotBrain({ random: seeded(5), onError: (err) => { throw err; } });
+    const dirs = Array.from({ length: 400 }, () => brain.think(state, ['a'], { skill: 1 }).get('a'));
+    assert.ok(dirs.filter((d) => d === 'down').length > 300, `down ${dirs.filter((d) => d === 'down').length}`);
+    assert.ok(dirs.every((d) => d === 'down' || d === undefined));
+  });
+
   test('a golden snake (two moves a tick) checks the cell after next too', () => {
     const snakes = { a: [row(5, 5, 3), 'right'], b: [column(7, 2, 8), 'up'], ...far }; // (7, 5) is mid-body
     const plain = setup(snakes);

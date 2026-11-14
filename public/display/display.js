@@ -1118,9 +1118,10 @@ function applyShake(now) {
 // kills the killer has this round, the bigger and hotter it gets.
 const KILL_POPUP_MS = 1500;
 const KILL_TIERS = ['#ffffff', '#ffe066', '#ffa726', '#ff5252', '#e040fb']; // fill per kill number
-// Killing the leader in kills or length (the death's takedown) adds a second
-// text below, with the same tilt, that drops instead of rising.
-const TAKEDOWN_FILL = { streak: '#4de3ff', mvp: '#ffd700', firstBlood: '#ff3344' };
+// Killing the leader in kills or length, first blood or a projectile kill
+// (the death's takedown) adds a second text below, with the same tilt, that
+// drops instead of rising.
+const TAKEDOWN_FILL = { streak: '#4de3ff', mvp: '#ffd700', firstBlood: '#ff3344', hit: '#ff9100' };
 const TAKEDOWN_DELAY_MS = 140; // lands just after the KILL!
 const killPopups = []; // { x, y, n, text, color, start, tilt, end, takedown? }
 
@@ -1434,6 +1435,8 @@ function onState(msg) {
         if (fx.screenShake) shakeStart = now;
         const shooter = ev.byId && s.snakes.find((x) => x.id === ev.byId);
         if (fx.snakeAnimations && shooter?.alive) wink(shooter, now);
+        // A credited kill: its popup over the badger's middle, like a snake's.
+        if (fx.killPopups && ev.killNo) addKillPopup(Math.floor(at.x), Math.floor(at.y), ev.killNo, colorOf(ev.byId), now, ev.takedown ?? null);
       } else if (ev.type === 'badgerHit') {
         // A scissors hit: it flashes white, a segment of its bar goes.
         if (b) badgerHit = { id: b.id, at: now, hp: ev.hp };
