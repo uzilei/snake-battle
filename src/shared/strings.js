@@ -240,6 +240,11 @@ export const STRINGS = Object.freeze({
     rules: 'Regole',
     rulesHint: 'Le modifiche valgono dal prossimo round.',
     corpseApples: 'I serpenti morti diventano mele',
+    corpseStyle: 'Aspetto delle mele dei serpenti morti e dei pezzi tagliati (vale subito)',
+    corpseStyleOptions: {
+      fruit: 'Frutta',
+      remains: 'Resti: pezzi di serpente grigi',
+    },
     wrapWalls: 'Bordi attraversabili (si esce da un lato e si rientra dall’altro)',
     winConditions: 'Condizioni di vittoria',
     winHint: '«Ultimo serpente in vita» vale sempre. Con più condizioni attive, il round finisce con quella che scatta prima.',

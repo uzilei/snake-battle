@@ -50,6 +50,7 @@ export const EXPO_DEFAULTS = Object.freeze({
     leaderboardStat: 'auto',
     displayButtons: true,
     hats: true,
+    corpseStyle: 'fruit',
     badgerName: 'Torquato Tasso',
     bots: 0,
     botFill: true,

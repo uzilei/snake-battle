@@ -3,7 +3,7 @@
 
 import { STRINGS, fmt } from '/shared/strings.js';
 import { playerColor } from '/shared/colors.js';
-import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt } from '/shared/snake-path.js';
+import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt, buildChains } from '/shared/snake-path.js';
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
 import { RAT_RULES } from '/shared/rats.js';
 import { CHICKEN_RULES } from '/shared/chicken.js';
@@ -284,20 +284,115 @@ const creatureSprite = (type, px, frozen) => (frozen ? frozenSprite(type, px) : 
 // one tick old by the end of the tick).
 const remainingNow = (ms, now) => Math.max(0, ms - (now - tickAt));
 
-function boardItems(state, now) {
-  const items = state.apples.map((a) => ({ type: 'apple', sprite: fruitAt(a), x: a.x, y: a.y, flip: flipAt('apple', a.x, a.y) }));
+// "remains" (an /admin setting): corpse apples are drawn as gray pieces of
+// snake by drawRemains, not as fruit.
+const remainsOn = (msg) => msg?.corpseStyle === 'remains';
+
+function boardItems(state, now, remains = false) {
+  const apples = remains ? state.apples.filter((a) => !a.corpse) : state.apples;
+  const items = apples.map((a) => ({ type: 'apple', sprite: fruitAt(a), x: a.x, y: a.y, flip: flipAt('apple', a.x, a.y) }));
   for (const p of state.powerUps ?? []) items.push({ type: p.type, x: p.x, y: p.y, power: true, flip: flipAt(p.type, p.x, p.y) });
   // A bomb is one big sprite over its whole block, centered on (x, y).
   for (const b of state.bombs ?? []) {
     items.push({ type: 'bomb', x: b.x, y: b.y, size: POWER_UP_RULES.bombSize, power: true, remainingMs: remainingNow(b.remainingMs, now), flip: flipAt('bomb', b.x, b.y) });
   }
   // An eaten item stays until the (interpolated) head has reached it.
-  for (const e of eaten) if (now < e.until) items.push({ type: e.item ?? 'apple', sprite: e.sprite, x: e.x, y: e.y, power: Boolean(e.item), flip: e.flip });
+  for (const e of eaten) if (now < e.until) items.push({ type: e.item ?? 'apple', sprite: e.sprite, x: e.x, y: e.y, power: Boolean(e.item), flip: e.flip, corpse: e.corpse });
   return items;
+}
+
+// ---- remains (corpse apples drawn as what's left of the snake) ----
+const REMAINS_LOOK = Object.freeze({ color: '#9a9ea6', dark: '#70747c' });
+const REMAINS_WIDTH = 0.7; // of a cell, like a snake's body
+
+// The green "food" glow of rats and chickens, rasterized once per size.
+let foodGlowCache = { px: 0, canvas: null };
+function foodGlow(cell) {
+  const px = Math.max(2, Math.round(cell * 1.6));
+  if (foodGlowCache.px !== px) {
+    const c = document.createElement('canvas');
+    c.width = c.height = px;
+    const g = c.getContext('2d');
+    const glow = g.createRadialGradient(px / 2, px / 2, 0, px / 2, px / 2, px / 2);
+    glow.addColorStop(0, 'rgba(110, 255, 140, 0.24)');
+    glow.addColorStop(1, 'rgba(110, 255, 140, 0)');
+    g.fillStyle = glow;
+    g.fillRect(0, 0, px, px);
+    foodGlowCache = { px, canvas: c };
+  }
+  return foodGlowCache.canvas;
+}
+
+// One loose bit of remains (an eaten one on its way into a mouth).
+function drawRemainsBit(x, y, cell) {
+  const glow = foodGlow(cell);
+  ctx.drawImage(glow, (x + 0.5) * cell - glow.width / 2, (y + 0.5) * cell - glow.height / 2);
+  ctx.fillStyle = REMAINS_LOOK.color;
+  disc((x + 0.5) * cell, (y + 0.5) * cell, (cell * REMAINS_WIDTH) / 2);
+}
+
+// Corpse apples as gray snake bodies: the cells of one dead snake (or one
+// cut-off part) are joined like the body they came from, as long as their
+// segment numbers follow on (so a piece eaten out of the middle splits it).
+// A dead snake's head keeps its X X eyes.
+function drawRemains(apples, cell, n) {
+  const corpses = apples.filter((a) => a.corpse);
+  if (!corpses.length) return;
+  const glow = foodGlow(cell);
+  for (const a of corpses) ctx.drawImage(glow, (a.x + 0.5) * cell - glow.width / 2, (a.y + 0.5) * cell - glow.height / 2);
+
+  const pieces = new Map();
+  for (const a of corpses) {
+    if (!pieces.has(a.piece)) pieces.set(a.piece, []);
+    pieces.get(a.piece).push(a);
+  }
+  // Runs of consecutive segments, each split further wherever two cells
+  // aren't neighbours (wrapping edges run off the board, like a snake).
+  const chains = [];
+  for (const list of pieces.values()) {
+    list.sort((p, q) => p.seg - q.seg);
+    let run = [list[0]];
+    for (let i = 1; i <= list.length; i++) {
+      if (i < list.length && list[i].seg === list[i - 1].seg + 1) {
+        run.push(list[i]);
+        continue;
+      }
+      chains.push(...buildChains(run, n));
+      run = [list[i]];
+    }
+  }
+  const width = cell * REMAINS_WIDTH;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = width;
+  ctx.strokeStyle = REMAINS_LOOK.color;
+  ctx.beginPath();
+  for (const chain of chains) {
+    ctx.moveTo((chain[0].x + 0.5) * cell, (chain[0].y + 0.5) * cell);
+    if (chain.length === 1) ctx.lineTo((chain[0].x + 0.5) * cell + 0.01, (chain[0].y + 0.5) * cell); // a lone bit
+    for (let i = 1; i < chain.length; i++) ctx.lineTo((chain[i].x + 0.5) * cell, (chain[i].y + 0.5) * cell);
+  }
+  ctx.stroke();
+  // Every other segment a shade darker, like a snake's stripes.
+  ctx.fillStyle = REMAINS_LOOK.dark;
+  for (const a of corpses) if (a.seg % 2 === 1) disc((a.x + 0.5) * cell, (a.y + 0.5) * cell, width * 0.36);
+  // Heads: the dead face, X X eyes.
+  for (const a of corpses) {
+    if (!a.head) continue;
+    const d = DIR_VECTORS[a.dir] ?? [1, 0];
+    const pose = { ...stillPose({ x: d[0], y: d[1] }), dead: true };
+    drawFace((a.x + 0.5) * cell, (a.y + 0.5) * cell, pose, REMAINS_LOOK, (width / 2) * 1.22, cell);
+  }
+  ctx.restore();
 }
 
 function drawItems(items, cell, now) {
   for (const it of items) {
+    if (it.corpse) {
+      drawRemainsBit(it.x, it.y, cell);
+      continue;
+    }
     const span = cell * (it.size ?? 1); // the item's whole block, in pixels
     const px = Math.max(1, Math.round(span * 0.84));
     let scale = 1;
@@ -1265,8 +1360,8 @@ function slideAt(slide, cur, now) {
 }
 let prevProjectiles = new Map(); // id -> projectile one tick before the latest
 const diedAt = new Map(); // id -> when it died (for the fade)
-let eaten = []; // { x, y, color, until, item?, sprite? }
-let flights = []; // { x, y, id, color, start, sprite }: apples a magnet is pulling into a mouth
+let eaten = []; // { x, y, color, until, item?, sprite?, corpse? }
+let flights = []; // { x, y, id, color, start, sprite, corpse? }: apples a magnet is pulling into a mouth
 let fruits = new Map(); // "x,y" -> which fruit sprite the plain apple there is drawn as
 let flips = new Map(); // itemKey -> whether that fruit or power-up is drawn mirrored
 // Rats slide from cell to cell over the moveEveryTicks ticks a step takes.
@@ -1477,6 +1572,9 @@ function onState(msg) {
       const snake = s.snakes.find((x) => x.id === id);
       return snake ? playerColor(snake.colorIndex) : '#ffffff';
     };
+    // Corpse apples as they were, so an eaten one drawn as remains goes on
+    // looking like remains while it's swallowed.
+    const oldCorpses = new Set(sameRound && remainsOn(msg) ? latest.state.apples.filter((a) => a.corpse).map((a) => `${a.x},${a.y}`) : []);
     for (const ev of s.events ?? []) {
       if (ev.type === 'eat') {
         // A swallow bump, once the food has visibly gone in (a bomb isn't food).
@@ -1487,7 +1585,8 @@ function onState(msg) {
         // A bomb goes off at once (its x, y is the block's center).
         const fruit = ev.item ? undefined : oldFruits.get(`${ev.x},${ev.y}`);
         const flip = oldFlips.get(itemKey(ev.item ?? 'apple', ev.x, ev.y));
-        if (ev.magnet) flights.push({ x: ev.x, y: ev.y, id: ev.id, color: colorOf(ev.id), start: now, sprite: fruit, flip });
+        const corpse = !ev.item && oldCorpses.has(`${ev.x},${ev.y}`);
+        if (ev.magnet) flights.push({ x: ev.x, y: ev.y, id: ev.id, color: colorOf(ev.id), start: now, sprite: fruit, flip, corpse });
         else if (ev.item === 'rat') {
           // It slides on from wherever it was drawn into the head's cell.
           const old = oldRats.get(ev.ratId);
@@ -1495,7 +1594,7 @@ function onState(msg) {
         } else if (ev.item === 'chicken') {
           const old = oldChickens.get(ev.chickenId);
           if (old) eatenRats.push({ ...ratStep(old, ev, s.gridSize, now, msg.tickMs * EAT_AT), color: colorOf(ev.id), sprite: 'chicken' });
-        } else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item, sprite: fruit, flip });
+        } else if (ev.item !== 'bomb') eaten.push({ x: ev.x, y: ev.y, color: colorOf(ev.id), until: now + msg.tickMs * EAT_AT, item: ev.item, sprite: fruit, flip, corpse });
         if (ev.item === 'bomb') {
           if (fx.screenShake) shakeStart = now;
           if (fx.particles) explosion(ev.x, ev.y, now);
@@ -1576,7 +1675,9 @@ function drawBoard(msg, now, dt) {
   }
   eaten = eaten.filter((e) => !e.done);
   drawPortals(state.portals ?? [], cell, now, state);
-  const items = boardItems(state, now);
+  const remains = remainsOn(msg);
+  const items = boardItems(state, now, remains);
+  if (remains) drawRemains(state.apples, cell, n);
   drawItems(items, cell, now);
   const frozen = Boolean(state.creaturesFrozen);
   drawRats(cell, n, now, msg.effects, frozen);
@@ -1589,6 +1690,7 @@ function drawBoard(msg, now, dt) {
   let frame = null;
   if (animate) {
     const food = items.filter((it) => it.type !== 'bomb');
+    if (remains) for (const a of state.apples) if (a.corpse) food.push(a);
     for (const r of rats.values()) food.push(ratAt(r, now));
     for (const c of chickens.values()) food.push(ratAt(c, now));
     for (const r of eatenRats) food.push(ratAt(r, now));
@@ -1923,7 +2025,7 @@ function drawFlights(heads, cell, n, now, fx) {
     ctx.save();
     ctx.translate((f.x + (tx - f.x) * k + 0.5) * cell, (f.y + (ty - f.y) * k + 0.5) * cell);
     ctx.scale(scale, scale);
-    drawItems([{ type: 'apple', sprite: f.sprite, x: -0.5, y: -0.5, flip: f.flip }], cell, now);
+    drawItems([{ type: 'apple', sprite: f.sprite, x: -0.5, y: -0.5, flip: f.flip, corpse: f.corpse }], cell, now);
     ctx.restore();
     return true;
   });

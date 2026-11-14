@@ -70,6 +70,7 @@ $('l-timeLimitWinner').textContent = A.timeLimitWinner;
 $('l-bombMode').textContent = A.bombMode;
 $('h-global').textContent = A.globalLeaderboard;
 $('l-leaderboardStat').textContent = A.leaderboardStat;
+$('l-corpseStyle').textContent = A.corpseStyle;
 for (const stat of RESET_STATS) $(`btn-reset-${stat}`).textContent = A.reset[stat];
 $('h-powerups').textContent = A.powerUpsTitle;
 $('powerups-hint').textContent = A.powerUpsHint;
@@ -183,6 +184,7 @@ function fillSelect(select, options) {
 }
 fillSelect($('side-panel'), A.sidePanelOptions);
 fillSelect($('leaderboard-stat'), A.leaderboardStatOptions);
+fillSelect($('s-corpseStyle'), A.corpseStyleOptions);
 fillSelect($('c-timeLimitWinner'), A.timeLimitWinnerOptions);
 fillSelect($('c-bombMode'), A.bombModeOptions);
 
@@ -244,6 +246,10 @@ $('side-panel').addEventListener('change', (e) => {
 $('keyboard').addEventListener('change', (e) => send({ t: 'settings', keyboardPlayers: e.target.checked }));
 $('leaderboard-stat').addEventListener('change', (e) => {
   send({ t: 'settings', leaderboardStat: e.target.value });
+  e.target.blur();
+});
+$('s-corpseStyle').addEventListener('change', (e) => {
+  send({ t: 'settings', corpseStyle: e.target.value });
   e.target.blur();
 });
 for (const key of ['timeLimitWinner', 'bombMode']) {
@@ -343,6 +349,8 @@ function update(msg) {
   // "Record" with both records toggles off falls back to the scoreboard: say why.
   $('side-records-off').hidden = !(msg.settings.sidePanel === 'records' && !msg.settings.leaderboard);
   if (document.activeElement !== $('leaderboard-stat')) $('leaderboard-stat').value = msg.settings.leaderboardStat;
+  if (document.activeElement !== $('s-corpseStyle')) $('s-corpseStyle').value = msg.settings.corpseStyle;
+  $('corpse-settings').classList.toggle('off', !msg.config.corpseApples);
   for (const key of ['timeLimitWinner', 'bombMode']) {
     if (document.activeElement !== $(`c-${key}`)) $(`c-${key}`).value = msg.config[key];
   }

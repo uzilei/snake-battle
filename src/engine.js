@@ -154,6 +154,11 @@ export function createEngine({ config, random = Math.random } = {}) {
   // moveCreatures) share one list in spawn order.
   // Regular ones count toward cfg.appleCount; extras (corpse: dead or cut
   // snakes, feast: the feast power-up) come on top of it.
+  // A corpse apple also remembers the body it came from, for /display's
+  // "remains" look: piece (an id shared by one dead snake or one cut-off
+  // part), seg (its index in that body, from the head) and, on a dead
+  // snake's head, head: true and dir. It is eaten like any apple, but always
+  // grows a snake by exactly 1 (growthPerApple doesn't apply).
   let apples = [];
   let bombs = []; // { x, y, remainingMs, since }: (x, y) is the center of a 3x3 block; on top of appleCount, despawn
   let projectiles = []; // { id, x, y, dir, ownerId }
@@ -783,13 +788,17 @@ export function createEngine({ config, random = Math.random } = {}) {
   function removeSegments(cells) {
     if (!rules.corpseApples) return;
     const blocked = occupiedCells();
-    for (const c of cells) {
+    const piece = nextObjectId++;
+    cells.forEach((c, seg) => {
       const k = cellKey(c.x, c.y);
-      if (!inBounds(c.x, c.y) || blocked.has(k)) continue;
+      if (!inBounds(c.x, c.y) || blocked.has(k)) return;
       blocked.add(k);
-      apples.push({ x: c.x, y: c.y, corpse: true });
-    }
+      apples.push({ x: c.x, y: c.y, corpse: true, piece, seg });
+    });
   }
+
+  // How much eating apple `a` grows a snake: corpse apples always 1.
+  const appleGrowth = (a) => (a.corpse ? 1 : cfg.growthPerApple);
 
   // ---- power-up effects ----
   // What each power-up does when eaten. Timed ones only need to become the
@@ -996,7 +1005,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         }
       }
       if (!best) return true;
-      best.snake.pendingGrowth += cfg.growthPerApple;
+      best.snake.pendingGrowth += appleGrowth(a);
       events.push({ type: 'eat', id: best.id, x: a.x, y: a.y, magnet: true });
       return false;
     });
@@ -1371,7 +1380,7 @@ export function createEngine({ config, random = Math.random } = {}) {
           events.push({ type: 'eat', id: m.player.id, x, y, item: 'chicken', chickenId: item.id });
           spawnFeast(m.newHead);
         } else {
-          m.snake.pendingGrowth += cfg.growthPerApple;
+          m.snake.pendingGrowth += appleGrowth(item);
           events.push(item.type ? { type: 'eat', id: m.player.id, x, y, item: item.type } : { type: 'eat', id: m.player.id, x, y });
           if (item.type) pickUp(m.player, item.type);
         }
@@ -1701,14 +1710,17 @@ export function createEngine({ config, random = Math.random } = {}) {
   function dropCorpses(corpses) {
     const blocked = occupiedCells();
     for (const s of corpses) {
-      for (const c of s.segments) {
+      const piece = nextObjectId++;
+      s.segments.forEach((c, seg) => {
         const k = cellKey(c.x, c.y);
-        if (!inBounds(c.x, c.y) || blocked.has(k)) continue;
+        if (!inBounds(c.x, c.y) || blocked.has(k)) return;
         blocked.add(k);
-        apples.push({ x: c.x, y: c.y, corpse: true });
-      }
+        apples.push({ x: c.x, y: c.y, corpse: true, piece, seg, ...(seg === 0 ? { head: true, dir: s.dir } : {}) });
+      });
     }
   }
+
+  const corpseView = (a) => ({ x: a.x, y: a.y, corpse: true, piece: a.piece, seg: a.seg, ...(a.head ? { head: true, dir: a.dir } : {}) });
 
   // ---- public API ---------------------------------------------------------
 
@@ -1846,7 +1858,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       countdownRemainingMs: phase === PHASES.COUNTDOWN ? Math.max(0, cfg.countdownMs - countdownElapsed) : 0,
       apples: apples
         .filter((a) => !a.type)
-        .map((a) => (a.corpse ? { x: a.x, y: a.y, corpse: true } : a.feast ? { x: a.x, y: a.y, feast: true } : { x: a.x, y: a.y })),
+        .map((a) => (a.corpse ? corpseView(a) : a.feast ? { x: a.x, y: a.y, feast: true } : { x: a.x, y: a.y })),
       powerUps: apples.filter((a) => a.type && !isCreature(a)).map((a) => ({ x: a.x, y: a.y, type: a.type })),
       // stepTicks: the ticks its last step takes (doubled by freeze), for
       // /display's slide.

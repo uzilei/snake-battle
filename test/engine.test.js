@@ -677,6 +677,34 @@ describe('corpse apples', () => {
     assert.deepEqual(count(), [2, 0]);
   });
 
+  test('each corpse apple remembers its body: one piece, its index, and the head with its direction', () => {
+    const e = kill({ corpseApples: true });
+    e.tick();
+    const corpses = e.getState().apples.filter((a) => a.corpse).sort((p, q) => p.seg - q.seg);
+    const piece = corpses[0].piece;
+    assert.ok(Number.isInteger(piece));
+    assert.deepEqual(corpses, [
+      { x: 5, y: 4, corpse: true, piece, seg: 0, head: true, dir: 'right' },
+      { x: 4, y: 4, corpse: true, piece, seg: 1 },
+      { x: 3, y: 4, corpse: true, piece, seg: 2 },
+    ]);
+  });
+
+  test('a corpse apple grows a snake by exactly 1, whatever growthPerApple; other apples by growthPerApple', () => {
+    const e = kill({ corpseApples: true, growthPerApple: 3 });
+    e.tick();
+    e._debug.setSnake('b', [[6, 3], [6, 2], [6, 1]], 'down');
+    e._debug.setSnake('c', [[15, 15], [14, 15], [13, 15]], 'right');
+    e.setDirection('b', 'left'); // (5,3)
+    e.tick();
+    e.setDirection('b', 'down'); // (5,4): a's head, a corpse apple
+    e.tick();
+    assert.equal(snake(e, 'b').pendingGrowth, 1);
+    e._debug.setApples([[5, 5]]); // a plain apple straight ahead
+    e.tick();
+    assert.equal(snake(e, 'b').pendingGrowth, 1 - 1 + 3);
+  });
+
   test('lowering appleCount removes regular apples only', () => {
     const e = kill({ corpseApples: true, appleCount: 2 });
     e._debug.setApples([[0, 0], [0, 1]]);

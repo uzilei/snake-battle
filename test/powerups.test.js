@@ -539,7 +539,7 @@ describe('rounds and state', () => {
     e._debug.setBombs([[16, 6]]); // covers (15-17, 5-7)
     e.tick();
     const s = e.getState();
-    assert.deepEqual(s.apples, [{ x: 19, y: 5, corpse: true }]);
+    assert.deepEqual(s.apples, [{ x: 19, y: 5, corpse: true, piece: 1, seg: 0, head: true, dir: 'right' }]);
     assert.equal(s.powerUps.length, 1);
     assert.equal(s.bombs.length, 1);
   });
@@ -842,6 +842,10 @@ describe('scissors', () => {
     // (6,5) is under a's head; the rest of the cut-off part is apples.
     assert.deepEqual(e.getState().apples.map((c) => [c.x, c.y]), [[6, 6], [6, 7], [6, 8], [6, 9]]);
     assert.ok(e.getState().apples.every((c) => c.corpse));
+    // One piece, numbered from where it was cut (the first cell is under a's head); no head.
+    const cut = e.getState().apples;
+    assert.ok(cut.every((c) => c.piece === cut[0].piece && !c.head));
+    assert.deepEqual(cut.map((c) => c.seg), [1, 2, 3, 4]);
     assert.equal(snake(e, 'a').effect, null); // used up
     assert.equal(events(e, 'cut')[0].byId, 'a');
   });
@@ -1279,6 +1283,26 @@ describe('magnet', () => {
     assert.equal(player(e, 'b').status, 'dead');
     assert.deepEqual(e.getState().apples.map((c) => [c.x, c.y]), [[0, 1]]); // 4 cells away; the other two are eaten
     assert.equal(snake(e, 'a').pendingGrowth, 2);
+  });
+
+  test('pulled corpse apples grow by 1 each, whatever growthPerApple', () => {
+    const e = setup({ a: [[[2, 4], [2, 5], [2, 6]], 'up'], b: [[[0, 1], [0, 2], [0, 3]], 'left'], ...far }, { appleCount: 0, corpseApples: true, growthPerApple: 3 });
+    e._debug.setEffect('a', 'magnet', 5000);
+    e.tick(); // b dies; a pulls two of its three apples
+    assert.equal(events(e, 'eat').length, 2);
+    assert.equal(snake(e, 'a').pendingGrowth, 2);
+  });
+
+  test('pulled feast apples grow by growthPerApple each', () => {
+    const e = setup({ a: [[[5, 5], [4, 5], [3, 5]], 'right'], ...far }, { ...PU, appleCount: 0, powerUpChance: 0, growthPerApple: 3 });
+    e._debug.addPowerUps([[6, 5, 'feast']]);
+    e.tick(); // the feast: 3 for the power-up, 10 feast apples round (6,5)
+    assert.equal(snake(e, 'a').pendingGrowth, 3);
+    e._debug.setEffect('a', 'magnet', 5000);
+    e.tick();
+    const eaten = events(e, 'eat'); // pulled, and maybe one the head ran into
+    assert.ok(eaten.some((ev) => ev.magnet));
+    assert.equal(snake(e, 'a').pendingGrowth, 3 - 1 + 3 * eaten.length);
   });
 
   test('reaches the short way round across a wrapping edge', () => {

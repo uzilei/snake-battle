@@ -29,6 +29,9 @@ const RESET_TARGETS = Object.freeze([...RECORD_STATS, 'all']);
 // swallow bumps) are on unless the admin turns them off.
 const EFFECT_DEFAULTS = Object.freeze({ particles: false, screenShake: false, snakeAnimations: true, killPopups: false, sounds: false });
 export const EFFECT_SETTINGS = Object.freeze(Object.keys(EFFECT_DEFAULTS));
+// How /display draws corpse apples: as fruit, or as gray remains of the
+// snake's body. Purely visual.
+export const CORPSE_STYLES = Object.freeze(['fruit', 'remains']);
 export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
 const SELF = 'self';
 export { MAX_NAME_LENGTH, nameKey };
@@ -65,6 +68,7 @@ const SETTING_RULES = Object.freeze({
   leaderboardStat: (v) => LEADERBOARD_STATS.includes(v),
   displayButtons: isBoolean,
   hats: isBoolean,
+  corpseStyle: (v) => CORPSE_STYLES.includes(v),
   bots: inLimits(BOT_LIMITS.bots),
   botFill: isBoolean,
   ...Object.fromEntries(BOT_SKILLS.map((k) => [botWeightKey(k), inLimits(BOT_LIMITS[botWeightKey(k)])])),
@@ -141,6 +145,7 @@ const defaultSettings = () => ({
   leaderboardStat: 'auto', // applies immediately, like sidePanel
   displayButtons: false, // mouse cursor and side panel buttons on /display
   hats: true, // /display draws the hats players picked on /play
+  corpseStyle: 'fruit', // how /display draws corpse apples (CORPSE_STYLES)
   badgerName: '', // drawn under the honey badger, like a boss name
   bots: BOT_LIMITS.bots.default, // computer players (0 = none)
   botFill: false, // bots only fill up to `bots`, making room for people
@@ -241,6 +246,7 @@ export function createGame({
       effects: Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, settings[k]])),
       soundGains: settings.sounds ? soundGains(settings) : null, // sound name -> gain (master included)
       fruits: settings.fruits, // codes new apples are drawn as (none: all 🍎)
+      corpseStyle: settings.corpseStyle,
       hats: settings.hats ? hatsOf(state) : null, // playerId -> hat id, for players wearing one
       botSkills: Object.fromEntries([...bots].map(([id, b]) => [id, b.skill])), // bot id -> 1-3
       badgerName: settings.badgerName || null,

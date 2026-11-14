@@ -834,6 +834,25 @@ describe('badger boss name', () => {
   });
 });
 
+describe('corpse style', () => {
+  test('fruit by default; remains from /admin reaches /display at once; anything else is rejected', () => {
+    const game = createGame({ log: quiet });
+    const display = fakeClient(game);
+    display.send({ t: 'hello', role: 'display' });
+    const admin = fakeClient(game, { admin: true, isAuthorized: () => true });
+    admin.send({ t: 'hello', role: 'admin' });
+    game.tickOnce();
+    assert.equal(display.last('state').corpseStyle, 'fruit');
+    admin.send({ t: 'settings', corpseStyle: 'remains' });
+    assert.equal(display.last('state').corpseStyle, 'remains');
+    for (const value of ['resti', '', null, 1, ['fruit']]) {
+      admin.send({ t: 'settings', corpseStyle: value });
+      assert.equal(admin.last('error').code, 'badMessage');
+    }
+    assert.equal(game.settings.corpseStyle, 'remains');
+  });
+});
+
 describe('hats', () => {
   const setup = () => {
     const game = createGame({ log: quiet });
