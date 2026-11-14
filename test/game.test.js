@@ -2,6 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, sanitizeName, resolveSidePanel, sidePanelNav } from '../src/server/game.js';
 import { createWordList } from '../src/server/profanity.js';
+import { SOUND_NAMES } from '../src/shared/sounds.js';
 import { createRecords } from '../src/server/records.js';
 import { wifiPayload, detectLanIp } from '../src/server/network.js';
 import { passwordMatches, parseCookies, createLoginLimiter, createSessionStore } from '../src/server/auth.js';
@@ -715,13 +716,13 @@ describe('display effects toggles', () => {
     const { game, display } = setup();
     game.tickOnce();
     const msg = display.last('state');
-    assert.deepEqual(msg.effects, { particles: false, screenShake: false, snakeAnimations: true, killPopups: false });
+    assert.deepEqual(msg.effects, { particles: false, screenShake: false, snakeAnimations: true, killPopups: false, sounds: false });
     assert.equal(msg.tickMs, game.config.tickMs);
   });
 
   test('the admin turns each one on and off, live', () => {
     const { game, display, admin } = setup();
-    for (const key of ['particles', 'screenShake', 'snakeAnimations', 'killPopups']) {
+    for (const key of ['particles', 'screenShake', 'snakeAnimations', 'killPopups', 'sounds']) {
       admin.send({ t: 'settings', [key]: true });
       assert.equal(display.last('state').effects[key], true);
       admin.send({ t: 'settings', [key]: false });
@@ -743,6 +744,39 @@ describe('display effects toggles', () => {
     const game = createGame({ log: quiet, savedSettings: { config: {}, settings: { particles: true } } });
     assert.equal(game.settings.particles, true);
     assert.equal(game.settings.snakeAnimations, true);
+  });
+
+  test('sound volumes: master times each sound, sent only while sounds are on', () => {
+    const { game, display, admin } = setup();
+    game.tickOnce();
+    assert.equal(display.last('state').soundGains, null);
+    admin.send({ t: 'settings', sounds: true });
+    const gains = display.last('state').soundGains;
+    assert.deepEqual(Object.keys(gains).sort(), [...SOUND_NAMES].sort());
+    // Turn sounds start muted; the rest at full volume.
+    for (const [name, g] of Object.entries(gains)) assert.equal(g, name.startsWith('move') ? 0 : 1, name);
+    admin.send({ t: 'settings', volumeMove: 80 });
+    admin.send({ t: 'settings', soundVolume: 50 });
+    admin.send({ t: 'settings', volumeEat: 150 });
+    admin.send({ t: 'settings', volumeHit: 0 });
+    const after = display.last('state').soundGains;
+    assert.equal(after.eat, 0.75);
+    assert.equal(after.hit, 0);
+    assert.equal(after.shoot, 0.5);
+    // One slider for all four turn sounds.
+    for (const dir of ['Up', 'Down', 'Left', 'Right']) assert.equal(after[`move${dir}`], 0.4);
+    assert.equal(game.settings.volumeEat, 150);
+  });
+
+  test('sound volumes out of range or not whole numbers are rejected', () => {
+    const { game, admin } = setup();
+    for (const [key, value] of [['soundVolume', 101], ['soundVolume', -5], ['volumeEat', 201], ['volumeEat', 12.5], ['volumeEat', '50'], ['volumeNope', 50], ['volumeMoveUp', 50], ['turnSounds', true]]) {
+      admin.send({ t: 'settings', [key]: value });
+      assert.equal(admin.last('error').code, 'badMessage', `${key}=${value}`);
+    }
+    assert.equal(game.settings.soundVolume, 100);
+    assert.equal(game.settings.volumeEat, 100);
+    assert.equal('volumeNope' in game.settings, false);
   });
 
   test('effects are not open to non-admin clients', () => {

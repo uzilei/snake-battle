@@ -75,6 +75,9 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
   // Lock API needs https).
   app.use('/vendor/nosleep', express.static(path.join(ROOT, 'node_modules', 'nosleep.js', 'dist'), { index: false, maxAge: '1d' }));
   app.use('/twemoji', express.static(path.join(ROOT, 'node_modules', '@twemoji', 'svg'), { index: false, maxAge: '1d' }));
+  // /display sounds: jsfxr synthesizes them from the presets in sounds/.
+  app.use('/vendor/jsfxr', express.static(path.join(ROOT, 'node_modules', 'jsfxr'), { index: false, maxAge: '1d' }));
+  app.use('/sounds', express.static(path.join(ROOT, 'sounds'), { index: false }));
 
   // One QR generator for both /display and /admin/print, so they always match.
   const qrCache = new Map();

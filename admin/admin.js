@@ -7,6 +7,7 @@ import { POWER_UPS, WEIGHTED_POWER_UPS, weightKey } from '/shared/powerups.js';
 import { FRUITS, FRUIT_CODES, APPLE_FRUIT } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
 import { BOT_LIMITS, BOT_SKILLS, BOT_SKILL_EMOJI, botWeightKey } from '/shared/bots.js';
+import { SOUND_LIMITS, VOLUME_SLIDERS, soundVolumeKey } from '/shared/sounds.js';
 
 const A = STRINGS.admin;
 const $ = (id) => document.getElementById(id);
@@ -36,6 +37,9 @@ const SLIDERS = [
   // One weight per bot skill.
   ...BOT_SKILLS.map((k) => ({ key: botWeightKey(k), step: 1, parent: 'sliders-bot-weights', kind: 'settings', label: `${BOT_SKILL_EMOJI[k]} ${A.botWeights[k]}` })),
   // One weight slider per power-up, generated from the shared list.
+  // Sounds: a master volume, then one per sound.
+  { key: 'soundVolume', step: 5, parent: 'sliders-sound-master', kind: 'settings' },
+  ...VOLUME_SLIDERS.map((n) => ({ key: soundVolumeKey(n), step: 5, parent: 'sliders-sound-volumes', kind: 'settings', label: A.soundNames[n] ?? n })),
   ...WEIGHTED_POWER_UPS.map((p) => ({
     key: weightKey(p.type),
     step: 1,
@@ -76,6 +80,10 @@ $('h-bots').textContent = A.botsTitle;
 $('bots-hint').textContent = A.botsHint;
 $('bot-weights-hint').textContent = A.botWeightsHint;
 $('effects-hint').textContent = A.effectsHint;
+$('h-sounds').textContent = A.soundsTitle;
+$('sounds-hint').textContent = A.soundsHint;
+$('h-sound-volumes').textContent = A.soundVolumesTitle;
+$('sound-volumes-hint').textContent = A.soundVolumesHint;
 $('h-creatures').textContent = A.creaturesTitle;
 $('creatures-hint').textContent = A.creaturesHint;
 $('h-bombs').textContent = A.bombsTitle;
@@ -119,6 +127,7 @@ const RULE_TOGGLES = {
   screenShake: 'settings',
   snakeAnimations: 'settings',
   killPopups: 'settings',
+  sounds: 'settings',
 };
 for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
   $(`l-${key}`).textContent = A[key];
@@ -254,7 +263,7 @@ let slidersBuilt = false;
 
 function buildSliders(limits) {
   for (const { key, step, parent = 'sliders', label: text, kind = 'config' } of SLIDERS) {
-    const lim = kind === 'settings' ? BOT_LIMITS[key] : limits[key];
+    const lim = kind === 'settings' ? (BOT_LIMITS[key] ?? SOUND_LIMITS[key]) : limits[key];
     if (!lim) continue;
     const wrap = document.createElement('div');
     wrap.className = 'slider';
@@ -342,6 +351,7 @@ function update(msg) {
   $('sliders-target').parentElement.classList.toggle('off', !msg.config.targetLengthWin);
   $('powerup-settings').classList.toggle('off', !msg.config.powerUps);
   $('bomb-settings').classList.toggle('off', !msg.config.powerUps); // bombs only spawn with power-ups on
+  $('sound-settings').classList.toggle('off', !msg.settings.sounds);
   for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
     $(`t-${key}`).checked = Boolean(kind === 'config' ? msg.config[key] : msg.settings[key]);
   }

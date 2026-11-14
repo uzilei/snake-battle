@@ -309,4 +309,7 @@ body.mouse.idle, body.mouse.idle .nav-btn { cursor: none; }
   font-weight: 700;
 }
 
+/* Sounds are on but the browser waits for a click before playing any. */
+.sound-hint { top: 3vh; bottom: auto; background: rgba(30, 34, 44, 0.92); font-size: 2.4vh; cursor: pointer; }
+
 .hidden { display: none !important; }

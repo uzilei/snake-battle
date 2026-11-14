@@ -4,6 +4,8 @@
 // tests don't depend on this setup. Every value is validated like an /admin
 // change, so a bad entry here is skipped rather than applied.
 
+import { SOUND_VOLUME_DEFAULTS } from '../shared/sounds.js';
+
 export const EXPO_DEFAULTS = Object.freeze({
   config: Object.freeze({
     corpseApples: true,
@@ -58,6 +60,8 @@ export const EXPO_DEFAULTS = Object.freeze({
     screenShake: true,
     snakeAnimations: true,
     killPopups: true,
+    sounds: true,
+    ...SOUND_VOLUME_DEFAULTS,
     fruits: Object.freeze(['1f34e']),
   }),
 });

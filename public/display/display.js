@@ -11,6 +11,8 @@ import { BADGER_RULES, badgerLabel } from '/shared/badger.js';
 import { FRUIT_CODES } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
 import { BOT_SKILL_TWEMOJI, BOT_SKILL_EMOJI } from '/shared/bots.js';
+import { soundsFor, spreadOverTick } from '/shared/sounds.js';
+import * as sfx from './sfx.js';
 
 const T = STRINGS.display;
 const $ = (id) => document.getElementById(id);
@@ -29,6 +31,7 @@ $('keyboard-hint').textContent = T.keyboardHint;
 $('rec-kicker').textContent = T.recordsTitle;
 $('rec-empty').textContent = T.noRecords;
 $('connection').textContent = T.disconnected;
+$('sound-hint').textContent = T.soundHint;
 
 // ---- assets -------------------------------------------------------------------
 // Item sprites (Twemoji SVGs, served locally), loaded once.
@@ -1355,9 +1358,26 @@ function wink(snake, now) {
   sparkle(snake.segments[0], now);
 }
 
+// Sounds for this message (when /admin has them on). The audio is set up
+// the first time they're on; the hint shows while the browser still waits
+// for a click to allow it.
+function playSounds(msg, newTick) {
+  const on = Boolean(msg.effects?.sounds);
+  if (on) {
+    sfx.prepare();
+    // Muted ones are left out first, so they don't take a slot in the spread.
+    const gain = (name) => msg.soundGains?.[name] ?? 1;
+    const names = soundsFor(latest?.state ?? null, msg.state, newTick).filter((name) => gain(name) > 0);
+    for (const { name, delayMs } of spreadOverTick(names, msg.tickMs ?? 0)) sfx.play(name, gain(name), delayMs);
+  }
+  $('sound-hint').classList.toggle('hidden', !on || !sfx.blocked());
+}
+sfx.onStateChange(() => $('sound-hint').classList.toggle('hidden', !latest?.effects?.sounds || !sfx.blocked()));
+
 function onState(msg) {
   const s = msg.state;
   const key = `${s.round}:${s.tick}`;
+  playSounds(msg, key !== tickKey);
   if (key !== tickKey) {
     const now = performance.now();
     const sameRound = latest?.state.round === s.round;

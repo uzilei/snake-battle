@@ -14,6 +14,7 @@ import { SETTINGS_VERSION } from './settings-store.js';
 import { FRUIT_CODES } from '../shared/fruits.js';
 import { validHat, HAT_IDS } from '../shared/hats.js';
 import { cleanName } from '../shared/names.js';
+import { SOUND_LIMITS, SOUND_VOLUME_DEFAULTS, soundGains } from '../shared/sounds.js';
 import { BOT_LIMITS, BOT_NAME_PATTERN, BOT_SKILLS, MAX_SNAKES, botName, botTarget, botWeightKey, pickBotSkill } from '../shared/bots.js';
 import { createBotBrain } from '../bot-brain.js';
 
@@ -26,7 +27,7 @@ const RESET_TARGETS = Object.freeze([...RECORD_STATS, 'all']);
 // Cosmetic /display effects: applied live, no effect on the game itself.
 // Each with its default: the snake animations (eyes, blinking, tongue, mouth,
 // swallow bumps) are on unless the admin turns them off.
-const EFFECT_DEFAULTS = Object.freeze({ particles: false, screenShake: false, snakeAnimations: true, killPopups: false });
+const EFFECT_DEFAULTS = Object.freeze({ particles: false, screenShake: false, snakeAnimations: true, killPopups: false, sounds: false });
 export const EFFECT_SETTINGS = Object.freeze(Object.keys(EFFECT_DEFAULTS));
 export const KEYBOARD_SLOTS = Object.freeze(['wasd', 'arrows']);
 const SELF = 'self';
@@ -68,6 +69,7 @@ const SETTING_RULES = Object.freeze({
   botFill: isBoolean,
   ...Object.fromEntries(BOT_SKILLS.map((k) => [botWeightKey(k), inLimits(BOT_LIMITS[botWeightKey(k)])])),
   ...Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, isBoolean])),
+  ...Object.fromEntries(Object.entries(SOUND_LIMITS).map(([k, l]) => [k, inLimits(l)])),
   badgerName: (v) => typeof v === 'string' && v.length <= 200,
   // The fruits apples may be drawn as: any subset of the list, no repeats.
   fruits: (v) => Array.isArray(v) && v.length <= FRUIT_CODES.length && new Set(v).size === v.length && v.every((c) => FRUIT_CODES.includes(c)),
@@ -145,6 +147,7 @@ const defaultSettings = () => ({
   // Skill weights for new bots (botWeight1..3).
   ...Object.fromEntries(BOT_SKILLS.map((k) => [botWeightKey(k), BOT_LIMITS[botWeightKey(k)].default])),
   ...EFFECT_DEFAULTS,
+  ...SOUND_VOLUME_DEFAULTS, // 100%: master, and each sound
   fruits: [...FRUIT_CODES], // every fruit in use
 });
 
@@ -236,6 +239,7 @@ export function createGame({
       sideNav: sideNav(state),
       tickMs: config.tickMs, // for smooth movement between ticks
       effects: Object.fromEntries(EFFECT_SETTINGS.map((k) => [k, settings[k]])),
+      soundGains: settings.sounds ? soundGains(settings) : null, // sound name -> gain (master included)
       fruits: settings.fruits, // codes new apples are drawn as (none: all 🍎)
       hats: settings.hats ? hatsOf(state) : null, // playerId -> hat id, for players wearing one
       botSkills: Object.fromEntries([...bots].map(([id, b]) => [id, b.skill])), // bot id -> 1-3
