@@ -3,7 +3,7 @@
 
 import { STRINGS, fmt } from '/shared/strings.js';
 import { playerColor } from '/shared/colors.js';
-import { WEIGHTED_POWER_UPS, weightKey } from '/shared/powerups.js';
+import { POWER_UPS, WEIGHTED_POWER_UPS, weightKey } from '/shared/powerups.js';
 import { FRUITS, FRUIT_CODES, APPLE_FRUIT } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
 import { BOT_LIMITS, BOT_SKILLS, BOT_SKILL_EMOJI, botWeightKey } from '/shared/bots.js';
@@ -366,6 +366,7 @@ function update(msg) {
     lastPlayersKey = key;
     renderPlayers(msg.players);
   }
+  updateDirector(msg);
 }
 
 function renderPlayers(players) {
@@ -378,6 +379,13 @@ function renderPlayers(players) {
       swatch.className = 'swatch';
       swatch.style.background = playerColor(p.colorIndex);
       name.append(swatch, document.createTextNode(p.name)); // text node: names come from clients
+      if (p.assisted) {
+        const mark = document.createElement('span');
+        mark.className = 'assisted';
+        mark.textContent = ' 🎬';
+        mark.title = A.assisted;
+        name.append(mark);
+      }
       const status = document.createElement('td');
       status.textContent = A.playerStatus[p.status] ?? p.status;
       const length = document.createElement('td');
@@ -402,6 +410,96 @@ function renderPlayers(players) {
       return tr;
     }),
   );
+}
+
+// ---- Regia: one-shot match controls -----------------------------------------
+// Only while a round is being played (not paused); the server checks too.
+$('h-director').textContent = A.directorTitle;
+$('director-hint').textContent = A.directorHint;
+$('h-director-board').textContent = A.directorBoard;
+$('h-director-snake').textContent = A.directorSnake;
+$('director-snake-hint').textContent = A.directorSnakeHint;
+$('l-director-pick').textContent = A.directorPick;
+$('btn-remove-badgers').textContent = `🦡 ${A.removeBadgers}`;
+$('btn-grow').textContent = A.grow;
+$('btn-smite').textContent = A.smite;
+$('l-give-powerup').textContent = A.givePowerUp;
+
+const SPAWN_ITEMS = [
+  { item: 'apple', emoji: '🍎', name: A.spawnNames.apple },
+  { item: 'rat', emoji: '🐀', name: A.spawnNames.rat },
+  { item: 'chicken', emoji: '🐔', name: A.spawnNames.chicken },
+  { item: 'bomb', emoji: '💣', name: A.spawnNames.bomb },
+  { item: 'badger', emoji: '🦡', name: A.spawnNames.badger },
+  ...WEIGHTED_POWER_UPS.map((p) => ({ item: p.type, emoji: p.emoji, name: A.powerUpNames[p.type] ?? p.type })),
+];
+
+const boardButtons = [];
+const snakeButtons = [];
+function actionButton(emoji, name, onClick) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = emoji;
+  b.title = name;
+  b.setAttribute('aria-label', name);
+  b.addEventListener('click', onClick);
+  return b;
+}
+for (const s of SPAWN_ITEMS) {
+  const b = actionButton(s.emoji, s.name, () => send({ t: 'spawn', item: s.item }));
+  boardButtons.push(b);
+  $('spawn-grid').append(b);
+}
+for (const p of POWER_UPS) {
+  const b = actionButton(p.emoji, A.powerUpNames[p.type] ?? p.type, () => {
+    const id = $('director-pick').value;
+    if (id) send({ t: 'givePowerUp', id, item: p.type });
+  });
+  snakeButtons.push(b);
+  $('give-grid').append(b);
+}
+$('btn-remove-badgers').addEventListener('click', () => send({ t: 'removeBadger' }));
+$('btn-grow').addEventListener('click', () => {
+  const id = $('director-pick').value;
+  if (id) send({ t: 'grow', id, amount: 5 });
+});
+$('btn-smite').addEventListener('click', () => {
+  const pick = $('director-pick');
+  const name = pick.selectedOptions[0]?.textContent ?? '';
+  if (pick.value && confirm(fmt(A.confirmSmite, { name }))) send({ t: 'smite', id: pick.value });
+});
+snakeButtons.push($('btn-grow'), $('btn-smite'));
+
+let lastPickKey = null;
+function updateDirector(msg) {
+  const live = msg.phase === 'playing' && !msg.paused;
+  const alive = msg.players.filter((p) => p.status === 'alive');
+  const pick = $('director-pick');
+  const key = JSON.stringify(alive.map((p) => [p.id, p.name]));
+  if (key !== lastPickKey) {
+    lastPickKey = key;
+    const chosen = pick.value;
+    if (alive.length) {
+      pick.replaceChildren(
+        ...alive.map((p) => {
+          const o = document.createElement('option');
+          o.value = p.id;
+          o.textContent = p.name; // textContent: names come from clients
+          return o;
+        }),
+      );
+      if (alive.some((p) => p.id === chosen)) pick.value = chosen;
+    } else {
+      const o = document.createElement('option');
+      o.value = '';
+      o.textContent = A.noLivingSnake;
+      pick.replaceChildren(o);
+    }
+  }
+  pick.disabled = !alive.length;
+  for (const b of boardButtons) b.disabled = !live;
+  for (const b of snakeButtons) b.disabled = !live || !alive.length;
+  $('btn-remove-badgers').disabled = !live || !msg.badgers;
 }
 
 // ---- banned words -------------------------------------------------------------

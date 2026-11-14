@@ -122,7 +122,7 @@ A rare predator: a 5×3 block (5 wide, 3 tall) that never rotates. Three /admin 
 - **"Quanto resta in campo" (lifetime):** 30 s in the expo setup, 5–120. A change applies from the next badger.
 - **"Vita del tasso" (health):** 3 HP by default, 1–10: the scissors hits it takes to die. A change applies from the next badger.
 
-There is never more than one badger on the board.
+The timer never brings more than one badger: the next wait only starts once the board has none. More can only come from the Regia buttons on /admin (see below), and each then behaves on its own: it moves, bites, gets hit and expires by itself. Badgers may overlap. With more than one on the board, /display adds a Roman numeral to each one's name ("Torquato Tasso I", "Torquato Tasso II"), the lowest number not already in use, kept for as long as that badger lives.
 
 - **Spawning:** fully on the board, clear of bombs and portal ends, with its whole block at least 3 steps from every snake head. Snake bodies and items may be under it. It first shows a 2 s warning, during which it does nothing. It blinks during its last 3 s, like a bomb, and when its lifetime ends it goes in a grey puff the size of its block. A new round clears it.
 - **Movement:** like a rat but slower. It moves one cell every 4 ticks, straight on, and picks a random direction again after 20–40 ticks (it may keep the same one, but never turns straight back unless that's the only way), or straight away when blocked. When its block touches a wall, that pick is always away from the wall if it can be. Blocked means any of its cells would leave the board (it never wraps, even with wrap-around walls) or land on a bomb or a portal end. Snakes and items don't block it. Bombs never spawn on it, and portal exits never open inside it.
@@ -169,6 +169,17 @@ Computer players, so an empty booth still has something going on. Off by default
 - **Effects:** a ghost with more than 2 s left ignores 1 and 2 (walls still count). A golden snake checks both cells it covers.
 - **Skill:** at skill 1 (often) and 2 (rarely) a bot sometimes ignores step 2 and picks any safe move. At skill 3 it never does. Skill also sets the reaction time: after each decision a bot waits a random 0 to 3 of its moves before the next at skill 1, 0 to 2 at skill 2, and decides every move at skill 3. The wait is rolled afresh each time, so a bot can't fall into step with a loop it is running (like circling an apple without ever turning into it). In between it keeps going, but 85% of the time still turns away from certain death right ahead. Each round every bot starts with a fresh roll, so they don't all decide on the same tick.
 - **Cost:** the work per tick has a fixed budget, so many bots can't slow the game down. 24 bots on an 80×80 board take well under a millisecond per tick on average; `/health` reports it under `bots`.
+
+## Regia 🎬 (/admin match controls)
+
+The "Regia" category on /admin has one-shot buttons for the operator. They only work while a round is being played (not paused or between rounds), and they ignore every cap; only a free cell, or room for a block, limits them. Each one is applied on the next tick, so /display shows its effects as usual.
+
+- **Fai comparire (spawn):** 🍎 an apple, 🐀 a rat, 🐔 a chicken, 💣 a bomb (even past 5, even with power-ups off), 🦡 another badger (as many as you like), or any power-up. These are extras on top of the number of apples, like corpse apples. "Manda via i tassi" makes every badger leave.
+- **Su un serpente (on one snake):** pick a living snake (bots too), then +5 length, give it any power-up (as if eaten, a 💣 included), or ⚡ Fulmine (smite, with a confirmation: it dies at once, shield or not, and nobody gets the kill).
+
+A snake given length or a power-up becomes *assisted* for the rest of that round, shown with 🎬 in the players table. Its length that round doesn't count for the global highest-score record, but its win and kills still count. Spawning things and smiting don't make anyone assisted.
+
+The engine side is `command()` in `src/engine.js`. The server messages are `spawn`, `removeBadger`, `grow`, `givePowerUp` and `smite`, each validated in `handleAdmin`.
 
 ## Pages
 

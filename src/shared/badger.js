@@ -21,3 +21,22 @@ export const BADGER_RULES = Object.freeze({
   hitGhostMs: 1000,
   hitFlashMs: 180, // /display flashes it white on each hit
 });
+
+// 1 -> 'I', 4 -> 'IV', 12 -> 'XII': told apart on /display when /admin has
+// put several badgers on the board ("Torquato Tasso II"). '' below 1.
+const ROMAN = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+export function toRoman(n) {
+  let left = Math.floor(n);
+  let out = '';
+  for (const [value, numeral] of ROMAN) {
+    while (left >= value) {
+      out += numeral;
+      left -= value;
+    }
+  }
+  return out;
+}
+
+// The name drawn over a badger: with several on the board, each gets its
+// number as a Roman numeral. No name set: none.
+export const badgerLabel = (name, n, count) => (name && count > 1 ? `${name} ${toRoman(n)}` : name || '');

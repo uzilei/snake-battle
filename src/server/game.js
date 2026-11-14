@@ -260,7 +260,13 @@ export function createGame({
       win: state.win, // and the numbers behind its win conditions
       settings: structuredClone(settings),
       recordCounts, // entries per stat, for the reset buttons
-      players: state.players.map((p) => ({ ...p, source: owners.get(p.id)?.source ?? 'unknown', hat: owners.get(p.id)?.hat ?? null })),
+      players: state.players.map((p) => ({
+        ...p,
+        source: owners.get(p.id)?.source ?? 'unknown',
+        hat: owners.get(p.id)?.hat ?? null,
+        assisted: track.round === state.round && track.assisted.has(p.id),
+      })),
+      badgers: state.badgers.length,
       joinInfo,
     };
   }
@@ -301,18 +307,20 @@ export function createGame({
   // ---- records ------------------------------------------------------------------
   // Whether a round counts for the global leaderboard is decided when it
   // starts, so toggling it mid-round applies from the next round.
-  let track = { round: 0, counting: false, best: new Map(), done: true };
+  // assisted: ids of players given help from /admin this round (see handleAdmin).
+  let track = { round: 0, counting: false, best: new Map(), assisted: new Set(), done: true };
 
   function commitRound(winnerId) {
     if (track.done) return;
     track.done = true;
     if (!track.counting) return;
     try {
-      const played = [...track.best.values()];
+      const played = [...track.best.entries()];
       const changed = records.recordRound({
         winner: winnerId ? (track.best.get(winnerId)?.name ?? null) : null, // null for a bot (not tracked)
-        kills: played.map(({ name, kills }) => ({ name, kills })),
-        lengths: played.map(({ name, length }) => ({ name, length })),
+        kills: played.map(([, { name, kills }]) => ({ name, kills })),
+        // An assisted snake's length (grown or powered up from /admin) isn't a record.
+        lengths: played.filter(([id]) => !track.assisted.has(id)).map(([, { name, length }]) => ({ name, length })),
       });
       if (changed) refreshRecords();
     } catch (err) {
@@ -329,6 +337,7 @@ export function createGame({
         round: state.round,
         counting: settings.leaderboard,
         best: new Map(), // playerId -> { name, length, kills }, kept for players who leave mid-round
+        assisted: new Set(),
         done: false,
       };
     }
@@ -693,6 +702,20 @@ export function createGame({
         if (!wordList.remove(msg.word)) return badMessage(client);
         log('[admin] banned word removed');
         return broadcastWords();
+      // Regia: one-shot match controls, applied on the next tick (see the
+      // engine's command()). Giving a snake length or a power-up marks it
+      // assisted for the round: its length then isn't a score record.
+      case 'spawn':
+      case 'removeBadger':
+      case 'grow':
+      case 'givePowerUp':
+      case 'smite': {
+        const kind = msg.t === 'givePowerUp' ? 'powerUp' : msg.t;
+        if (paused || !engine.command({ kind, item: msg.item, id: msg.id, amount: msg.amount })) return badMessage(client);
+        if (kind === 'grow' || kind === 'powerUp') track.assisted.add(msg.id);
+        log(`[admin] ${msg.t}${typeof msg.item === 'string' ? ` ${msg.item}` : ''}${typeof msg.id === 'string' ? ` -> ${msg.id}` : ''}`);
+        return broadcast();
+      }
       default:
         return badMessage(client);
     }

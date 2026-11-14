@@ -177,14 +177,24 @@ function buildBoard(state) {
       if (inBounds(x, y)) deadly[key(x, y)] = 1;
     }
   }
-  const badger = state.badger;
-  const bx = badger ? (badger.width - 1) / 2 : 0;
-  const by = badger ? (badger.height - 1) / 2 : 0;
-  const badgerActive = Boolean(badger) && badger.warningMs <= 0;
-  const inBadger = (x, y) => Boolean(badger) && Math.abs(x - badger.x) <= bx && Math.abs(y - badger.y) <= by;
-  // Distance from a cell to the badger's block (Chebyshev, 0 inside).
+  // There can be several badgers (/admin can add more). inBadger: inside an
+  // active one; badgerDistance: to the nearest one, warnings included.
+  const allBadgers = state.badgers ?? (state.badger ? [state.badger] : []);
+  const activeBadgers = allBadgers.filter((b) => b.warningMs <= 0);
+  const badger = allBadgers.length ? allBadgers : null;
+  const badgerActive = activeBadgers.length > 0;
+  const reach = (b) => [(b.width - 1) / 2, (b.height - 1) / 2];
+  const inBadger = (x, y) =>
+    activeBadgers.some((b) => {
+      const [bx, by] = reach(b);
+      return Math.abs(x - b.x) <= bx && Math.abs(y - b.y) <= by;
+    });
+  // Distance from a cell to the nearest badger's block (Manhattan to the block, 0 inside).
   const badgerDistance = (x, y) =>
-    badger ? Math.max(0, Math.abs(x - badger.x) - bx) + Math.max(0, Math.abs(y - badger.y) - by) : Infinity;
+    allBadgers.reduce((min, b) => {
+      const [bx, by] = reach(b);
+      return Math.min(min, Math.max(0, Math.abs(x - b.x) - bx) + Math.max(0, Math.abs(y - b.y) - by));
+    }, Infinity);
 
   const bombReach = (POWER_UP_RULES.bombSize - 1) / 2;
   const bombs = state.bombs ?? [];

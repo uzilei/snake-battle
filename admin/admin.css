@@ -145,6 +145,13 @@ details.card[open] > summary { border-bottom: 1px solid var(--border); border-ra
 .off { opacity: 0.5; transition: opacity 0.2s; }
 .reset-buttons button { flex: 1 1 40%; }
 
+/* Regia: emoji buttons, at least 48px square, as many per row as fit. */
+.action-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 8px; margin-top: 8px; }
+.action-grid button { min-height: 48px; padding: 4px; font-size: 1.5rem; line-height: 1; }
+#cat-director .field { padding-bottom: 0; }
+#l-give-powerup { margin: 14px 0 0; font-size: 0.9rem; }
+.assisted { cursor: help; }
+
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }

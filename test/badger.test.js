@@ -36,7 +36,12 @@ function setup(snakes, config = {}) {
 const player = (e, id) => e.getState().players.find((p) => p.id === id);
 const snake = (e, id) => e.getState().snakes.find((s) => s.id === id);
 const cells = (e, id) => snake(e, id).segments.map((c) => [c.x, c.y]);
-const events = (e, type) => e.getState().events.filter((ev) => ev.type === type);
+// Without badgerId (which badger it was), checked on its own in the several-badgers tests.
+const events = (e, type) =>
+  e
+    .getState()
+    .events.filter((ev) => ev.type === type)
+    .map(({ badgerId, ...ev }) => ev);
 const badger = (e) => e.getState().badger;
 const row = (y, fromX, toX) => {
   const out = [];

@@ -162,10 +162,12 @@ export function createEngine({ config, random = Math.random } = {}) {
   // through: nothing can enter it, and it goes once no snake spans it.
   let portals = [];
   let nextObjectId = 1; // ids for projectiles, portals, creatures and badgers (for /display)
-  // The honey badger, at most one: { id, x, y, dir, warningMs, remainingMs,
-  // lifetimeMs, moveAt, turnAt, since }, (x, y) the center of its block.
-  let badger = null;
-  let badgerWaitMs = 0; // ms of play since the last badger (or the round start)
+  // The honey badgers: { id, n, x, y, dir, warningMs, remainingMs,
+  // lifetimeMs, moveAt, turnAt, since, ... }, (x, y) the center of its block.
+  // The timer brings one at a time; more only come from /admin (command).
+  // n: 1, 2, ... the lowest number no other badger on the board has.
+  let badgers = [];
+  let badgerWaitMs = 0; // ms of play since the last badger left (or the round start)
   // The next one is due after badgerDueFactor x the average (0.5 to 1.5),
   // drawn once half the average has passed; kept as a factor so a slider
   // change applies at once.
@@ -186,6 +188,9 @@ export function createEngine({ config, random = Math.random } = {}) {
   // when shot) the same way.
   // Rebuilt every tick; read-only output, never input.
   let events = [];
+  // Commands from /admin (see command()), applied at the start of the next
+  // playing tick so their effects show up in that tick's events.
+  let pending = [];
 
   // Only on/off values: /admin lists the truthy ones as "active this round".
   function lockRules() {
@@ -205,7 +210,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     return list;
   }
 
-  const isExtra = (a) => Boolean(a.corpse || a.feast);
+  const isExtra = (a) => Boolean(a.corpse || a.feast || a.bonus); // bonus: from /admin
   // The items that run around: rats and chickens.
   const isCreature = (a) => a.type === 'rat' || a.type === 'chicken';
 
@@ -236,9 +241,10 @@ export function createEngine({ config, random = Math.random } = {}) {
     bombs = [];
     projectiles = [];
     portals = [];
-    badger = null;
+    badgers = [];
     badgerWaitMs = 0;
     badgerDueFactor = null;
+    pending = [];
   }
 
   function snakeCells() {
@@ -436,6 +442,11 @@ export function createEngine({ config, random = Math.random } = {}) {
   function spawnBombs() {
     if (!rules.powerUps || cfg.bombsPerMinute <= 0 || bombs.length >= POWER_UP_RULES.maxBombs) return;
     if (random() >= (cfg.bombsPerMinute * cfg.tickMs) / 60000) return;
+    placeBomb();
+  }
+
+  // Puts a bomb where its whole block is free (see spawnBombs), if it fits.
+  function placeBomb() {
     const occupied = occupiedCells();
     const heads = aliveSnakes().map((s) => s.segments[0]);
     // Nor on the badger, which bombs would box in.
@@ -815,9 +826,10 @@ export function createEngine({ config, random = Math.random } = {}) {
         for (const t of targets) shot(t, p.id);
         return;
       }
-      if (badgerCovers(x, y)) {
+      const hitBadger = badgerAt(x, y);
+      if (hitBadger) {
         events.push({ type: 'projectileEnd', x, y, hit: true });
-        return killBadger(p, true);
+        return killBadger(hitBadger, p, true);
       }
       const creature = creatureHitBy(x, y);
       if (creature !== -1) {
@@ -1028,9 +1040,12 @@ export function createEngine({ config, random = Math.random } = {}) {
     if (!creatures.length) return;
     const blocked = occupiedCells(); // includes every creature, kept current below
     const heads = aliveSnakes().map((s) => s.segments[0]);
-    const b = isActive(badger) ? badger : null;
+    const active = badgers.filter(isActive);
     const nearestThreat = (c) =>
-      heads.reduce((min, h) => Math.min(min, distance(c, h)), b ? stepsToBlock(c.x, c.y, b.x, b.y) : Infinity);
+      heads.reduce(
+        (min, h) => Math.min(min, distance(c, h)),
+        active.reduce((min, b) => Math.min(min, stepsToBlock(c.x, c.y, b.x, b.y)), Infinity),
+      );
     for (const r of creatures) {
       const chicken = r.type === 'chicken';
       if (chicken) {
@@ -1092,7 +1107,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   function creatureDies(i, cause) {
     const c = apples[i];
     if (c.type === 'chicken') {
-      apples[i] = { x: c.x, y: c.y, type: 'feast' };
+      apples[i] = { x: c.x, y: c.y, type: 'feast', ...(c.bonus ? { bonus: true } : {}) };
       events.push({ type: 'chickenDied', chickenId: c.id, x: c.x, y: c.y, cause });
       return;
     }
@@ -1109,7 +1124,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     const inside = badgerSnapshot();
     if (creaturesMove) {
       moveCreatures();
-      moveBadger();
+      for (const b of badgers) moveBadger(b);
       badgerEatsCreatures();
     }
     const moves = movers.map((p) => {
@@ -1209,10 +1224,11 @@ export function createEngine({ config, random = Math.random } = {}) {
       if (!hit.size) {
         // The badger: entering its block, or the badger moving onto the
         // projectile, kills it (a kill for the shooter).
-        if (badgerCovers(n.x, n.y) || badgerCovers(n.pr.x, n.pr.y)) {
+        const hitBadger = badgerAt(n.x, n.y) ?? badgerAt(n.pr.x, n.pr.y);
+        if (hitBadger) {
           gone.add(n.pr);
           events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true });
-          killBadger(players.get(n.pr.ownerId) ?? null, true);
+          killBadger(hitBadger, players.get(n.pr.ownerId) ?? null, true);
           continue;
         }
         // A creature in the way simply dies (no kill credit).
@@ -1383,11 +1399,13 @@ export function createEngine({ config, random = Math.random } = {}) {
   const isActive = (b) => Boolean(b) && b.warningMs <= 0;
   // Whether the badger centered on (bx, by) covers (x, y).
   const blockCovers = (bx, by, x, y) => Math.abs(x - bx) <= B_REACH_X && Math.abs(y - by) <= B_REACH_Y;
-  // Whether the active badger (or, with `warning`, one still in its warning)
+  // Whether an active badger (or, with `warning`, one still in its warning)
   // covers (x, y).
   function badgerCovers(x, y, warning = false) {
-    return Boolean(badger) && (warning || isActive(badger)) && blockCovers(badger.x, badger.y, x, y);
+    return badgers.some((b) => (warning || isActive(b)) && blockCovers(b.x, b.y, x, y));
   }
+  // The first active badger covering (x, y), or null.
+  const badgerAt = (x, y) => badgers.find((b) => isActive(b) && blockCovers(b.x, b.y, x, y)) ?? null;
   function blockCells(bx, by) {
     const out = [];
     for (let dy = -B_REACH_Y; dy <= B_REACH_Y; dy++) {
@@ -1395,8 +1413,8 @@ export function createEngine({ config, random = Math.random } = {}) {
     }
     return out;
   }
-  // Its cells, warning included ([] without one).
-  const badgerCells = () => (badger ? blockCells(badger.x, badger.y) : []);
+  // Every badger's cells, warnings included ([] without any).
+  const badgerCells = () => badgers.flatMap((b) => blockCells(b.x, b.y));
   const blockInBounds = (bx, by) =>
     bx - B_REACH_X >= 0 && by - B_REACH_Y >= 0 && bx + B_REACH_X < gridSize && by + B_REACH_Y < gridSize;
   // Bombs and portal ends: what it can't move onto.
@@ -1425,7 +1443,8 @@ export function createEngine({ config, random = Math.random } = {}) {
 
   // A badger in its warning, fully on the board, clear of bombs and portal
   // ends, its block at least headClearance steps from every snake head.
-  // Snakes' bodies and items may be under it. null when there's no room.
+  // Snakes' bodies and items may be under it, and other badgers too. null
+  // when there's no room.
   function spawnBadger() {
     if (BADGER_RULES.width > gridSize || BADGER_RULES.height > gridSize) return null;
     const blockers = badgerBlockers();
@@ -1446,8 +1465,9 @@ export function createEngine({ config, random = Math.random } = {}) {
       at = options[randInt(options.length)];
     }
     const lifetimeMs = cfg.badgerLifetimeSec * 1000;
-    badger = {
+    const badger = {
       id: nextObjectId++,
+      n: nextBadgerNumber(),
       x: at.x,
       y: at.y,
       dir: Object.keys(DIRECTIONS)[randInt(4)],
@@ -1461,12 +1481,23 @@ export function createEngine({ config, random = Math.random } = {}) {
       hp: cfg.badgerHealth,
       maxHp: cfg.badgerHealth,
     };
+    badgers.push(badger);
     return badger;
   }
 
-  // Gone (killed or expired): the wait for the next one starts over.
-  function removeBadger() {
-    badger = null;
+  // The lowest number (1, 2, ...) no badger on the board has.
+  function nextBadgerNumber() {
+    const used = new Set(badgers.map((b) => b.n));
+    let n = 1;
+    while (used.has(n)) n++;
+    return n;
+  }
+
+  // Gone (killed or expired). Once the last one is gone, the wait for the
+  // next one starts over.
+  function removeBadger(b) {
+    badgers = badgers.filter((o) => o !== b);
+    if (badgers.length) return;
     badgerWaitMs = 0;
     badgerDueFactor = null;
   }
@@ -1476,25 +1507,10 @@ export function createEngine({ config, random = Math.random } = {}) {
   // next one comes due. The delay is drawn only once half the average has
   // passed (0.5 to 1.5 times the average), so short rounds draw no random
   // numbers for it at all.
+  // The timer only runs while there are no badgers at all.
   function badgerTimers() {
-    if (badger) {
-      if (badger.since === tickCount) return;
-      if (badger.warningMs > 0) {
-        badger.warningMs -= cfg.tickMs;
-        if (badger.warningMs <= 0) {
-          badger.warningMs = 0;
-          badger.moveAt = tickCount + creatureInterval(BADGER_RULES.moveEveryTicks);
-          badger.turnAt = tickCount + badgerTurnIn();
-          events.push({ type: 'badgerActive', x: badger.x, y: badger.y });
-          badgerEatsCreatures(); // any that ran under it during the warning
-        }
-        return;
-      }
-      badger.remainingMs -= cfg.tickMs;
-      if (badger.remainingMs <= 0) {
-        events.push({ type: 'badgerGone', x: badger.x, y: badger.y });
-        removeBadger();
-      }
+    if (badgers.length) {
+      for (const b of [...badgers]) badgerTimer(b);
       return;
     }
     if (cfg.badgerEverySec <= 0) return;
@@ -1505,7 +1521,28 @@ export function createEngine({ config, random = Math.random } = {}) {
       badgerDueFactor = 0.5 + random();
     }
     if (badgerWaitMs < badgerDueFactor * averageMs) return;
-    if (spawnBadger()) events.push({ type: 'badgerSpawn', x: badger.x, y: badger.y });
+    const b = spawnBadger();
+    if (b) events.push({ type: 'badgerSpawn', badgerId: b.id, x: b.x, y: b.y });
+  }
+
+  function badgerTimer(b) {
+    if (b.since === tickCount) return;
+    if (b.warningMs > 0) {
+      b.warningMs -= cfg.tickMs;
+      if (b.warningMs <= 0) {
+        b.warningMs = 0;
+        b.moveAt = tickCount + creatureInterval(BADGER_RULES.moveEveryTicks);
+        b.turnAt = tickCount + badgerTurnIn();
+        events.push({ type: 'badgerActive', badgerId: b.id, x: b.x, y: b.y });
+        badgerEatsCreatures(); // any that ran under it during the warning
+      }
+      return;
+    }
+    b.remainingMs -= cfg.tickMs;
+    if (b.remainingMs <= 0) {
+      events.push({ type: 'badgerGone', badgerId: b.id, x: b.x, y: b.y });
+      removeBadger(b);
+    }
   }
 
   // The ways away from the walls its block touches ([] off the walls).
@@ -1524,8 +1561,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   // portal end). Then it picks at random among the free ways: away from a
   // wall it touches if it can, else any but back (straight on included),
   // back only when that's the only way; boxed in, it stays put.
-  function moveBadger() {
-    const b = badger;
+  function moveBadger(b) {
     if (!isActive(b) || tickCount < b.moveAt) return;
     b.stepTicks = creatureInterval(BADGER_RULES.moveEveryTicks);
     b.moveAt = tickCount + b.stepTicks;
@@ -1549,7 +1585,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   // it, or it was under the warning when the badger became active) dies
   // (see creatureDies): nobody grows or gets a kill.
   function badgerEatsCreatures() {
-    if (!isActive(badger)) return;
+    if (!badgers.some(isActive)) return;
     for (let i = apples.length - 1; i >= 0; i--) {
       if (isCreature(apples[i]) && badgerCovers(apples[i].x, apples[i].y)) creatureDies(i, 'badger');
     }
@@ -1558,27 +1594,31 @@ export function createEngine({ config, random = Math.random } = {}) {
   // A projectile got it (whatever its HP), or a scissors hit took its last
   // HP: gone at once, a kill for the shooter or the snake that dealt the
   // final hit (if still in the game). `shot`: a projectile did it.
-  function killBadger(by, shot = false) {
+  function killBadger(b, by, shot = false) {
     const credited = by && players.get(by.id) === by ? by : null;
-    const ev = { type: 'badgerKilled', x: badger.x, y: badger.y, byId: credited ? credited.id : null };
+    const ev = { type: 'badgerKilled', badgerId: b.id, x: b.x, y: b.y, byId: credited ? credited.id : null };
     if (credited) {
       credited.kills++;
       ev.killNo = credited.kills;
       if (shot) ev.takedown = 'hit';
     }
     events.push(ev);
-    removeBadger();
+    removeBadger(b);
   }
 
-  // Before a sub-step: for every living snake, its head and the segments
-  // already inside the active badger. null without an active badger.
+  // Before a sub-step, per active badger: for every living snake, its head
+  // and the segments already inside that badger.
   function badgerSnapshot() {
-    if (!isActive(badger)) return null;
     const out = new Map();
-    for (const p of players.values()) {
-      if (p.status !== 'alive') continue;
-      const segs = p.snake.segments;
-      out.set(p, { head: segs[0], inside: new Set(segs.filter((c) => badgerCovers(c.x, c.y))) });
+    for (const b of badgers) {
+      if (!isActive(b)) continue;
+      const snap = new Map();
+      for (const p of players.values()) {
+        if (p.status !== 'alive') continue;
+        const segs = p.snake.segments;
+        snap.set(p, { head: segs[0], inside: new Set(segs.filter((c) => blockCovers(b.x, b.y, c.x, c.y))) });
+      }
+      out.set(b, snap);
     }
     return out;
   }
@@ -1603,13 +1643,20 @@ export function createEngine({ config, random = Math.random } = {}) {
   // hitGhostMs, passing through. Hits are dealt before any bite; the one
   // that takes the last HP kills it like a projectile, and then nobody else
   // is bitten.
+  // With several badgers, each one bites on its own, in spawn order.
   function badgerBites(before) {
-    if (!before || !isActive(badger)) return;
+    for (const [b, snap] of before) {
+      if (badgers.includes(b) && isActive(b)) badgerBitesFor(b, snap);
+    }
+  }
+
+  function badgerBitesFor(badger, before) {
+    const covers = (c) => blockCovers(badger.x, badger.y, c.x, c.y);
     const passing = badger.passing;
     const bites = [];
     for (const p of players.values()) {
       const segs = p.status === 'alive' ? p.snake.segments : null;
-      if (!segs || !segs.some((c) => badgerCovers(c.x, c.y))) {
+      if (!segs || !segs.some(covers)) {
         passing.delete(p);
         continue;
       }
@@ -1621,7 +1668,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       // A segment's previous self: itself, or for the head the old head
       // (the same object when the snake didn't move).
       const wasInside = (i) => Boolean(was) && was.inside.has(i === 0 ? was.head : segs[i]);
-      const index = segs.findIndex((c, i) => badgerCovers(c.x, c.y) && !wasInside(i));
+      const index = segs.findIndex((c, i) => covers(c) && !wasInside(i));
       if (index === -1) continue;
       const headIn = index === 0 && Boolean(was) && was.head !== segs[0];
       if (passing.has(p) && !headIn) continue; // the badger moved onto it
@@ -1629,9 +1676,9 @@ export function createEngine({ config, random = Math.random } = {}) {
         setEffect(p, 'ghost', BADGER_RULES.hitGhostMs); // replaces the scissors
         passing.add(p);
         badger.hp--;
-        events.push({ type: 'badgerHit', id: p.id, x: segs[0].x, y: segs[0].y, hp: badger.hp });
+        events.push({ type: 'badgerHit', id: p.id, badgerId: badger.id, x: segs[0].x, y: segs[0].y, hp: badger.hp });
         if (badger.hp <= 0) {
-          killBadger(p);
+          killBadger(badger, p);
           return;
         }
         continue;
@@ -1760,12 +1807,28 @@ export function createEngine({ config, random = Math.random } = {}) {
       return;
     }
     playingElapsed += cfg.tickMs;
+    applyCommands();
     step();
     syncApples();
     checkRoundEnd();
   }
 
   function getState() {
+    const badgerViews = badgers.map((b) => ({
+      id: b.id,
+      n: b.n,
+      x: b.x,
+      y: b.y,
+      width: BADGER_RULES.width,
+      height: BADGER_RULES.height,
+      dir: b.dir,
+      stepTicks: b.stepTicks ?? BADGER_RULES.moveEveryTicks,
+      hp: b.hp,
+      maxHp: b.maxHp,
+      warningMs: b.warningMs,
+      remainingMs: b.remainingMs,
+      lifetimeMs: b.lifetimeMs,
+    }));
     return {
       phase,
       round,
@@ -1801,23 +1864,10 @@ export function createEngine({ config, random = Math.random } = {}) {
         remainingMs: p.remainingMs,
         closing: Boolean(p.closing),
       })),
-      // (x, y) is the center of its width x height block.
-      badger: badger
-        ? {
-            id: badger.id,
-            x: badger.x,
-            y: badger.y,
-            width: BADGER_RULES.width,
-            height: BADGER_RULES.height,
-            dir: badger.dir,
-            stepTicks: badger.stepTicks ?? BADGER_RULES.moveEveryTicks,
-            hp: badger.hp,
-            maxHp: badger.maxHp,
-            warningMs: badger.warningMs,
-            remainingMs: badger.remainingMs,
-            lifetimeMs: badger.lifetimeMs,
-          }
-        : null,
+      // (x, y) is the center of its width x height block. `badger`: the
+      // first one, or null.
+      badgers: badgerViews,
+      badger: badgerViews[0] ?? null,
       players: [...players.values()].map((p) => ({
         id: p.id,
         name: p.name,
@@ -1856,6 +1906,89 @@ export function createEngine({ config, random = Math.random } = {}) {
       clearBoard();
       winnerId = null;
     }
+  }
+
+  // ---- /admin commands ("Regia") ---------------------------------------
+  // One-shot actions for the operator, outside the rules and above every
+  // cap (only a free cell, or room for a block, limits them):
+  //   { kind: 'spawn', item }    item: 'apple' | 'rat' | 'chicken' | 'bomb' |
+  //                              'badger' | a weighted power-up type
+  //   { kind: 'removeBadger' }   every badger leaves
+  //   { kind: 'grow', id, amount }   amount: integer 1-50
+  //   { kind: 'powerUp', id, item }  item: any power-up type, as if eaten
+  //   { kind: 'smite', id }      dies at once, shield or not, no kill credit
+  // Accepted only while playing; returns whether it was. It is applied at
+  // the start of the next playing tick (a command that no longer applies by
+  // then, e.g. the snake died, is skipped).
+  const SPAWNABLE = new Set(['apple', 'rat', 'chicken', 'bomb', 'badger', ...WEIGHTED_POWER_UPS.map((p) => p.type)]);
+  const isLiving = (id) => typeof id === 'string' && players.get(id)?.status === 'alive';
+
+  function command(cmd) {
+    if (phase !== PHASES.PLAYING || !cmd || typeof cmd !== 'object') return false;
+    let ok = false;
+    switch (cmd.kind) {
+      case 'spawn':
+        ok = SPAWNABLE.has(cmd.item);
+        break;
+      case 'removeBadger':
+        ok = true;
+        break;
+      case 'grow':
+        ok = isLiving(cmd.id) && Number.isInteger(cmd.amount) && cmd.amount >= 1 && cmd.amount <= 50;
+        break;
+      case 'powerUp':
+        ok = isLiving(cmd.id) && typeof cmd.item === 'string' && Object.hasOwn(POWER_UP_TYPES, cmd.item);
+        break;
+      case 'smite':
+        ok = isLiving(cmd.id);
+        break;
+    }
+    if (ok) pending.push({ kind: cmd.kind, item: cmd.item, id: cmd.id, amount: cmd.amount });
+    return ok;
+  }
+
+  function applyCommands() {
+    if (!pending.length) return;
+    const list = pending;
+    pending = [];
+    fallen = [];
+    for (const c of list) {
+      const p = c.id === undefined ? null : players.get(c.id);
+      if (c.id !== undefined && p?.status !== 'alive') continue;
+      if (c.kind === 'spawn') spawnBonus(c.item);
+      else if (c.kind === 'removeBadger') {
+        for (const b of [...badgers]) {
+          events.push({ type: 'badgerGone', badgerId: b.id, x: b.x, y: b.y });
+          removeBadger(b);
+        }
+      } else if (c.kind === 'grow') p.snake.pendingGrowth += c.amount;
+      else if (c.kind === 'powerUp') pickUp(p, c.item);
+      else if (c.kind === 'smite') kill(p, null);
+    }
+    if (rules.corpseApples && fallen.length) dropCorpses(fallen);
+    fallen = [];
+  }
+
+  // An extra item from /admin: on top of appleCount (bonus, like corpse and
+  // feast apples), bombs beyond maxBombs, badgers beyond the first.
+  function spawnBonus(item) {
+    if (item === 'badger') {
+      const b = spawnBadger();
+      if (b) events.push({ type: 'badgerSpawn', badgerId: b.id, x: b.x, y: b.y });
+      return;
+    }
+    if (item === 'bomb') {
+      placeBomb();
+      return;
+    }
+    const cell = spawnApple(occupiedCells());
+    if (!cell) return;
+    if (item === 'rat' || item === 'chicken') {
+      // Never right under a badger (it would be eaten at once).
+      if (!badgerCovers(cell.x, cell.y, true)) apples.push({ ...newCreature(cell, item), bonus: true });
+      return;
+    }
+    apples.push(item === 'apple' ? { ...cell, bonus: true } : { ...cell, type: item, bonus: true });
   }
 
   function updateConfig(partial) {
@@ -1914,20 +2047,28 @@ export function createEngine({ config, random = Math.random } = {}) {
     // Puts a badger centered on (x, y): active by default, or in its warning
     // with warningMs > 0. It next moves on tick `moveAt` (default: the next
     // tick) and keeps going straight until tick `turnAt`, when free.
-    setBadger([x, y], { dir = 'left', warningMs = 0, remainingMs = cfg.badgerLifetimeSec * 1000, moveAt = tickCount + 1, turnAt = tickCount + 1000, hp = cfg.badgerHealth } = {}) {
-      badger = { id: nextObjectId++, x, y, dir, warningMs, remainingMs, lifetimeMs: remainingMs, moveAt: warningMs > 0 ? Infinity : moveAt, turnAt: warningMs > 0 ? Infinity : turnAt, since: tickCount, passing: new Set(), hp, maxHp: cfg.badgerHealth };
+    // setBadger replaces any badgers; addBadger adds one more.
+    setBadger(at, opts) {
+      badgers = [];
+      _debug.addBadger(at, opts);
     },
-    // When the badger next moves and next picks a direction (ticks).
+    addBadger([x, y], { dir = 'left', warningMs = 0, remainingMs = cfg.badgerLifetimeSec * 1000, moveAt = tickCount + 1, turnAt = tickCount + 1000, hp = cfg.badgerHealth } = {}) {
+      badgers.push({ id: nextObjectId++, n: nextBadgerNumber(), x, y, dir, warningMs, remainingMs, lifetimeMs: remainingMs, moveAt: warningMs > 0 ? Infinity : moveAt, turnAt: warningMs > 0 ? Infinity : turnAt, since: tickCount, passing: new Set(), hp, maxHp: cfg.badgerHealth });
+    },
+    // When the (first) badger next moves and next picks a direction (ticks).
     badgerTimers() {
-      return badger ? { moveAt: badger.moveAt, turnAt: badger.turnAt } : null;
+      const b = badgers[0];
+      return b ? { moveAt: b.moveAt, turnAt: b.turnAt } : null;
     },
     clearBadger() {
-      removeBadger();
+      badgers = [];
+      badgerWaitMs = 0;
+      badgerDueFactor = null;
     },
     setBombs(list) {
       bombs = list.map(([x, y, remainingMs = POWER_UP_RULES.bombLifetimeMs]) => ({ x, y, remainingMs, since: tickCount }));
     },
   };
 
-  return { addPlayer, removePlayer, setDirection, tick, getState, updateConfig, restartRound, config: cfg, _debug };
+  return { addPlayer, removePlayer, setDirection, tick, getState, updateConfig, restartRound, command, config: cfg, _debug };
 }

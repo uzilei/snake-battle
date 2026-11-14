@@ -7,7 +7,7 @@ import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt } from '/shared
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
 import { RAT_RULES } from '/shared/rats.js';
 import { CHICKEN_RULES } from '/shared/chicken.js';
-import { BADGER_RULES } from '/shared/badger.js';
+import { BADGER_RULES, badgerLabel } from '/shared/badger.js';
 import { FRUIT_CODES } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
 import { BOT_SKILL_TWEMOJI, BOT_SKILL_EMOJI } from '/shared/bots.js';
@@ -1264,8 +1264,9 @@ let rats = new Map(); // id -> { from, to, start, ms, facing }
 let chickens = new Map(); // id -> { from, to, start, ms, facing, alertSince }
 // Rats and chickens sliding into the mouth that ate them; sprite: what to draw.
 let eatenRats = []; // { from, to, start, ms, facing, color, sprite }
-// The badger slides like a rat, a cell every moveEveryTicks ticks.
-let badgerAnim = null; // { id, from, to, start, ms, facing }
+// Badgers slide like rats, a cell every moveEveryTicks ticks. Usually one,
+// more when /admin adds them.
+let badgerAnims = new Map(); // id -> { id, from, to, start, ms, facing }
 // The last scissors hit on the badger: when, and the HP it left (/display
 // flashes it white and fades the lost health-bar segment). null: none yet.
 let badgerHit = null; // { id, at, hp }
@@ -1382,7 +1383,7 @@ function onState(msg) {
       rats = new Map();
       chickens = new Map();
       eatenRats = [];
-      badgerAnim = null;
+      badgerAnims = new Map();
       anims.clear();
     }
     for (const id of anims.keys()) if (!s.snakes.some((x) => x.id === id)) anims.delete(id);
@@ -1422,17 +1423,23 @@ function onState(msg) {
       anim.alertSince = c.alerted ? (old?.alertSince ?? now) : null;
       chickens.set(c.id, anim);
     }
-    // Where the badger was drawn until now (for its burst or puff if it's gone).
-    const oldBadger = badgerAnim;
-    const badgerDrawnAt = oldBadger ? ratAt(oldBadger, now) : null;
-    const b = s.badger;
-    if (!b) badgerAnim = null;
-    else if (!oldBadger || oldBadger.id !== b.id) {
-      badgerAnim = { id: b.id, from: { x: b.x, y: b.y }, to: { x: b.x, y: b.y }, start: now, ms: 1, facing: b.dir === 'right' ? -1 : 1 };
-    } else if (oldBadger.to.x !== b.x || oldBadger.to.y !== b.y) {
-      const dx = b.x - oldBadger.to.x;
-      const facing = dx > 0 ? -1 : dx < 0 ? 1 : oldBadger.facing;
-      badgerAnim = { id: b.id, from: badgerDrawnAt, to: { x: b.x, y: b.y }, start: now, ms: Math.max(1, msg.tickMs * (b.stepTicks ?? BADGER_RULES.moveEveryTicks)), facing };
+    // Where each badger was drawn until now (for its burst or puff if it's gone).
+    const oldBadgers = badgerAnims;
+    const badgerDrawnAt = (ev) => {
+      const old = oldBadgers.get(ev.badgerId);
+      return old ? ratAt(old, now) : ev;
+    };
+    badgerAnims = new Map();
+    for (const b of s.badgers ?? (s.badger ? [s.badger] : [])) {
+      const old = oldBadgers.get(b.id);
+      let anim;
+      if (!old) anim = { id: b.id, from: { x: b.x, y: b.y }, to: { x: b.x, y: b.y }, start: now, ms: 1, facing: b.dir === 'right' ? -1 : 1 };
+      else if (old.to.x !== b.x || old.to.y !== b.y) {
+        const dx = b.x - old.to.x;
+        const facing = dx > 0 ? -1 : dx < 0 ? 1 : old.facing;
+        anim = { id: b.id, from: ratAt(old, now), to: { x: b.x, y: b.y }, start: now, ms: Math.max(1, msg.tickMs * (b.stepTicks ?? BADGER_RULES.moveEveryTicks)), facing };
+      } else anim = old;
+      badgerAnims.set(b.id, anim);
     }
     tickKey = key;
     tickAt = now;
@@ -1468,11 +1475,11 @@ function onState(msg) {
         if (fx.particles && ev.x !== undefined) fizzle(ev.x, ev.y, now);
       } else if (ev.type === 'badgerGone') {
         // Its lifetime ran out: it has faded, and goes in a puff the size of its block.
-        const at = badgerDrawnAt ?? ev;
+        const at = badgerDrawnAt(ev);
         if (fx.particles) fizzle(at.x, at.y, now, BADGER_RULES.width / POWER_UP_RULES.bombSize, BADGER_RULES.height / POWER_UP_RULES.bombSize);
       } else if (ev.type === 'badgerKilled') {
         // Shot: a bomb's burst, the size of its block. The shooter winks.
-        const at = badgerDrawnAt ?? ev;
+        const at = badgerDrawnAt(ev);
         if (fx.particles) explosion(at.x, at.y, now, BADGER_RULES.width, BADGER_RULES.height);
         if (fx.screenShake) shakeStart = now;
         const shooter = ev.byId && s.snakes.find((x) => x.id === ev.byId);
@@ -1481,7 +1488,7 @@ function onState(msg) {
         if (fx.killPopups && ev.killNo) addKillPopup(Math.floor(at.x), Math.floor(at.y), ev.killNo, colorOf(ev.byId), now, ev.takedown ?? null);
       } else if (ev.type === 'badgerHit') {
         // A scissors hit: it flashes white, a segment of its bar goes.
-        if (b) badgerHit = { id: b.id, at: now, hp: ev.hp };
+        if (ev.badgerId !== undefined) badgerHit = { id: ev.badgerId, at: now, hp: ev.hp };
         if (fx.particles) sparks(ev.x, ev.y, now, 16, ['#ffffff', '#e0e0e0', '#ff5252']);
         if (fx.screenShake) shakeStart = now;
       } else if (ev.type === 'badgerBite') {
@@ -1544,7 +1551,8 @@ function drawBoard(msg, now, dt) {
   drawItems(items, cell, now);
   const frozen = Boolean(state.creaturesFrozen);
   drawRats(cell, n, now, msg.effects, frozen);
-  drawBadger(state.badger, cell, now, frozen);
+  const badgers = state.badgers ?? (state.badger ? [state.badger] : []);
+  for (const b of badgers) drawBadger(b, cell, now, frozen);
 
   // What the snake faces react to: food (not bombs) as drawn right now, and
   // the other heads where they were last drawn.
@@ -1582,7 +1590,7 @@ function drawBoard(msg, now, dt) {
   drawEffectBadges(badges, cell, now);
   drawNames(labels, cell, size);
   drawKillPopups(cell, size, now);
-  drawBadgerHud(state.badger, msg.badgerName, cell, size, now);
+  for (const b of badgers) drawBadgerHud(b, badgerLabel(msg.badgerName, b.n, badgers.length), cell, size, now);
   applyShake(now);
 }
 
@@ -1713,7 +1721,8 @@ function dangerOutline(cx, cy, w, h, cell, now) {
 const blinkAlpha = (now) => (Math.floor(now / 140) % 2 === 0 ? 1 : 0.25);
 
 function drawBadger(b, cell, now, frozen) {
-  if (!b || !badgerAnim) return;
+  const badgerAnim = badgerAnims.get(b.id);
+  if (!badgerAnim) return;
   const at = ratAt(badgerAnim, now);
   const w = b.width * cell;
   const h = b.height * cell;
@@ -1768,7 +1777,8 @@ function drawBadger(b, cell, now, frozen) {
 // no room above, both go below the block instead (bar first). They blink
 // along with the badger.
 function drawBadgerHud(b, name, cell, size, now) {
-  if (!b || !badgerAnim) return;
+  const badgerAnim = badgerAnims.get(b.id);
+  if (!badgerAnim) return;
   const showBar = b.warningMs <= 0 && b.maxHp > 0;
   if (!name && !showBar) return;
   const at = ratAt(badgerAnim, now);
