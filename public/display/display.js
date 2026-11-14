@@ -550,7 +550,10 @@ function drawSnake(s, prev, t, cell, n, now, anim = null, frame = null, hat = nu
   const path = snakePath(s, s.alive ? prev : null, t, n);
   const { chains, front, back, segU } = path;
   const width = cell * look.width;
-  const bumps = anim && s.alive ? swallowBumps(anim, chains, front, back, s.segments.length, width, cell, now) : [];
+  // The snake's speed in cells per second: golden moves 2 cells a tick, a
+  // frozen snake only every second tick.
+  const cellsPerSec = frame?.tickMs > 0 ? (1000 / frame.tickMs) * (s.effect?.type === 'golden' ? 2 : 1) * (s.frozen ? 0.5 : 1) : 5;
+  const bumps = anim && s.alive ? swallowBumps(anim, chains, front, back, width, cell, now, BUMP_SPEED * cellsPerSec) : [];
   ctx.save();
   ctx.globalAlpha = clamp(look.alpha, 0, 1);
   ctx.lineJoin = 'round';
@@ -664,7 +667,7 @@ const TONGUE_MS = 300;
 const TONGUE_EVERY_MS = [2500, 7000];
 const LOOK_RANGE = 4; // cells: the eyes follow food or a head this close
 const MOUTH_RANGE = 3; // cells: the mouth opens for food this far straight ahead
-const BUMP_SPEED = 18; // segments per second (faster on long snakes)
+const BUMP_SPEED = 2; // times the snake's own current speed, whatever its length
 const FINE_DETAIL_PX = 14; // smaller cells skip nostrils, fangs and the tongue's fork
 
 const between = ([lo, hi]) => lo + Math.random() * (hi - lo);
@@ -694,14 +697,20 @@ function animOf(id, now) {
 // the head once the food has visibly gone in, swells, runs down the body
 // and shrinks away at the tail. Its place is counted in segments from the
 // head (front + offset), so it travels with the body as that slides.
-function swallowBumps(anim, chains, front, back, length, width, cell, now) {
+// speed: segments per second. It's added up frame by frame (b.off), so a
+// change of speed (golden, freeze) never makes a bump jump.
+function swallowBumps(anim, chains, front, back, width, cell, now, speed) {
   const len = back - front;
-  const speed = Math.max(BUMP_SPEED, length / 1.6);
   const out = [];
-  anim.bumps = anim.bumps.filter((b) => ((now - b.start) / 1000) * speed <= len + 0.5);
   for (const b of anim.bumps) {
-    const off = ((now - b.start) / 1000) * speed;
-    if (off < 0) continue; // not swallowed yet
+    if (now < b.start) continue; // not swallowed yet
+    b.off = (b.off ?? 0) + ((now - Math.max(b.start, b.at ?? b.start)) / 1000) * speed;
+    b.at = now;
+  }
+  anim.bumps = anim.bumps.filter((b) => (b.off ?? 0) <= len + 0.5);
+  for (const b of anim.bumps) {
+    if (now < b.start) continue;
+    const off = b.off;
     const swell = clamp(Math.min(off / 0.8, (len + 0.5 - off) / 1.2), 0, 1);
     const r = (width / 2) * (1 + 0.4 * b.size * swell);
     for (const p of pointsAt(chains, Math.min(back, front + off))) out.push({ x: (p.x + 0.5) * cell, y: (p.y + 0.5) * cell, r });
