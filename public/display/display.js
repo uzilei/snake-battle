@@ -1540,10 +1540,10 @@ function onState(msg) {
         diedAt.set(ev.id, now);
         const snake = s.snakes.find((x) => x.id === ev.id);
         if (fx.particles && snake) burst(snake, now);
+        if (fx.screenShake) shakeStart = now; // every death, however it happened
         if (fx.killPopups && snake && ev.killNo) {
           const head = snake.segments[0];
           addKillPopup(head.x, head.y, ev.killNo, colorOf(ev.killerId), now, ev.takedown ?? null);
-          if (fx.screenShake && (ev.killNo >= 3 || ev.takedown)) shakeStart = now;
         }
         // The killer winks, with a little sparkle by its head.
         const killer = ev.killerId && s.snakes.find((x) => x.id === ev.killerId);
