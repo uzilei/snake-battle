@@ -367,9 +367,14 @@ function drawRemains(apples, cell, n) {
   }
   // Runs of consecutive segments, each split further wherever two cells
   // aren't neighbours (wrapping edges run off the board, like a snake).
+  const width = cell * REMAINS_WIDTH;
   const chains = [];
+  const bands = []; // the tail taper, as each body had it: { chains, u0, u1, r }
   for (const list of pieces.values()) {
     list.sort((p, q) => p.seg - q.seg);
+    // Widths by the segment's place in the snake it came from, so a bit
+    // keeps its width as the bits around it get eaten.
+    const scale = (seg) => (list[0].len ? taperScale(seg + (list[0].from ?? 0), list[0].len) : 1);
     let run = [list[0]];
     for (let i = 1; i <= list.length; i++) {
       if (i < list.length && list[i].seg === list[i - 1].seg + 1) {
@@ -377,27 +382,33 @@ function drawRemains(apples, cell, n) {
         continue;
       }
       // u counts segments from the body's head, so stripes keep their place.
-      for (const chain of buildChains(run, n)) chains.push(chain.map((p) => ({ ...p, u: p.u + run[0].seg })));
+      const own = buildChains(run, n).map((chain) => chain.map((p) => ({ ...p, u: p.u + run[0].seg })));
+      chains.push(...own);
+      const first = run[0].seg;
+      const last = run[run.length - 1].seg;
+      for (let seg = first; seg <= last; seg++) {
+        const r = (width / 2) * scale(seg);
+        const prev = bands[bands.length - 1];
+        if (seg > first && prev.r === r) prev.u1 = seg === last ? last : seg + 0.5;
+        else bands.push({ chains: own, u0: seg === first ? first : seg - 0.5, u1: seg === last ? last : seg + 0.5, r });
+      }
       run = [list[i]];
     }
   }
-  const width = cell * REMAINS_WIDTH;
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.lineWidth = width;
   ctx.strokeStyle = REMAINS_LOOK.color;
-  ctx.beginPath();
-  for (const chain of chains) {
-    ctx.moveTo((chain[0].x + 0.5) * cell, (chain[0].y + 0.5) * cell);
-    if (chain.length === 1) ctx.lineTo((chain[0].x + 0.5) * cell + 0.01, (chain[0].y + 0.5) * cell); // a lone bit
-    for (let i = 1; i < chain.length; i++) ctx.lineTo((chain[i].x + 0.5) * cell, (chain[i].y + 0.5) * cell);
+  for (const b of bands) {
+    ctx.lineWidth = b.r * 2;
+    ctx.beginPath();
+    tracePath(b.chains, b.u0, b.u1, cell);
+    ctx.stroke();
   }
-  ctx.stroke();
   // Every other segment a shade darker, drawn like a living snake's stripes:
   // a band across the body along its path, clipped to the body's outline.
   ctx.save();
-  clipToBody(chains, [{ u0: -Infinity, u1: Infinity, r: width / 2 }], cell);
+  clipToBody(chains, bands, cell);
   ctx.lineCap = 'butt';
   ctx.lineWidth = cell * STRIPE_REACH * 2;
   ctx.strokeStyle = REMAINS_LOOK.dark;
@@ -647,7 +658,8 @@ function clipToBody(chains, bands, cell, extra = []) {
     ctx.moveTo(c.x + c.r, c.y);
     ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
   }
-  for (const { u0, u1, r } of bands) for (const chain of chains) {
+  for (const band of bands) for (const chain of band.chains ?? chains) {
+    const { u0, u1, r } = band;
     const pts = subPath(chain, u0, u1);
     if (!pts) continue;
     const px = pts.map((q) => ({ x: (q.x + 0.5) * cell, y: (q.y + 0.5) * cell }));

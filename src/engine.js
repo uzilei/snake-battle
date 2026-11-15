@@ -156,8 +156,10 @@ export function createEngine({ config, random = Math.random } = {}) {
   // snakes, feast: the feast power-up) come on top of it.
   // A corpse apple also remembers the body it came from, for /display's
   // "remains" look: piece (an id shared by one dead snake or one cut-off
-  // part), seg (its index in that body, from the head) and, on a dead
-  // snake's head, head: true and dir. It is eaten like any apple, but always
+  // part), seg (its index in that body, from the head), len (how many
+  // segments the snake had, for the tail taper), from (on a cut-off part:
+  // where in the snake it was cut, so seg + from is the index in the snake)
+  // and, on a dead snake's head, head: true and dir. It is eaten like any apple, but always
   // grows a snake by exactly 1 (growthPerApple doesn't apply).
   let apples = [];
   let bombs = []; // { x, y, remainingMs, since }: (x, y) is the center of a 3x3 block; on top of appleCount, despawn
@@ -781,15 +783,17 @@ export function createEngine({ config, random = Math.random } = {}) {
   // Segments taken off a snake that stays alive (scissors, and any future
   // power-up that removes segments) become apples when dead snakes do, and
   // simply vanish otherwise.
-  function removeSegments(cells) {
+  // `from`: the index in the snake where they were cut off.
+  function removeSegments(cells, from) {
     if (!rules.corpseApples) return;
+    const len = from + cells.length;
     const blocked = occupiedCells();
     const piece = nextObjectId++;
     cells.forEach((c, seg) => {
       const k = cellKey(c.x, c.y);
       if (!inBounds(c.x, c.y) || blocked.has(k)) return;
       blocked.add(k);
-      apples.push({ x: c.x, y: c.y, corpse: true, piece, seg });
+      apples.push({ x: c.x, y: c.y, corpse: true, piece, seg, len, from });
     });
   }
 
@@ -1387,7 +1391,7 @@ export function createEngine({ config, random = Math.random } = {}) {
       if (target.status !== 'alive' || index >= target.snake.segments.length) continue;
       events.push({ type: 'cut', id: target.id, byId: by.id });
       if (index < POWER_UP_RULES.minLength) kill(target, by);
-      else removeSegments(target.snake.segments.splice(index));
+      else removeSegments(target.snake.segments.splice(index), index);
     }
 
     // The badger bites before anything is eaten, so a head can't eat its
@@ -1734,7 +1738,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         popShield(p);
         passing.add(p);
       } else if (index < POWER_UP_RULES.minLength) kill(p, null);
-      else removeSegments(segs.splice(index));
+      else removeSegments(segs.splice(index), index);
     }
   }
 
@@ -1745,16 +1749,17 @@ export function createEngine({ config, random = Math.random } = {}) {
     const blocked = occupiedCells();
     for (const s of corpses) {
       const piece = nextObjectId++;
+      const len = s.segments.length;
       s.segments.forEach((c, seg) => {
         const k = cellKey(c.x, c.y);
         if (!inBounds(c.x, c.y) || blocked.has(k)) return;
         blocked.add(k);
-        apples.push({ x: c.x, y: c.y, corpse: true, piece, seg, ...(seg === 0 ? { head: true, dir: s.dir } : {}) });
+        apples.push({ x: c.x, y: c.y, corpse: true, piece, seg, len, ...(seg === 0 ? { head: true, dir: s.dir } : {}) });
       });
     }
   }
 
-  const corpseView = (a) => ({ x: a.x, y: a.y, corpse: true, piece: a.piece, seg: a.seg, ...(a.head ? { head: true, dir: a.dir } : {}) });
+  const corpseView = (a) => ({ x: a.x, y: a.y, corpse: true, piece: a.piece, seg: a.seg, len: a.len, ...(a.from !== undefined ? { from: a.from } : {}), ...(a.head ? { head: true, dir: a.dir } : {}) });
 
   // ---- public API ---------------------------------------------------------
 

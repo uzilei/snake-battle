@@ -677,16 +677,16 @@ describe('corpse apples', () => {
     assert.deepEqual(count(), [2, 0]);
   });
 
-  test('each corpse apple remembers its body: one piece, its index, and the head with its direction', () => {
+  test('each corpse apple remembers its body: one piece, its index, the body length, and the head with its direction', () => {
     const e = kill({ corpseApples: true });
     e.tick();
     const corpses = e.getState().apples.filter((a) => a.corpse).sort((p, q) => p.seg - q.seg);
     const piece = corpses[0].piece;
     assert.ok(Number.isInteger(piece));
     assert.deepEqual(corpses, [
-      { x: 5, y: 4, corpse: true, piece, seg: 0, head: true, dir: 'right' },
-      { x: 4, y: 4, corpse: true, piece, seg: 1 },
-      { x: 3, y: 4, corpse: true, piece, seg: 2 },
+      { x: 5, y: 4, corpse: true, piece, seg: 0, len: 3, head: true, dir: 'right' },
+      { x: 4, y: 4, corpse: true, piece, seg: 1, len: 3 },
+      { x: 3, y: 4, corpse: true, piece, seg: 2, len: 3 },
     ]);
   });
 

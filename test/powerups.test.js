@@ -539,7 +539,7 @@ describe('rounds and state', () => {
     e._debug.setBombs([[16, 6]]); // covers (15-17, 5-7)
     e.tick();
     const s = e.getState();
-    assert.deepEqual(s.apples, [{ x: 19, y: 5, corpse: true, piece: 1, seg: 0, head: true, dir: 'right' }]);
+    assert.deepEqual(s.apples, [{ x: 19, y: 5, corpse: true, piece: 1, seg: 0, len: 5, head: true, dir: 'right' }]);
     assert.equal(s.powerUps.length, 1);
     assert.equal(s.bombs.length, 1);
   });
@@ -846,6 +846,8 @@ describe('scissors', () => {
     const cut = e.getState().apples;
     assert.ok(cut.every((c) => c.piece === cut[0].piece && !c.head));
     assert.deepEqual(cut.map((c) => c.seg), [1, 2, 3, 4]);
+    // For the tail taper: cut at index 3 of b's 8 segments.
+    assert.ok(cut.every((c) => c.len === 8 && c.from === 3));
     assert.equal(snake(e, 'a').effect, null); // used up
     assert.equal(events(e, 'cut')[0].byId, 'a');
   });
