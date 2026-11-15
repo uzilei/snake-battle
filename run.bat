@@ -9,12 +9,19 @@ if errorlevel 1 (
   goto end
 )
 
-if not exist node_modules (
-  echo Installing dependencies, first run only...
+rem Install the dependencies when any one in package.json is missing: a first
+rem run, or a node_modules copied from before a dependency was added. Needs
+rem internet; once installed, everything runs offline.
+node -e "const d=require('./package.json').dependencies;process.exit(Object.keys(d).every(n=>require('fs').existsSync('node_modules/'+n+'/package.json'))?0:1)"
+if errorlevel 1 (
+  echo Installing dependencies, this needs internet...
   call npm install
   if errorlevel 1 (
-    echo npm install failed.
-    goto end
+    echo.
+    echo npm install failed. Connect this computer to the internet and try again.
+    if not exist node_modules goto end
+    echo Starting anyway with what is installed; some things may be missing.
+    echo.
   )
 )
 

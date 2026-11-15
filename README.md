@@ -9,7 +9,7 @@ npm install
 npm start
 ```
 
-On Windows you can double-click `run.bat` instead: it installs the dependencies on the first run, then starts the server. If the server ever exits (a crash, or a start-up error such as the port being busy), it is restarted after 3 seconds and the restart is logged with a timestamp in the window and in `server-restarts.log`. Close the window (or press Ctrl+C) to stop it.
+On Windows you can double-click `run.bat` instead: a computer needs only Node.js 20 or newer. Whenever a dependency in `package.json` is missing (the first run, or a `node_modules` copied from an older version), it runs `npm install`, which needs internet; after that everything runs offline. Then it starts the server. If the server ever exits (a crash, or a start-up error such as the port being busy), it is restarted after 3 seconds and the restart is logged with a timestamp in the window and in `server-restarts.log`. Close the window (or press Ctrl+C) to stop it.
 
 The first start creates `config.json` with a random admin password, which is printed in the console. Edit it before the expo:
 
