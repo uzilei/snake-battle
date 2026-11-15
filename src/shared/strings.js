@@ -65,7 +65,7 @@ const STRINGS_IT = Object.freeze({
     // Below it, dropping, when the snake killed led the round in kills
     // (streak) or was the longest (mvp), or for the round's first kill
     // (firstBlood). Also English on purpose.
-    takedowns: { streak: 'SHUTDOWN!', mvp: 'MVP KILL!', firstBlood: 'FIRST BLOOD!' },
+    takedowns: { streak: 'SHUTDOWN!', mvp: 'KINGSLAYER!', firstBlood: 'FIRST BLOOD!' },
     // Beside it, drifting to one side, how it died: shot (hit), a head-on
     // (crash), boxed in with no way out (boxed). Also English on purpose.
     killHow: { hit: 'HIT!', crash: 'CRASH!', boxed: 'BOXED!' },
@@ -79,7 +79,7 @@ const STRINGS_IT = Object.freeze({
     step2Title: '2. Apri il gioco',
     step2Text: 'Poi inquadra questo codice per aprire il controller.',
     step3: 'Disattiva i dati mobili se il gioco non si apre.',
-    browser: 'Problemi? Usa Chrome o Safari.',
+    browser: 'Altri problemi? Usa Chrome o Safari.',
     wifiName: 'Rete: {ssid}',
     wifiPassword: 'Password: {password}',
     gameUrl: 'Indirizzo: {url}',
@@ -91,7 +91,7 @@ const STRINGS_IT = Object.freeze({
     namePrompt: 'Come ti chiami?',
     namePlaceholder: 'Il tuo nome',
     hatPrompt: 'Scegli un cappello',
-    hatNone: 'Nessuno',
+    hatNone: 'X',
     // One per entry of src/shared/hats.js (also used by /admin).
     hatNames: {
       cap: 'Berretto',
@@ -158,10 +158,10 @@ const STRINGS_IT = Object.freeze({
     growthPerApple: 'Crescita per mela',
     ratChance: 'Probabilità che una nuova mela sia un topo 🐀 che scappa e vale 4 mele (%, 0 = mai)',
     chickenChance:
-      'Probabilità che una nuova mela sia un gallo 🐓 che fugge dai serpenti vicini, vale 25 mele e lascia un banchetto (%, 0 = mai)',
+      'Probabilità che una nuova mela sia un pollo 🐓 che fugge dai serpenti vicini, vale 25 mele e lascia un banchetto (%, 0 = mai)',
     badgerEverySec:
-      'Tasso del miele 🦡, il predatore: secondi in media tra un tasso e l’altro (s, il tempo esatto varia a caso; 0 = mai)',
-    badgerLifetimeSec: 'Quanto resta in campo il tasso del miele 🦡 (s)',
+      'Tasso 🦡, il predatore: secondi in media tra un tasso e l’altro (s, il tempo esatto varia a caso; 0 = mai)',
+    badgerLifetimeSec: 'Quanto resta in campo il tasso 🦡 (s)',
     badgerHealth: 'Vita del tasso 🦡: colpi di forbici ✂️ per eliminarlo (un proiettile lo elimina sempre)',
     badgerName: 'Nome del tasso 🦡, scritto sopra di lui come un boss (vuoto = nessun nome)',
     badgerNamePlaceholder: 'Nessun nome',
@@ -231,7 +231,7 @@ const STRINGS_IT = Object.freeze({
       death: 'Morte di un serpente',
       disappear: 'Bomba o tasso che spariscono',
       eat: 'Mela mangiata',
-      eatCreature: 'Topo o gallina mangiati',
+      eatCreature: 'Topo o pollo mangiati',
       explosion: 'Esplosione (bomba, tasso ucciso)',
       hit: 'Colpo a segno',
       hurt: 'Ferita (serpente tagliato, tasso colpito)',
@@ -367,8 +367,8 @@ const STRINGS_IT = Object.freeze({
     noLivingSnake: 'Nessun serpente in gioco',
     spawnNames: {
       apple: 'Mela',
-      rat: 'Ratto',
-      chicken: 'Gallina',
+      rat: 'Topo',
+      chicken: 'Pollo',
       bomb: 'Bomba',
       badger: 'Tasso',
     },

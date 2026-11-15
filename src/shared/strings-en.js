@@ -46,7 +46,7 @@ export const STRINGS_EN = Object.freeze({
     panelNext: '{name} →',
     killPopups: ['KILL!', 'DOUBLE KILL!!', 'TRIPLE KILL!!!', 'QUADRA KILL!!!!', 'PENTA KILL!!!!!'],
     killPopupMore: '{n}× KILL!!!!!',
-    takedowns: { streak: 'SHUTDOWN!', mvp: 'MVP KILL!', firstBlood: 'FIRST BLOOD!' },
+    takedowns: { streak: 'SHUTDOWN!', mvp: 'KINGSLAYER!', firstBlood: 'FIRST BLOOD!' },
     killHow: { hit: 'HIT!', crash: 'CRASH!', boxed: 'BOXED!' },
   },
 
@@ -58,7 +58,7 @@ export const STRINGS_EN = Object.freeze({
     step2Title: '2. Open the game',
     step2Text: 'Then scan this code to open the controller.',
     step3: 'Turn off mobile data if the game doesn’t open.',
-    browser: 'Trouble? Use Chrome or Safari.',
+    browser: 'Other troubles? Use Chrome or Safari.',
     wifiName: 'Network: {ssid}',
     wifiPassword: 'Password: {password}',
     gameUrl: 'Address: {url}',
@@ -136,10 +136,10 @@ export const STRINGS_EN = Object.freeze({
     growthPerApple: 'Growth per apple',
     ratChance: 'Chance a new apple is a rat 🐀 that runs away and is worth 4 apples (%, 0 = never)',
     chickenChance:
-      'Chance a new apple is a rooster 🐓 that flees nearby snakes, is worth 25 apples and leaves a feast (%, 0 = never)',
+      'Chance a new apple is a chicken 🐓 that flees nearby snakes, is worth 25 apples and leaves a feast (%, 0 = never)',
     badgerEverySec:
-      'Honey badger 🦡, the predator: average seconds between badgers (s, the exact time varies at random; 0 = never)',
-    badgerLifetimeSec: 'How long the honey badger 🦡 stays on the field (s)',
+      'Badger 🦡, the predator: average seconds between badgers (s, the exact time varies at random; 0 = never)',
+    badgerLifetimeSec: 'How long the Badger 🦡 stays on the field (s)',
     badgerHealth: 'Badger 🦡 health: scissors ✂️ hits to take it down (a bullet always does)',
     badgerName: 'Badger 🦡 name, written above it like a boss (empty = no name)',
     badgerNamePlaceholder: 'No name',
