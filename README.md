@@ -171,7 +171,7 @@ Computer players, so an empty booth still has something going on. Off by default
   2. **Flee:** keep away from the heads of snakes as long or shorter (the ones that win or tie a head-on), from the badger and from bombs.
   3. **Hunt:** go for the best food it can reach, chickens and rats first. With scissors, it goes after another snake's body or the badger.
   4. **Wander.**
-- **Effects:** a ghost with more than 2 s left ignores 1 and 2 (walls still count). A golden snake checks both cells it covers.
+- **Effects:** a ghost with more than 2 s left ignores 1 and 2 (walls still count). A golden snake plans both of its moves each tick: it weighs every 2-move path (first direction, then second, no reversals), both cells checked for safety and the rest judged by where the path ends, and queues both directions, so it can go straight and then turn (around a wall, onto food). Its reaction wait counts both moves.
 - **Skill:** at skill 1 (often) and 2 (rarely) a bot sometimes ignores step 2 and picks any safe move. At skill 3 it never does. Skill also sets the reaction time: after each decision a bot waits a random 0 to 3 of its moves before the next at skill 1, 0 to 2 at skill 2, and decides every move at skill 3. The wait is rolled afresh each time, so a bot can't fall into step with a loop it is running (like circling an apple without ever turning into it). In between it keeps going, but 85% of the time still turns away from certain death right ahead. Each round every bot starts with a fresh roll, so they don't all decide on the same tick.
 - **Cost:** the work per tick has a fixed budget, so many bots can't slow the game down. 24 bots on an 80×80 board take well under a millisecond per tick on average; `/health` reports it under `bots`.
 

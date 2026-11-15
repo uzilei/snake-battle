@@ -1807,7 +1807,10 @@ export function createEngine({ config, random = Math.random } = {}) {
   // With `replace`, the turns queued so far are dropped first: for an input
   // that decides afresh before every move (a bot). Going straight on then
   // just leaves the queue empty.
-  function setDirection(id, dir, { replace = false } = {}) {
+  // `keep`: queue it even when it's the direction already queued or taken (a
+  // "straight on" move), so a two-move plan (a golden bot's) can go straight
+  // first and turn second. Never a reversal.
+  function setDirection(id, dir, { replace = false, keep = false } = {}) {
     const p = players.get(id);
     if (!p || p.status !== 'alive') return false;
     if (typeof dir !== 'string' || !Object.hasOwn(DIRECTIONS, dir)) return false;
@@ -1821,7 +1824,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     const full = queue.length >= INPUT_BUFFER_SIZE;
     const prevIndex = queue.length - (full ? 2 : 1);
     const previous = prevIndex >= 0 ? queue[prevIndex] : p.snake.dir;
-    if (dir === previous || dir === OPPOSITE[previous]) return false;
+    if ((dir === previous && !keep) || dir === OPPOSITE[previous]) return false;
     if (full) queue.pop();
     queue.push(dir);
     return true;

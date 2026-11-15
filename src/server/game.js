@@ -16,7 +16,7 @@ import { validHat, HAT_IDS } from '../shared/hats.js';
 import { cleanName } from '../shared/names.js';
 import { SOUND_LIMITS, SOUND_VOLUME_DEFAULTS, soundGains } from '../shared/sounds.js';
 import { BOT_HIDDEN_SKILL, BOT_LIMITS, BOT_NAME_PATTERN, BOT_SKILLS, MAX_SNAKES, botName, botTarget, botWeightKey, pickBotSkill, validReservedBots, normalizeReservedBots } from '../shared/bots.js';
-import { createBotBrain } from '../bot-brain.js';
+import { createBotBrain, queueBotMoves } from '../bot-brain.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
 // (most wins, most kills, highest score), shown only when it is enabled.
@@ -445,7 +445,7 @@ export function createGame({
     const started = performance.now();
     const skills = new Map([...bots].map(([id, b]) => [id, b.skill]));
     const dirs = brain.think(engine.getState(), [...bots.keys()], { skills, bombMode: config.bombMode });
-    for (const [id, dir] of dirs) engine.setDirection(id, dir, { replace: true });
+    queueBotMoves(engine.setDirection, dirs, brain.secondMoves());
     thinkStats.samples.push(performance.now() - started);
     if (thinkStats.samples.length > TICK_WINDOW) thinkStats.samples.shift();
   }

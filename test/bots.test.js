@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createEngine } from '../src/engine.js';
-import { createBotBrain, BOT_BRAIN } from '../src/bot-brain.js';
+import { createBotBrain, BOT_BRAIN, queueBotMoves } from '../src/bot-brain.js';
 import { createGame, resolveSidePanel } from '../src/server/game.js';
 import { createRecords } from '../src/server/records.js';
 import { botTarget, botName, BOT_NAME_PATTERN, MAX_SNAKES, pickBotSkill, validReservedBots, BOT_HIDDEN_SKILL } from '../src/shared/bots.js';
@@ -315,13 +315,92 @@ describe('bot brain: survive', () => {
     assert.ok(dirs.every((d) => d !== 'right'));
   });
 
-  test('a golden snake (two moves a tick) checks the cell after next too', () => {
+  // A golden bot's plan for this tick: [first, second].
+  const plan = (e, id = 'a', opts = {}) => {
+    const brain = createBotBrain({ random: seeded(1), onError: (err) => { throw err; } });
+    const first = brain.think(e.getState(), [id], { skill: 3, ...opts }).get(id);
+    return [first, brain.secondMoves().get(id)];
+  };
+  // Steers `ids` and ticks, as game.js does.
+  const play = (e, brain, ids, ticks, opts = {}) => {
+    for (let i = 0; i < ticks; i++) {
+      const firsts = brain.think(e.getState(), ids, { skill: 3, ...opts });
+      queueBotMoves(e.setDirection, firsts, brain.secondMoves());
+      e.tick();
+    }
+  };
+
+  test('a golden snake (two moves a tick) plans both cells: never straight into a body on the second', () => {
     const snakes = { a: [row(5, 5, 3), 'right'], b: [column(7, 2, 8), 'up'], ...far }; // (7, 5) is mid-body
     const plain = setup(snakes);
     assert.equal(pick(plain), 'right');
     const golden = setup(snakes);
     golden._debug.setEffect('a', 'golden', 3000);
-    assert.ok(['up', 'down'].includes(pick(golden)));
+    const [first, second] = plan(golden);
+    assert.ok(first && second);
+    assert.notDeepEqual([first, second], ['right', 'right']);
+    const brain = createBotBrain({ random: seeded(1), onError: (err) => { throw err; } });
+    play(golden, brain, ['a'], 1);
+    assert.equal(player(golden, 'a').status, 'alive');
+  });
+
+  test('a golden bot 2 cells from a wall survives by turning, even on its second step', () => {
+    // a's head at (18, 5) facing right: (19, 5), then the wall. b blocks
+    // (18, 3) and c (18, 7), so going up or down two cells straight dies too;
+    // a turn on the second step (or right, then up or down) doesn't.
+    // b and c head off left; their bodies still cover (18, 3) and (18, 7)
+    // after this tick's move (only the tails leave).
+    const e = setup({
+      a: [row(5, 18, 15), 'right'],
+      b: [[...row(3, 14, 18), [18, 2]], 'left'],
+      c: [[...row(7, 14, 18), [18, 8]], 'left'],
+      ...far,
+    });
+    e._debug.setEffect('a', 'golden', 5000);
+    const [first, second] = plan(e);
+    assert.ok(first && second);
+    const brain = createBotBrain({ random: seeded(1), onError: (err) => { throw err; } });
+    play(e, brain, ['a'], 1);
+    assert.equal(player(e, 'a').status, 'alive');
+  });
+
+  test('a golden bot can turn on its second step to reach food', () => {
+    const e = setup({ a: [row(5, 5, 3), 'right'], ...far });
+    e._debug.setApples([[6, 4]]); // right, then up: eaten this tick
+    e._debug.setEffect('a', 'golden', 3000);
+    assert.deepEqual(plan(e), ['right', 'up']);
+    const brain = createBotBrain({ random: seeded(1), onError: (err) => { throw err; } });
+    play(e, brain, ['a'], 1);
+    const a = e.getState().snakes.find((s) => s.id === 'a');
+    assert.deepEqual(a.segments[0], { x: 6, y: 4 });
+    assert.ok(!e.getState().apples.some((p) => p.x === 6 && p.y === 4));
+  });
+
+  test("a golden bot's reaction wait counts both of its moves", () => {
+    // random 0.99: every wait rolls the maximum (3 moves at skill 1), and a
+    // reflex never fires, so the first decision comes once the wait is used up.
+    const firstDecision = (golden) => {
+      const e = setup({ a: [row(5, 5, 3), 'right'], ...far });
+      if (golden) e._debug.setEffect('a', 'golden', 5000);
+      const brain = createBotBrain({ random: () => 0.99, onError: (err) => { throw err; } });
+      const state = e.getState();
+      for (let n = 1; n <= 10; n++) if (brain.think(state, ['a'], { skill: 1 }).has('a')) return n;
+      return null;
+    };
+    assert.equal(firstDecision(false), 4); // waits 3 ticks of 1 move
+    assert.equal(firstDecision(true), 3); // waits 2 ticks of 2 moves
+  });
+
+  test('queueBotMoves: straight then a turn turns on the second move', () => {
+    const e = setup({ a: [row(5, 5, 3), 'right'], ...far });
+    e._debug.setEffect('a', 'golden', 3000);
+    queueBotMoves(e.setDirection, new Map([['a', 'right']]), new Map([['a', 'down']]));
+    e.tick();
+    const a = e.getState().snakes.find((s) => s.id === 'a');
+    assert.deepEqual(a.segments.slice(0, 3), [{ x: 6, y: 6 }, { x: 6, y: 5 }, { x: 5, y: 5 }]);
+    // A plain answer still replaces the queue.
+    queueBotMoves(e.setDirection, new Map([['a', 'right']]));
+    assert.equal(e.setDirection('a', 'up'), true); // nothing stale ahead of it
   });
 
   test('a ghost with time to spare goes through bodies, but never walls', () => {
