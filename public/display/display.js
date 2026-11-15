@@ -4,7 +4,7 @@
 import { STRINGS, LOCALE, fmt, setLocale } from '/shared/strings.js';
 import startLocale from '/locale.js';
 import { playerColor } from '/shared/colors.js';
-import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt, buildChains } from '/shared/snake-path.js';
+import { snakePath, pointAt, subPath, smoothSubPath, travelDirAt, buildChains, taperScale } from '/shared/snake-path.js';
 import { POWER_UPS, POWER_UP_RULES } from '/shared/powerups.js';
 import { RAT_RULES } from '/shared/rats.js';
 import { CHICKEN_RULES } from '/shared/chicken.js';
@@ -397,7 +397,7 @@ function drawRemains(apples, cell, n) {
   // Every other segment a shade darker, drawn like a living snake's stripes:
   // a band across the body along its path, clipped to the body's outline.
   ctx.save();
-  clipToBody(chains, -Infinity, Infinity, cell, width / 2);
+  clipToBody(chains, [{ u0: -Infinity, u1: Infinity, r: width / 2 }], cell);
   ctx.lineCap = 'butt';
   ctx.lineWidth = cell * STRIPE_REACH * 2;
   ctx.strokeStyle = REMAINS_LOOK.dark;
@@ -640,13 +640,14 @@ function pointsAt(chains, u) {
 // Clips to the body's exact shape: a line with round joins and caps is the
 // union of a rectangle per straight piece and a circle at every point. All
 // pieces wind the same way, so the nonzero rule fills their union.
-function clipToBody(chains, u0, u1, cell, r, extra = []) {
+// `bands`: [{ u0, u1, r }], the body's runs of equal half-width r (px).
+function clipToBody(chains, bands, cell, extra = []) {
   ctx.beginPath();
   for (const c of extra) {
     ctx.moveTo(c.x + c.r, c.y);
     ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
   }
-  for (const chain of chains) {
+  for (const { u0, u1, r } of bands) for (const chain of chains) {
     const pts = subPath(chain, u0, u1);
     if (!pts) continue;
     const px = pts.map((q) => ({ x: (q.x + 0.5) * cell, y: (q.y + 0.5) * cell }));
@@ -675,6 +676,28 @@ function clipToBody(chains, u0, u1, cell, r, extra = []) {
 // cover the outside of a bend, short of the next leg of a tight zigzag.
 const STRIPE_REACH = 0.6;
 
+// The body's runs of equal width (the tail taper), as u ranges with their
+// half-width in px. Neighbouring segments meet halfway between their
+// centers, so the runs slide along with the segments.
+function taperBands(segU, front, back, width) {
+  const bands = [];
+  for (let j = 0; j < segU.length; j++) {
+    const r = (width / 2) * taperScale(j, segU.length);
+    const u0 = j === 0 ? front : (segU[j - 1] + segU[j]) / 2;
+    const u1 = j === segU.length - 1 ? back : (segU[j] + segU[j + 1]) / 2;
+    const last = bands[bands.length - 1];
+    if (last && last.r === r) last.u1 = u1;
+    else bands.push({ u0, u1, r });
+  }
+  return bands;
+}
+
+// Half-width (px) of the body at position u.
+function bandRadius(bands, u) {
+  for (const b of bands) if (u <= b.u1) return b.r;
+  return bands[bands.length - 1].r;
+}
+
 function disc(x, y, r) {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -694,7 +717,8 @@ function drawSnake(s, prev, t, cell, n, now, anim = null, frame = null, hat = nu
   // The snake's speed in cells per second: golden moves 2 cells a tick, a
   // frozen snake only every second tick.
   const cellsPerSec = frame?.tickMs > 0 ? (1000 / frame.tickMs) * (s.effect?.type === 'golden' ? 2 : 1) * (s.frozen ? 0.5 : 1) : 5;
-  const bumps = anim && s.alive ? swallowBumps(anim, chains, front, back, width, cell, now, BUMP_SPEED * cellsPerSec) : [];
+  const bands = taperBands(segU, front, back, width);
+  const bumps = anim && s.alive ? swallowBumps(anim, chains, front, back, bands, cell, now, BUMP_SPEED * cellsPerSec) : [];
   ctx.save();
   ctx.globalAlpha = clamp(look.alpha, 0, 1);
   ctx.lineJoin = 'round';
@@ -726,12 +750,16 @@ function drawSnake(s, prev, t, cell, n, now, anim = null, frame = null, hat = nu
     ctx.shadowBlur = cell * (0.8 + 0.25 * Math.sin(now / 120));
   }
 
-  // Body in the base color...
+  // Body in the base color, a stroke per run of equal width (the tail
+  // taper); the round caps make each narrowing a soft step...
   ctx.lineCap = 'round';
   ctx.strokeStyle = look.color;
-  ctx.beginPath();
-  tracePath(chains, front, back, cell);
-  ctx.stroke();
+  for (const b of bands) {
+    ctx.lineWidth = b.r * 2;
+    ctx.beginPath();
+    tracePath(chains, b.u0, b.u1, cell);
+    ctx.stroke();
+  }
   ctx.shadowBlur = 0;
   ctx.fillStyle = look.color;
   for (const b of bumps) disc(b.x, b.y, b.r);
@@ -741,7 +769,7 @@ function drawSnake(s, prev, t, cell, n, now, anim = null, frame = null, hat = nu
   // a band along the rounded path, square to it, so it turns through bends,
   // clipped to the body so nothing shows past its outline.
   ctx.save();
-  clipToBody(chains, front, back, cell, width / 2, bumps);
+  clipToBody(chains, bands, cell, bumps);
   ctx.lineCap = 'butt';
   ctx.lineWidth = cell * STRIPE_REACH * 2;
   ctx.strokeStyle = look.dark;
@@ -760,7 +788,7 @@ function drawSnake(s, prev, t, cell, n, now, anim = null, frame = null, hat = nu
   ctx.stroke();
   ctx.fillStyle = look.dark;
   if (segU.length > 1 && (segU.length - 1) % 2 === 1) {
-    for (const p of pointsAt(chains, back)) disc((p.x + 0.5) * cell, (p.y + 0.5) * cell, width / 2); // round tail tip
+    for (const p of pointsAt(chains, back)) disc((p.x + 0.5) * cell, (p.y + 0.5) * cell, bands[bands.length - 1].r); // round tail tip
   }
   ctx.restore();
 
@@ -840,7 +868,7 @@ function animOf(id, now) {
 // head (front + offset), so it travels with the body as that slides.
 // speed: segments per second. It's added up frame by frame (b.off), so a
 // change of speed (golden, freeze) never makes a bump jump.
-function swallowBumps(anim, chains, front, back, width, cell, now, speed) {
+function swallowBumps(anim, chains, front, back, bands, cell, now, speed) {
   const len = back - front;
   const out = [];
   for (const b of anim.bumps) {
@@ -853,8 +881,9 @@ function swallowBumps(anim, chains, front, back, width, cell, now, speed) {
     if (now < b.start) continue;
     const off = b.off;
     const swell = clamp(Math.min(off / 0.8, (len + 0.5 - off) / 1.2), 0, 1);
-    const r = (width / 2) * (1 + 0.4 * b.size * swell);
-    for (const p of pointsAt(chains, Math.min(back, front + off))) out.push({ x: (p.x + 0.5) * cell, y: (p.y + 0.5) * cell, r });
+    const u = Math.min(back, front + off);
+    const r = bandRadius(bands, u) * (1 + 0.4 * b.size * swell); // narrower toward the tail, like the body
+    for (const p of pointsAt(chains, u)) out.push({ x: (p.x + 0.5) * cell, y: (p.y + 0.5) * cell, r });
   }
   return out;
 }

@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildChains, snakePath, pointAt, subPath, smoothPointAt, smoothSubPath, travelDirAt, turnProgress } from '../src/shared/snake-path.js';
+import { buildChains, snakePath, pointAt, subPath, smoothPointAt, smoothSubPath, travelDirAt, turnProgress, taperScale } from '../src/shared/snake-path.js';
 
 const cells = (list) => list.map(([x, y]) => ({ x, y }));
 const snake = (list) => ({ segments: cells(list) });
@@ -361,5 +361,38 @@ describe('snappier turns: the head runs ahead on a turning tick', () => {
     assert.equal(snakePath(snake([[3, 2]]), one, 0.2, N).front, 0.8);
     const still = snake([[3, 2], [3, 3], [2, 3]]);
     assert.equal(snakePath(still, still, 0.2, N).front, 0);
+  });
+});
+
+describe('taperScale', () => {
+  const widths = (count) => Array.from({ length: count }, (_, j) => Math.round(taperScale(j, count) * 100));
+
+  test('the head is always full width', () => {
+    for (const count of [1, 2, 5, 21, 100]) assert.equal(taperScale(0, count), 1);
+  });
+
+  test('a short snake gets only the first steps, two segments each', () => {
+    assert.deepEqual(widths(5), [100, 95, 95, 90, 90]); // 4 body segments: a 90% tail
+    assert.deepEqual(widths(6), [100, 100, 95, 95, 90, 90]); // an odd segment left over stays full width
+    assert.deepEqual(widths(2), [100, 100]); // one body segment: no full step fits
+  });
+
+  test('16 body segments and up reach the 60% minimum at the tail', () => {
+    assert.deepEqual(widths(17), [100, 95, 95, 90, 90, 85, 85, 80, 80, 75, 75, 70, 70, 65, 65, 60, 60]);
+    const w = widths(21); // 20 body segments
+    assert.equal(w.at(-1), 60);
+    assert.deepEqual(w.slice(1, 5), [100, 100, 100, 100]);
+  });
+
+  test('a long snake spreads its eight steps over the body', () => {
+    const w = widths(41); // 40 body segments: five per step
+    assert.deepEqual(w.slice(1), [95, 90, 85, 80, 75, 70, 65, 60].flatMap((x) => Array(5).fill(x)));
+  });
+
+  test('widths never grow toward the tail', () => {
+    for (const count of [3, 9, 18, 33, 77]) {
+      const w = widths(count);
+      for (let j = 1; j < count; j++) assert.ok(w[j] <= w[j - 1]);
+    }
   });
 });

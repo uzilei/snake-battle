@@ -100,6 +100,28 @@ export function snakePath(cur, prev, t, gridSize) {
   return { chains, front: segU[0] ?? 0, back: segU[n - 1] ?? 0, segU };
 }
 
+// ---- tail taper ----
+// The body narrows toward the tail in up to TAPER_STEPS steps of TAPER_STEP
+// each. Every step is at least two segments long; a long snake spreads its
+// steps over the whole body (the leftover segments by the head stay full
+// width). A short one only gets as many steps as two-segment runs fit, so the
+// steps it does get are the first ones (95%, 90%, ...), ending at the tail.
+export const TAPER_STEPS = 8;
+export const TAPER_STEP = 0.05;
+
+/**
+ * Width of segment j (0 = head) of a snake with `count` segments, as a share
+ * of full width.
+ */
+export function taperScale(j, count) {
+  const body = count - 1; // the head isn't part of the taper
+  if (j <= 0 || j > body) return 1;
+  const steps = Math.min(TAPER_STEPS, Math.floor(body / 2));
+  const size = Math.max(2, Math.floor(body / TAPER_STEPS));
+  const step = steps - Math.floor((body - j) / size); // counted back from the tail
+  return step > 0 ? 1 - TAPER_STEP * step : 1;
+}
+
 // Unit step from cell b to the next cell a, across a wrap too.
 function stepDir(a, b, gridSize) {
   const w = wrapStep(a, b, gridSize);
