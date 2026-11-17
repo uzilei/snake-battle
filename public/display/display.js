@@ -1231,14 +1231,24 @@ const BEAM_FADE_MS = 500; // then fading out
 const chargeAt = (c, now) => (c.frozen ?? clamp((now - c.start) / c.ms, 0, 1));
 const bright = (hex, amount) => mix(hex, '#ffffff', Math.round(amount * 20) / 20); // few shades: mix() caches each
 
+// The audio never gets in the way of drawing: a failure just means no whine.
 function stopWhine(c) {
-  c.whine?.stop();
+  try {
+    c.whine?.stop();
+  } catch {
+    /* already gone */
+  }
   c.whine = null;
 }
 function startWhine(c, msg, now) {
   stopWhine(c);
   const gain = msg.effects?.sounds ? (msg.soundGains?.laserCharge ?? 1) : 0;
-  if (gain > 0 && !msg.paused) c.whine = sfx.whine(gain, c.start + c.ms - now, chargeAt(c, now));
+  if (!(gain > 0) || msg.paused) return;
+  try {
+    c.whine = sfx.whine(gain, c.start + c.ms - now, chargeAt(c, now));
+  } catch {
+    c.whine = null;
+  }
 }
 
 // The charges in `state.lasers` (after this tick's events): new ones the
@@ -1913,6 +1923,7 @@ function onState(msg) {
         startWhine(c, msg, now);
       } else if (ev.type === 'laserFire') {
         const c = charging.get(ev.id) ?? { axis: ev.axis, index: ev.index, color: colorOf(ev.shooterId) };
+        stopWhine(c); // normally over by now; not if the speed changed mid-charge
         fired.add(ev.id);
         laserFired(c, s.gridSize, now, fx);
       }
