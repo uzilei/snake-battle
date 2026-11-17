@@ -190,7 +190,8 @@ export function createEngine({ config, random = Math.random } = {}) {
   let countdownElapsed = 0;
   // What happened during the latest tick, for renderers (effects, sounds...):
   // { type: 'eat', id, x, y } | { type: 'death', id, killerId, killNo? } |
-  // { type: 'headOn', ids }. killNo: which of the killer's kills this round
+  // { type: 'headOn', ids } | { type: 'projectileEnd', x, y, hit?, ids }
+  // (ids: the shooters, and any snakes it hit). killNo: which of the killer's kills this round
   // it is (1, 2, ...; the badger counts too), only when someone got the
   // kill. takedown: 'streak' or 'mvp' when the victim was a leader (see
   // LEADERS), else 'firstBlood' for the round's first credited snake kills
@@ -835,27 +836,27 @@ export function createEngine({ config, random = Math.random } = {}) {
       const x = head.x + d.x;
       const y = head.y + d.y;
       events.push({ type: 'shot', id: p.id, x: head.x, y: head.y, dir: s.dir });
-      if (!inBounds(x, y)) return events.push({ type: 'projectileEnd', x: head.x, y: head.y }); // fired into a wall
+      if (!inBounds(x, y)) return events.push({ type: 'projectileEnd', x: head.x, y: head.y, ids: [p.id] }); // fired into a wall
       const targets = solidAt(x, y);
       if (targets.length) {
-        events.push({ type: 'projectileEnd', x, y, hit: true });
+        events.push({ type: 'projectileEnd', x, y, hit: true, ids: [p.id, ...targets.map((t) => t.id)] });
         for (const t of targets) shot(t, p.id);
         return;
       }
       const hitBadger = badgerAt(x, y);
       if (hitBadger) {
-        events.push({ type: 'projectileEnd', x, y, hit: true });
+        events.push({ type: 'projectileEnd', x, y, hit: true, ids: [p.id] });
         return killBadger(hitBadger, p, true);
       }
       const creature = creatureHitBy(x, y);
       if (creature !== -1) {
-        events.push({ type: 'projectileEnd', x, y, hit: true });
+        events.push({ type: 'projectileEnd', x, y, hit: true, ids: [p.id] });
         return creatureDies(creature, 'shot');
       }
       const other = projectiles.findIndex((o) => o.x === x && o.y === y);
       if (other !== -1) {
-        projectiles.splice(other, 1);
-        return events.push({ type: 'projectileEnd', x, y });
+        const [hitOne] = projectiles.splice(other, 1);
+        return events.push({ type: 'projectileEnd', x, y, ids: [...new Set([p.id, hitOne.ownerId])] });
       }
       projectiles.push({ id: nextObjectId++, x, y, dir: s.dir, ownerId: p.id });
     },
@@ -1256,7 +1257,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     for (const n of ahead) {
       if (!inBounds(n.x, n.y)) {
         gone.add(n.pr); // never wraps, even when walls do
-        events.push({ type: 'projectileEnd', x: n.pr.x, y: n.pr.y });
+        events.push({ type: 'projectileEnd', x: n.pr.x, y: n.pr.y, ids: [n.pr.ownerId] });
       }
     }
     for (let i = 0; i < ahead.length; i++) {
@@ -1269,7 +1270,10 @@ export function createEngine({ config, random = Math.random } = {}) {
         if (same || swap) {
           gone.add(a.pr);
           gone.add(b.pr);
-          events.push({ type: 'projectileEnd', x: same ? a.x : (a.pr.x + b.pr.x) / 2, y: same ? a.y : (a.pr.y + b.pr.y) / 2 });
+          events.push({
+            type: 'projectileEnd', x: same ? a.x : (a.pr.x + b.pr.x) / 2, y: same ? a.y : (a.pr.y + b.pr.y) / 2,
+            ids: [...new Set([a.pr.ownerId, b.pr.ownerId])],
+          });
         }
       }
     }
@@ -1287,7 +1291,7 @@ export function createEngine({ config, random = Math.random } = {}) {
         const hitBadger = badgerAt(n.x, n.y) ?? badgerAt(n.pr.x, n.pr.y);
         if (hitBadger) {
           gone.add(n.pr);
-          events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true });
+          events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true, ids: [n.pr.ownerId] });
           killBadger(hitBadger, players.get(n.pr.ownerId) ?? null, true);
           continue;
         }
@@ -1295,12 +1299,12 @@ export function createEngine({ config, random = Math.random } = {}) {
         const r = creatureHitBy(n.x, n.y);
         if (r === -1) continue;
         gone.add(n.pr);
-        events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true });
+        events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true, ids: [n.pr.ownerId] });
         creatureDies(r, 'shot');
         continue;
       }
       gone.add(n.pr);
-      events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true });
+      events.push({ type: 'projectileEnd', x: n.x, y: n.y, hit: true, ids: [...new Set([n.pr.ownerId, ...[...hit].map((p) => p.id)])] });
       for (const p of hit) if (!shooterOf.has(p)) shooterOf.set(p, n.pr.ownerId);
     }
     for (const n of ahead) {

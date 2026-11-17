@@ -14,7 +14,7 @@ import { SETTINGS_VERSION } from './settings-store.js';
 import { FRUIT_CODES } from '../shared/fruits.js';
 import { validHat, HAT_IDS } from '../shared/hats.js';
 import { cleanName } from '../shared/names.js';
-import { SOUND_LIMITS, SOUND_VOLUME_DEFAULTS, soundGains } from '../shared/sounds.js';
+import { SOUND_LIMITS, SOUND_VOLUME_DEFAULTS, soundGains, createPhoneSounds } from '../shared/sounds.js';
 import { BOT_HIDDEN_SKILL, BOT_LIMITS, BOT_NAME_PATTERN, BOT_SKILLS, MAX_SNAKES, botName, botTarget, botWeightKey, pickBotSkill, validReservedBots, normalizeReservedBots } from '../shared/bots.js';
 import { createBotBrain, queueBotMoves } from '../bot-brain.js';
 import { roundPlaces } from '../shared/ranking.js';
@@ -66,6 +66,8 @@ const inLimits = ({ min, max }) => (v) => Number.isInteger(v) && v >= min && v <
 const SETTING_RULES = Object.freeze({
   sidePanel: (v) => SIDE_PANEL_MODES.includes(v),
   keyboardPlayers: isBoolean,
+  phoneSounds: isBoolean,
+  phoneVibration: isBoolean,
   leaderboard: isBoolean,
   leaderboardStat: (v) => LEADERBOARD_STATS.includes(v),
   displayButtons: isBoolean,
@@ -151,7 +153,7 @@ export function sidePanelNav(mode, state, recordsOn = false) {
 export const RESET_GROUPS = Object.freeze({
   settings: { config: ['tickMs', 'appleCount', 'growthPerApple', 'maxPlayers', 'gridSize', 'countdownMs', 'spawnShieldSec', 'intermissionMs'] },
   display: { settings: ['sidePanel', 'keyboardPlayers', 'displayButtons', 'hats', ...EFFECT_SETTINGS.filter((k) => k !== 'sounds'), 'fruits'] },
-  sounds: { settings: ['sounds', ...Object.keys(SOUND_LIMITS)] },
+  sounds: { settings: ['sounds', ...Object.keys(SOUND_LIMITS), 'phoneSounds', 'phoneVibration'] },
   rules: {
     config: ['corpseApples', 'wrapWalls', 'timeLimitWin', 'roundTimeLimitSec', 'timeLimitWinner', 'targetLengthWin', 'targetLength', 'lastPersonWins'],
     settings: ['corpseStyle'],
@@ -182,6 +184,8 @@ const defaultSettings = () => ({
   ...Object.fromEntries(BOT_SKILLS.map((k) => [botWeightKey(k), BOT_LIMITS[botWeightKey(k)].default])),
   ...EFFECT_DEFAULTS,
   ...SOUND_VOLUME_DEFAULTS, // 100%: master, and each sound
+  phoneSounds: true, // players may pick, before joining, to hear their own game's sounds on /play
+  phoneVibration: true, // /play buzzes briefly on each turn
   fruits: [...FRUIT_CODES], // every fruit in use
 });
 
@@ -347,15 +351,38 @@ export function createGame({
     return cardPlaces.places;
   }
 
-  function broadcast() {
-    const state = engine.getState();
+  // /play sounds (phoneSounds): what this tick plays on each phone that
+  // asked for them when joining. Worked out once per tick, from the state
+  // before it, only while the setting is on.
+  const phoneSounds = createPhoneSounds();
+  let lastTickState = null;
+  function tickSounds(state) {
+    const prev = lastTickState;
+    lastTickState = state;
+    return settings.phoneSounds ? phoneSounds.update(prev, state) : null;
+  }
+  function soundsForPhone(client, { all, players }) {
+    const own = players.get(client.owned.get(SELF)) ?? { sounds: [], charges: [], fired: [] };
+    const names = [...all, ...own.sounds];
+    if (!names.length && !own.charges.length) return {};
+    return { sounds: { names, charges: own.charges, fired: own.fired, gains: soundGains(settings), tickMs: config.tickMs } };
+  }
+
+  function broadcast(sounds = null, state = engine.getState()) {
     const display = displayMessage(state);
     const admin = adminMessage(state);
     const places = roundCardPlaces(state);
     for (const c of clients) {
       if (c.role === 'display') safeSend(c, { ...display, localPlayers: localPlayersOf(c, state) });
       else if (c.role === 'admin') safeSend(c, admin);
-      else if (c.role === 'player') safeSend(c, { t: 'me', locale: settings.locale, phase: state.phase, round: state.round, paused, players: localPlayersOf(c, state, places) });
+      else if (c.role === 'player') {
+        safeSend(c, {
+          t: 'me', locale: settings.locale, phase: state.phase, round: state.round, paused,
+          players: localPlayersOf(c, state, places),
+          vibrate: settings.phoneVibration,
+          ...(sounds && c.sounds ? soundsForPhone(c, sounds) : {}),
+        });
+      }
     }
   }
 
@@ -499,6 +526,8 @@ export function createGame({
       }
       engine.tick();
       observeRound();
+      const state = engine.getState();
+      return broadcast(tickSounds(state), state);
     }
     broadcast();
   }
@@ -643,6 +672,7 @@ export function createGame({
     if (problem) return safeSend(client, { t: 'error', code: problem, slot: SELF });
     if (previous) replaceStale(previous);
     const result = addOwnedPlayer(client, SELF, name, 'phone', session, validHat(msg.hat)); // unknown hat: none
+    client.sounds = msg.sounds === true; // this phone plays its game's sounds (phoneSounds)
     if (!result.ok) return safeSend(client, { t: 'error', code: result.reason === 'full' ? 'full' : 'badMessage', slot: SELF });
     safeSend(client, { t: 'joined', slot: SELF, id: result.id, name: result.name, colorIndex: result.colorIndex });
     broadcast();

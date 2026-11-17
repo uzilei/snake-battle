@@ -1,6 +1,6 @@
 // /display sounds: which jsfxr presets (sounds/<name>.json) a state update
-// plays. Pure, so node tests can check it; the audio itself lives in
-// public/display/sfx.js.
+// plays, and for the phones that play them too, for whom. No DOM or audio,
+// so node tests can check it; the audio itself lives in public/display/sfx.js.
 
 export const SOUND_NAMES = Object.freeze([
   'badgerSpawn', 'count', 'death', 'disappear', 'eat', 'eatCreature', 'explosion', 'hit', 'hurt', 'laserFire',
@@ -55,64 +55,130 @@ const countdownNumber = (s) => Math.max(1, Math.ceil(s.countdownRemainingMs / 10
 // the same tick (e.g. after an /admin change), whose events were already
 // played.
 export function soundsFor(prev, cur, newTick = true) {
+  return taggedSounds(prev, cur, newTick).map((e) => e.name);
+}
+
+// The same, each with who it is about, for the phones that play sounds
+// (phoneSounds): `ids` null for everyone (the countdown, a badger arriving),
+// else the players whose phone plays it, none for some ('disappear').
+// laserFire also carries its laser's id (see createPhoneSounds).
+function taggedSounds(prev, cur, newTick) {
   const out = [];
+  const add = (name, ids = null, extra = {}) => {
+    if (name) out.push({ name, ids: ids && [...new Set(ids.filter(Boolean))], ...extra });
+  };
   const sameRound = Boolean(prev) && prev.round === cur.round;
 
   // Countdown: a beep for each number, then the start.
   if (cur.phase === 'countdown') {
-    if (!sameRound || prev.phase !== 'countdown' || countdownNumber(prev) !== countdownNumber(cur)) out.push('count');
+    if (!sameRound || prev.phase !== 'countdown' || countdownNumber(prev) !== countdownNumber(cur)) add('count');
   } else if (cur.phase === 'playing' && prev && (!sameRound || prev.phase !== 'playing')) {
-    out.push('start');
+    add('start');
   }
-  if (!newTick) return [...out];
+  if (!newTick) return out;
 
   for (const ev of cur.events ?? []) {
     switch (ev.type) {
       case 'eat':
-        if (!ev.item) out.push('eat');
-        else if (ev.item === 'rat' || ev.item === 'chicken') out.push('eatCreature');
+        if (!ev.item) add('eat', [ev.id]);
+        else if (ev.item === 'rat' || ev.item === 'chicken') add('eatCreature', [ev.id]);
         break; // a power-up or bomb sounds through its 'pickup'
-      case 'pickup': {
-        const sound = Object.hasOwn(PICKUP_SOUNDS, ev.item) ? PICKUP_SOUNDS[ev.item] : 'powerUp';
-        if (sound) out.push(sound);
+      case 'pickup': // a bomb's explosion too: the one who set it off
+        add(Object.hasOwn(PICKUP_SOUNDS, ev.item) ? PICKUP_SOUNDS[ev.item] : 'powerUp', [ev.id]);
         break;
-      }
-      case 'shot': out.push('shoot'); break;
-      case 'laserFire': out.push('laserFire'); break; // its charge whine is synthesized (sfx.js)
-      case 'projectileEnd': out.push('hit'); break; // whatever stopped it: a wall, a snake, a creature, another projectile
-      case 'cut':
+      case 'shot': add('shoot', [ev.id]); break;
+      // Its charge whine is synthesized (sfx.js). Phones: the shooter, and
+      // whoever was in its line when it started charging.
+      case 'laserFire': add('laserFire', [ev.shooterId], { laserId: ev.id }); break;
+      // Whatever stopped it: a wall, a snake, a creature, another projectile.
+      // Phones: its shooter and the snakes it hit.
+      case 'projectileEnd': add('hit', ev.ids ?? []); break;
+      case 'cut': add('hurt', [ev.id, ev.byId]); break;
       case 'badgerHit':
       case 'badgerBite':
-        out.push('hurt');
+        add('hurt', [ev.id]);
         break;
-      case 'death':
-        out.push('death');
-        if (ev.killNo >= 4) out.push('overkill');
-        else if (ev.killNo >= 2) out.push('multikill');
+      case 'death': {
+        const ids = [ev.id, ev.killerId]; // the victim and the killer
+        add('death', ids);
+        if (ev.killNo >= 4) add('overkill', ids);
+        else if (ev.killNo >= 2) add('multikill', ids);
         break;
-      case 'badgerSpawn': out.push('badgerSpawn'); break;
-      case 'badgerKilled': out.push('explosion'); break;
+      }
+      case 'badgerSpawn': add('badgerSpawn'); break;
+      case 'badgerKilled': add('explosion', [ev.byId]); break;
       case 'bombExpired':
       case 'badgerGone':
-        out.push('disappear');
+        add('disappear', []);
         break;
     }
   }
 
   if (sameRound) {
-    // Each portal that wasn't there before has opened.
+    // Each portal that wasn't there before has opened, for whoever went in
+    // (their jump is the tick's teleport into it).
     const had = new Set((prev.portals ?? []).map((p) => p.id));
-    for (const p of cur.portals ?? []) if (!had.has(p.id)) out.push('portal');
+    for (const p of cur.portals ?? []) {
+      if (had.has(p.id)) continue;
+      const by = (cur.events ?? []).find((ev) => ev.type === 'teleport' && ev.portalId === p.id);
+      add('portal', by ? [by.id] : []);
+    }
     // A living snake that now faces another way has turned.
     if (cur.phase === 'playing') {
       for (const s of cur.snakes) {
         if (!s.alive) continue;
         const old = prev.snakes.find((x) => x.id === s.id);
-        if (old?.alive && old.dir && s.dir && old.dir !== s.dir) out.push(MOVE_SOUNDS[s.dir]);
+        if (old?.alive && old.dir && s.dir && old.dir !== s.dir) add(MOVE_SOUNDS[s.dir], [s.id]);
       }
     }
   }
-  return out.filter(Boolean);
+  return out;
+}
+
+// /play sounds (the phoneSounds setting): for each player, the sounds of a
+// state update that are about them (see taggedSounds), and the laser charges
+// they hear: their own, and any whose line crosses their body when it starts
+// charging. Those also hear it fire, wherever they've gone by then.
+// Stateful (it remembers who hears each charging laser), so one per game.
+export function createPhoneSounds() {
+  let hearers = new Map(); // laser id -> player ids that hear it fire
+  return {
+    // -> { all: [name] for every phone, players: Map playerId -> { sounds:
+    // [name], charges: [{ id, ms }], fired: [laser id] } } (only players
+    // with something of their own).
+    update(prev, cur, newTick = true) {
+      const all = [];
+      const players = new Map();
+      const of = (id) => {
+        if (!players.has(id)) players.set(id, { sounds: [], charges: [], fired: [] });
+        return players.get(id);
+      };
+      if (newTick) {
+        for (const ev of cur.events ?? []) {
+          if (ev.type !== 'laserCharge') continue;
+          const ids = new Set([ev.shooterId]);
+          for (const s of cur.snakes ?? []) {
+            if (s.alive && s.segments.some((c) => (ev.axis === 'row' ? c.y : c.x) === ev.index)) ids.add(s.id);
+          }
+          hearers.set(ev.id, ids);
+          for (const id of ids) of(id).charges.push({ id: ev.id, ms: ev.chargeMs });
+        }
+      }
+      for (const e of taggedSounds(prev, cur, newTick)) {
+        if (e.laserId !== undefined) {
+          for (const id of hearers.get(e.laserId) ?? e.ids) {
+            of(id).sounds.push(e.name);
+            of(id).fired.push(e.laserId);
+          }
+        } else if (!e.ids) all.push(e.name);
+        else for (const id of e.ids) of(id).sounds.push(e.name);
+      }
+      // Lasers no longer charging (fired, or called off) need no one.
+      const charging = new Set((cur.lasers ?? []).map((l) => l.id));
+      hearers = new Map([...hearers].filter(([id]) => charging.has(id)));
+      return { all, players };
+    },
+  };
 }
 
 // When to play each sound of one tick, in ms from now. Repeats of a kind

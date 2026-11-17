@@ -66,6 +66,8 @@ export const EXPO_DEFAULTS = Object.freeze({
     snakeAnimations: true,
     killPopups: true,
     sounds: true,
+    phoneSounds: true,
+    phoneVibration: true,
     ...SOUND_VOLUME_DEFAULTS,
     fruits: Object.freeze(['1f34e']),
   }),

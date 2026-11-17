@@ -19,6 +19,7 @@
         <span id="hat-label" class="hat-label"></span>
         <div id="hats" class="hats" role="radiogroup" aria-labelledby="hat-label"></div>
       </div>
+      <button type="button" id="sound-btn" class="sound-toggle" aria-pressed="false" hidden><img id="sound-icon" alt=""><span id="sound-label"></span></button>
       <button type="submit" id="join-btn" class="big"></button>
       <p id="name-error" class="error" role="alert"></p>
     </form>
@@ -52,6 +53,8 @@
   </main>
 
   <script src="/vendor/nosleep/NoSleep.min.js"></script>
+  <script src="/vendor/jsfxr/riffwave.js"></script>
+  <script src="/vendor/jsfxr/sfxr.js"></script>
   <script type="module" src="/static/play/play.js"></script>
 </body>
 </html>

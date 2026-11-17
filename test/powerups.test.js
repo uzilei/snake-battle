@@ -544,6 +544,24 @@ const events = (e, type) => e.getState().events.filter((ev) => ev.type === type)
 const column = (x, y0, length) => [Array.from({ length }, (_, i) => [x, y0 + i]), 'up'];
 
 describe('gun', () => {
+  // Who a stopped projectile concerns (its shooter, and any snake it hit),
+  // for the phones that play their own sounds.
+  test('a stopped projectile names its shooter and the snakes it hit', () => {
+    let e = setup({ b: column(6, 8, 6), ...far });
+    e._debug.addProjectile([5, 10], 'right', 'z');
+    e.tick();
+    assert.deepEqual(events(e, 'projectileEnd').map((ev) => ev.ids), [['z', 'b']]);
+    e = setup(far);
+    e._debug.addProjectile([19, 5], 'right', 'z'); // into the wall
+    e.tick();
+    assert.deepEqual(events(e, 'projectileEnd').map((ev) => ev.ids), [['z']]);
+    e = setup({ b: [[[2, 2], [1, 2], [0, 2]], 'right'], ...far });
+    e._debug.addProjectile([5, 10], 'right', 'z');
+    e._debug.addProjectile([8, 10], 'left', 'b'); // they meet
+    e.tick();
+    assert.deepEqual(events(e, 'projectileEnd').map((ev) => ev.ids), [['z', 'b']]);
+  });
+
   test('a projectile checks both cells it passes each tick (first cell)', () => {
     const e = setup({ b: column(6, 8, 6), ...far });
     e._debug.addProjectile([5, 10], 'right', 'z');

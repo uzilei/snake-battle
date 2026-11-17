@@ -1,4 +1,4 @@
-// /display sound player. Each preset in sounds/<name>.json is synthesized
+// /display sound player (also /play's, for phones that ask for the sounds). Each preset in sounds/<name>.json is synthesized
 // once with jsfxr (loaded as a classic script: window.jsfxr) into an
 // AudioBuffer, then replayed as often as needed.
 //
@@ -13,8 +13,8 @@ let master = null;
 const presets = new Map(); // name -> jsfxr params
 const buffers = new Map(); // name -> AudioBuffer
 
-// Loads the presets (once); missing or bad ones are skipped.
-const loaded = Promise.all(SOUND_NAMES.map(async (name) => {
+// Loads the presets (from prepare, once); missing or bad ones are skipped.
+const load = () => Promise.all(SOUND_NAMES.map(async (name) => {
   try {
     const res = await fetch(`/sounds/${soundFile(name)}.json`);
     if (res.ok) presets.set(name, await res.json());
@@ -59,14 +59,15 @@ function bufferFor(name) {
   return buffer;
 }
 
-// Creates the audio context and renders every sound ahead of time, so the
-// first time one plays doesn't stall a frame.
+// Creates the audio context, loads the presets and renders every sound ahead
+// of time, so the first time one plays doesn't stall a frame. Call it from a
+// tap where you can: phones only start audio made during one.
 let prepared = null;
 export function prepare() {
   prepared ??= (async () => {
     if (!context()) return;
     ctx.addEventListener('statechange', () => onChange?.());
-    await loaded;
+    await load();
     for (const name of presets.keys()) bufferFor(name);
   })();
   return prepared;

@@ -1,6 +1,6 @@
 // /play: phone controller. Name prompt, then a full-screen swipe pad in the
 // player's color. The server validates everything; this page only sends
-// { t: 'join', name, session } and { t: 'dir', dir }.
+// { t: 'join', name, session, hat, sounds } and { t: 'dir', dir }.
 
 import { STRINGS, LOCALE, fmt, setLocale } from '/shared/strings.js';
 import startLocale from '/locale.js';
@@ -8,6 +8,9 @@ import { playerColor, contrastText } from '/shared/colors.js';
 import { MAX_NAME_LENGTH } from '/shared/limits.js';
 import { HATS, validHat } from '/shared/hats.js';
 import { cleanName } from '/shared/names.js';
+import { spreadOverTick } from '/shared/sounds.js';
+import playOptions from '/play-options.js';
+import * as sfx from '/static/display/sfx.js';
 
 // The language chosen on /admin: the one at load, then whatever the server's
 // messages say once joined (switched in place, so the game goes on).
@@ -27,6 +30,7 @@ const NAME_KEY = 'snakeBattle.name';
 const SESSION_KEY = 'snakeBattle.session';
 const PAD_KEY = 'snakeBattle.pad';
 const HAT_KEY = 'snakeBattle.hat';
+const SOUND_KEY = 'snakeBattle.sounds';
 
 // ---- storage (may be unavailable, e.g. private mode) ---------------------------
 function load(store, key) {
@@ -60,6 +64,7 @@ const session = sessionToken();
 
 // ---- static text --------------------------------------------------------------
 let card = null; // the round card shown, or null (see showCard)
+let soundsChosen = load(localStorage, SOUND_KEY) === '1'; // see "sounds" below
 $('name-input').maxLength = MAX_NAME_LENGTH;
 function applyText() {
   P = STRINGS.play;
@@ -73,6 +78,7 @@ function applyText() {
   $('rejoin').textContent = P.rejoin;
   $('swipe-hint').textContent = P.swipeHint;
   $('hat-label').textContent = P.hatPrompt;
+  labelSound();
   $('gear').setAttribute('aria-label', P.toggleControls);
   for (const b of document.querySelectorAll('.pad .dir')) {
     b.setAttribute('aria-label', P[`dir${b.dataset.dir[0].toUpperCase()}${b.dataset.dir.slice(1)}`]);
@@ -164,7 +170,7 @@ function connect() {
 
   socket.onopen = () => {
     send({ t: 'hello', role: 'player' });
-    send({ t: 'join', name, session, hat });
+    send({ t: 'join', name, session, hat, sounds: wantsSounds() });
   };
 
   socket.onmessage = (ev) => {
@@ -223,6 +229,7 @@ let sendToServer = () => {};
 
 function join() {
   keepAwake(); // must run inside the tap/submit, browsers only start video playback on a user gesture
+  if (wantsSounds()) sfx.prepare(); // the same for audio
   $('join-btn').disabled = true;
   $('join-btn').textContent = P.connecting;
   $('rejoin').disabled = true;
@@ -246,6 +253,68 @@ function onMe(msg) {
   }
   setStatus(msg.paused);
   showCard(msg.phase === 'intermission' ? p.card : null);
+  vibrate = msg.vibrate === true;
+  playSounds(msg);
+}
+
+// ---- sounds -----------------------------------------------------------------------------
+// When /admin offers them (phoneSounds), a player can pick, before joining,
+// to hear the sounds of their own game here: their eating, turns, hits and
+// deaths, their kills, the lasers aimed at them, and the countdown for
+// everyone. The server picks which; this page plays them at /admin's volumes.
+// The choice is remembered on this device (soundsChosen, at the top).
+const wantsSounds = () => Boolean(playOptions?.sounds) && soundsChosen;
+$('sound-btn').hidden = !playOptions?.sounds;
+function labelSound() {
+  $('sound-btn').setAttribute('aria-pressed', String(soundsChosen));
+  $('sound-icon').src = `/twemoji/${soundsChosen ? '1f50a' : '1f507'}.svg`;
+  $('sound-label').textContent = soundsChosen ? P.soundsOn : P.soundsOff;
+}
+labelSound();
+$('sound-btn').addEventListener('click', () => {
+  soundsChosen = !soundsChosen;
+  save(localStorage, SOUND_KEY, soundsChosen ? '1' : '0');
+  labelSound();
+});
+
+const whines = new Map(); // laser id -> its charge whine (see sfx.whine)
+function stopWhines(ids = [...whines.keys()]) {
+  for (const id of ids) {
+    try {
+      whines.get(id)?.stop();
+    } catch {
+      /* already over */
+    }
+    whines.delete(id);
+  }
+}
+function playSounds(msg) {
+  if (msg.paused) stopWhines(); // a charge freezes with the game: no whine running on
+  const s = msg.sounds;
+  if (!s || !wantsSounds()) return;
+  const gain = (name) => s.gains?.[name] ?? 1;
+  stopWhines(s.fired ?? []);
+  const names = (s.names ?? []).filter((name) => gain(name) > 0);
+  for (const { name, delayMs } of spreadOverTick(names, s.tickMs ?? 0)) sfx.play(name, gain(name), delayMs);
+  for (const c of s.charges ?? []) {
+    try {
+      whines.set(c.id, sfx.whine(gain('laserCharge'), c.ms));
+    } catch {
+      /* no audio here: just no whine */
+    }
+  }
+}
+
+// A short buzz for each turn (/admin's phoneVibration), right away rather
+// than when the server answers. Some browsers (Safari) have no vibration.
+let vibrate = false;
+function buzz() {
+  if (!vibrate) return;
+  try {
+    navigator.vibrate?.(15);
+  } catch {
+    /* not supported */
+  }
 }
 
 // ---- round card -------------------------------------------------------------------------
@@ -327,6 +396,7 @@ function steer(dir) {
   if (dir === lastDir || dir === OPPOSITE[lastDir]) return;
   lastDir = dir;
   sendToServer({ t: 'dir', dir });
+  buzz();
   flash();
 }
 
@@ -412,7 +482,7 @@ addEventListener('keydown', (e) => {
 // between rounds or on the connection-lost screen.
 const noSleep = typeof window.NoSleep === 'function' ? new window.NoSleep() : null;
 // The clip carries a silent audio track (an old iOS workaround). Muting it
-// keeps the player's music playing and keeps this page free of audio.
+// keeps the player's music playing (the game's own sounds are opt-in).
 if (noSleep?.noSleepVideo) {
   noSleep.noSleepVideo.muted = true;
   noSleep.noSleepVideo.setAttribute('muted', '');

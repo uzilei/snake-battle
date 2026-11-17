@@ -55,6 +55,23 @@ The /display effects (particles: explosions and sparks when something dies or is
 
 **Sounds** have their own /admin category, «Suoni 🔊», on in the expo setup. There are no audio files: each sound is a small [jsfxr](https://github.com/chr15m/jsfxr) preset in `sounds/` (JSON synth parameters), synthesized in the browser when /display loads. Browsers only play audio after a click or key press on the page, so /display shows a «Clicca qui per attivare i suoni» banner until someone clicks it once. The four turn sounds (one per snake turn: `moveUp`, `moveDown`, `moveLeft`, `moveRight`) share one volume slider, at 0 (muted) by default, since with many bots they play almost all the time. The category also has a master volume (0–100%) and a volume per sound (0–200%, relative to the master; 0 mutes it), applied live. When the same kind of sound happens several times in one tick (say three apples eaten, or several snakes turning, which count as one kind), they're spaced evenly over the tick instead of all playing at once. Every one plays, however many there are. A limiter at the end of the audio chain keeps a pile-up from clipping: it only turns the total down when it would go past full scale. Which event plays which sound is in `src/shared/sounds.js`; to change a sound, edit or replace its JSON (e.g. exported from sfxr.me).
 
+**Phone sounds** (the "Telefoni 📱" part of the same category, on by default): when on, /play's name screen gets a 🔊/🔇 button, remembered on the phone, and a player who turns it on before joining (it starts off) hears their own game on their phone, at /admin's volumes. /display keeps playing everything. The server works out once per tick which sounds concern which player (`createPhoneSounds` in `src/shared/sounds.js`) and sends each phone only its own:
+
+| Sound | Phones that play it |
+| --- | --- |
+| countdown, start, badger arriving | every phone |
+| bomb or badger disappearing | none |
+| eating (apples, creatures, the feast), turns, power-ups, gun shots, portals | the snake that did it |
+| explosion | whoever set it off (picked up the bomb, killed the badger) |
+| death, multikill, overkill | the snake that died and its killer |
+| hurt | the snake hurt, and the one that cut it (scissors, a laser) |
+| hit (a stopped projectile) | its shooter and the snakes it hit |
+| laser charge and shot | the shooter, and every snake with a segment in the laser's line when the charge starts; they hear the shot even if they've left the line by then |
+
+Phones that didn't turn sounds on get nothing extra. The setting is read when /play loads (`/play-options.js`, like the language). On iPhones the silent switch mutes browser audio.
+
+**Phone vibration** (also under "Telefoni 📱", on by default): /play buzzes for 15 ms on every turn it sends, right away, without waiting for the server. Safari on iPhone has no vibration, so it does nothing there.
+
 Kill popups (also an /admin toggle, on in the expo setup): when a snake is killed by another, a tilted "KILL!" pops up over its head with a burst of stars and a ring. The killer's next kills in the same round read "DOUBLE KILL!!", "TRIPLE KILL!!!", "QUADRA KILL!!!!", "PENTA KILL!!!!!" and then "6× KILL!!!!!" and so on; each step is bigger, hotter in color and with more particles, from 3 kills on they glow and wobble, and past 5 they cycle through the rainbow. A new popup makes older ones close by fade out quickly. These texts are in English on purpose. Killing the badger counts too: its popup appears over the badger, and the numbering goes on from it (a snake with 3 kills that shoots the badger gets "QUADRA KILL!!!!", its next kill "PENTA KILL!!!!!"), the same count as the 🎯 on the scoreboard. The engine numbers them in each credited death event and `badgerKilled` event (`killNo`).
 
 Takedowns (same toggle): killing the snake that led the round in kills (badger included, more than 2, ties included) adds "SHUTDOWN!" in cyan; the round's first credited kill (every one on that tick) adds "FIRST BLOOD!" in red; killing the longest snake (more than 20 cells, ties included) adds "MVP KILL!" in gold. Only one per kill: SHUTDOWN! first, then FIRST BLOOD!, then MVP KILL!. The text appears just below the KILL! and drops instead of rising, with its own falling burst. The engine works out the leaders as they were when the tick began (so a kill or growth on the tick the victim dies doesn't change it) and marks the death event with `takedown: 'streak' | 'firstBlood' | 'mvp'`; only a credited kill counts (a death nobody gets doesn't use up first blood).

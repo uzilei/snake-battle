@@ -79,6 +79,12 @@ export function createApp({ serverConfig, log = console.log, random, limiter: li
     res.type('text/javascript').set('Cache-Control', 'no-store').send(`export default ${JSON.stringify(game.settings.locale)};
 `);
   });
+  // Whether /play offers its sounds before joining (phoneSounds), read at
+  // page load like the language. Never cached.
+  app.get('/play-options.js', (req, res) => {
+    res.type('text/javascript').set('Cache-Control', 'no-store').send(`export default ${JSON.stringify({ sounds: game.settings.phoneSounds })};
+`);
+  });
   // Keeps phone screens awake on /play (a tiny looping video, since the Wake
   // Lock API needs https).
   app.use('/vendor/nosleep', express.static(path.join(ROOT, 'node_modules', 'nosleep.js', 'dist'), { index: false, maxAge: '1d' }));

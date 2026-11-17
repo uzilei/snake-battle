@@ -126,6 +126,19 @@ describe('language over http', () => {
     conn.message(JSON.stringify({ t: 'settings', locale }));
   };
 
+  test('/play-options.js says whether /play offers its sounds, never cached', async () => {
+    let res = await fetch(`${base}/play-options.js`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /javascript/);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(await res.text(), 'export default {"sounds":true};\n');
+    const conn = app.game.connect({ send: () => {}, close: () => {} }, { admin: true, isAuthorized: () => true });
+    conn.message(JSON.stringify({ t: 'settings', phoneSounds: false }));
+    res = await fetch(`${base}/play-options.js`);
+    assert.equal(await res.text(), 'export default {"sounds":false};\n');
+    conn.message(JSON.stringify({ t: 'settings', phoneSounds: true }));
+  });
+
   test('/locale.js is the current language, never cached', async () => {
     let res = await fetch(`${base}/locale.js`);
     assert.equal(res.status, 200);

@@ -91,6 +91,8 @@ $('effects-hint').textContent = A.effectsHint;
 $('h-sounds').textContent = A.soundsTitle;
 $('sounds-hint').textContent = A.soundsHint;
 $('h-sound-volumes').textContent = A.soundVolumesTitle;
+$('h-phones').textContent = A.phonesTitle;
+$('phones-hint').textContent = A.phonesHint;
 $('sound-volumes-hint').textContent = A.soundVolumesHint;
 $('h-creatures').textContent = A.creaturesTitle;
 $('creatures-hint').textContent = A.creaturesHint;
@@ -137,6 +139,8 @@ const RULE_TOGGLES = {
   snakeAnimations: 'settings',
   killPopups: 'settings',
   sounds: 'settings',
+  phoneSounds: 'settings',
+  phoneVibration: 'settings',
 };
 for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
   $(`l-${key}`).textContent = A[key];
@@ -412,7 +416,7 @@ function update(msg) {
   $('sliders-target').parentElement.classList.toggle('off', !msg.config.targetLengthWin);
   $('powerup-settings').classList.toggle('off', !msg.config.powerUps);
   $('bomb-settings').classList.toggle('off', !msg.config.powerUps); // bombs only spawn with power-ups on
-  $('sound-settings').classList.toggle('off', !msg.settings.sounds);
+  $('sound-settings').classList.toggle('off', !msg.settings.sounds && !msg.settings.phoneSounds); // the volumes count for both
   for (const [key, kind] of Object.entries(RULE_TOGGLES)) {
     $(`t-${key}`).checked = Boolean(kind === 'config' ? msg.config[key] : msg.settings[key]);
   }
