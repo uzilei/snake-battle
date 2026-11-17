@@ -1225,7 +1225,7 @@ let shakeStart = -Infinity;
 // the shake a screen shake thing.
 const charging = new Map(); // id -> { axis, index, color, start, ms, whine, frozen }
 const beams = []; // { axis, index, color, start }
-const BEAM_HOLD_MS = 250; // full brightness
+const BEAM_HOLD_MS = 350; // full brightness (about as long as laser.json plays)
 const BEAM_FADE_MS = 500; // then fading out
 // A pause stops the clock: `frozen` holds how far the charge had got.
 const chargeAt = (c, now) => (c.frozen ?? clamp((now - c.start) / c.ms, 0, 1));
