@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, sanitizeName, resolveSidePanel, sidePanelNav } from '../src/server/game.js';
 import { createWordList } from '../src/server/profanity.js';
-import { SOUND_NAMES } from '../src/shared/sounds.js';
+import { SOUND_NAMES, SYNTH_SOUNDS } from '../src/shared/sounds.js';
 import { createRecords } from '../src/server/records.js';
 import { wifiPayload, detectLanIp } from '../src/server/network.js';
 import { passwordMatches, parseCookies, createLoginLimiter, createSessionStore } from '../src/server/auth.js';
@@ -752,7 +752,7 @@ describe('display effects toggles', () => {
     assert.equal(display.last('state').soundGains, null);
     admin.send({ t: 'settings', sounds: true });
     const gains = display.last('state').soundGains;
-    assert.deepEqual(Object.keys(gains).sort(), [...SOUND_NAMES].sort());
+    assert.deepEqual(Object.keys(gains).sort(), [...SOUND_NAMES, ...SYNTH_SOUNDS].sort());
     // Turn sounds start muted; the rest at full volume.
     for (const [name, g] of Object.entries(gains)) assert.equal(g, name.startsWith('move') ? 0 : 1, name);
     admin.send({ t: 'settings', volumeMove: 80 });

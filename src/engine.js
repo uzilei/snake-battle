@@ -164,6 +164,10 @@ export function createEngine({ config, random = Math.random } = {}) {
   let apples = [];
   let bombs = []; // { x, y, remainingMs, since }: (x, y) is the center of a 3x3 block; on top of appleCount, despawn
   let projectiles = []; // { id, x, y, dir, ownerId }
+  // Charging lasers: { id, shooterId, colorIndex, axis: 'row' | 'col',
+  // index, ticksLeft, since }. Each fires at the end of the tick its
+  // ticksLeft reaches 0 (see fireLasers), whoever is left of its shooter.
+  let lasers = [];
   // { id, ends: [{x,y}, {x,y}], remainingMs, since, closing }: two-way, both
   // ends alike. A closing pair has run out but a snake is still on its way
   // through: nothing can enter it, and it goes once no snake spans it.
@@ -248,6 +252,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     apples = [];
     bombs = [];
     projectiles = [];
+    lasers = [];
     portals = [];
     badgers = [];
     badgerWaitMs = 0;
@@ -542,6 +547,7 @@ export function createEngine({ config, random = Math.random } = {}) {
   }
 
   function endRound(winner, reason) {
+    lasers = []; // a charge still going is called off
     winnerId = winner;
     endReason = reason;
     phase = PHASES.INTERMISSION;
@@ -630,6 +636,7 @@ export function createEngine({ config, random = Math.random } = {}) {
     const second = first.filter((p) => effectOf(p, 'golden'));
     substep(first, true);
     substep(second.filter((p) => p.status === 'alive'), false);
+    fireLasers();
     magnetEat();
     countDown();
     badgerTimers();
@@ -872,6 +879,28 @@ export function createEngine({ config, random = Math.random } = {}) {
     },
     feast(p) {
       spawnFeast(p.snake.segments[0]);
+    },
+    // Charges along the line the snake was travelling: the row through the
+    // pickup cell when moving left or right, the column when moving up or
+    // down. It fires laserChargeTicks ticks later (fireLasers).
+    laser(p) {
+      const s = p.snake;
+      const head = s.segments[0];
+      const axis = s.dir === 'left' || s.dir === 'right' ? 'row' : 'col';
+      const laser = {
+        id: nextObjectId++,
+        shooterId: p.id,
+        colorIndex: p.colorIndex,
+        axis,
+        index: axis === 'row' ? head.y : head.x,
+        ticksLeft: POWER_UP_RULES.laserChargeTicks,
+        since: tickCount,
+      };
+      lasers.push(laser);
+      events.push({
+        type: 'laserCharge', id: laser.id, shooterId: p.id, axis, index: laser.index,
+        chargeMs: POWER_UP_RULES.laserChargeTicks * cfg.tickMs,
+      });
     },
   };
   for (const p of Object.values(POWER_UP_TYPES)) {
@@ -1436,6 +1465,65 @@ export function createEngine({ config, random = Math.random } = {}) {
     fallen = [];
   }
 
+  // ---- lasers ----
+  // Once per tick, after the moves: every laser counts down (from the tick
+  // after its pickup), and those that reach 0 fire together, so two beams
+  // that each hit the other's shooter both land. A beam covers its whole row
+  // or column, walls or not. Per snake hit (never its own shooter's, never a
+  // ghost) the segment on a line nearest the head counts: the head dies,
+  // anywhere else is cut off there via removeSegments (dead when fewer than
+  // minLength segments would be left). A shield pops instead. Every death
+  // is the shooter's kill (if still in the game; how 'hit'); a cut that
+  // leaves the snake alive is not. An active badger with any cell on the
+  // line is killed like by a projectile; rats and chickens on it die (a
+  // chicken leaves its feast). Items, bombs and projectiles are untouched.
+  const onLine = (l, c) => (l.axis === 'row' ? c.y === l.index : c.x === l.index);
+  function fireLasers() {
+    if (!lasers.length) return;
+    const due = [];
+    lasers = lasers.filter((l) => {
+      if (l.since !== tickCount) l.ticksLeft--;
+      if (l.ticksLeft > 0) return true;
+      due.push(l);
+      return false;
+    });
+    if (!due.length) return;
+    fallen = [];
+    const hits = new Map(); // player -> { index, laser }: the nearest-head hit
+    for (const l of due) {
+      events.push({ type: 'laserFire', id: l.id, shooterId: l.shooterId, axis: l.axis, index: l.index });
+      for (const p of players.values()) {
+        if (p.status !== 'alive' || p.id === l.shooterId || isGhost(p)) continue;
+        const index = p.snake.segments.findIndex((c) => onLine(l, c));
+        if (index === -1) continue;
+        const prev = hits.get(p);
+        if (!prev || index < prev.index) hits.set(p, { index, laser: l });
+      }
+    }
+    for (const [p, { index, laser }] of hits) {
+      if (p.status !== 'alive') continue;
+      if (effectOf(p, 'shield')) {
+        popShield(p);
+        continue;
+      }
+      const shooter = players.get(laser.shooterId) ?? null;
+      if (index > 0) events.push({ type: 'cut', id: p.id, byId: laser.shooterId });
+      if (index < POWER_UP_RULES.minLength) kill(p, shooter, 'hit');
+      else removeSegments(p.snake.segments.splice(index), index);
+    }
+    for (const l of due) {
+      const shooter = players.get(l.shooterId) ?? null;
+      for (const b of [...badgers]) {
+        if (badgers.includes(b) && isActive(b) && blockCells(b.x, b.y).some((c) => onLine(l, c))) killBadger(b, shooter, true);
+      }
+      for (let i = apples.length - 1; i >= 0; i--) {
+        if (isCreature(apples[i]) && onLine(l, apples[i])) creatureDies(i, 'shot');
+      }
+    }
+    if (rules.corpseApples && fallen.length) dropCorpses(fallen);
+    fallen = [];
+  }
+
   // ---- the honey badger ----
   // A 5x3 block that never rotates or wraps. After a warning (when it does
   // nothing) it is active for badgerLifetimeSec: it wanders like a slow rat,
@@ -1912,6 +2000,12 @@ export function createEngine({ config, random = Math.random } = {}) {
       creaturesFrozen: creaturesFrozen(),
       bombs: bombs.map((b) => ({ x: b.x, y: b.y, remainingMs: b.remainingMs })),
       projectiles: projectiles.map((p) => ({ id: p.id, x: p.x, y: p.y, dir: p.dir, ownerId: p.ownerId })),
+      // Charging lasers. colorIndex: the shooter's when it was picked up (it
+      // may have left since); ticksLeft: ticks until it fires.
+      lasers: lasers.map((l) => ({
+        id: l.id, shooterId: l.shooterId, colorIndex: l.colorIndex, axis: l.axis, index: l.index,
+        ticksLeft: l.ticksLeft, chargeTicks: POWER_UP_RULES.laserChargeTicks,
+      })),
       portals: portals.map((p) => ({
         id: p.id,
         ends: p.ends.map((c) => ({ x: c.x, y: c.y })),

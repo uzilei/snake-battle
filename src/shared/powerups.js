@@ -23,6 +23,7 @@ export const POWER_UPS = Object.freeze(
     { type: 'portal', emoji: '🌀', twemoji: '1f300', durationMs: null, defaultWeight: 2 },
     { type: 'feast', emoji: '🍗', twemoji: '1f357', durationMs: null, defaultWeight: 3 },
     { type: 'shield', emoji: '🛡️', twemoji: '1f6e1', durationMs: 10000, defaultWeight: 3 },
+    { type: 'laser', emoji: '🔦', twemoji: '1f526', durationMs: null, defaultWeight: 1 },
     { type: 'bomb', emoji: '💣', twemoji: '1f4a3', durationMs: null },
   ].map((p) => Object.freeze(p)),
 );
@@ -49,4 +50,7 @@ export const POWER_UP_RULES = Object.freeze({
   portalFadeMs: 2000, // /display fades a portal during its last this-many ms
   magnetRadius: 3, // cells (Manhattan): fruit this close flies into the mouth
   feastApples: 10,
+  // A laser charges this many ticks after the pickup, then fires along the
+  // whole row or column it was picked up on.
+  laserChargeTicks: 4,
 });

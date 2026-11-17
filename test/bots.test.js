@@ -710,6 +710,41 @@ describe('bot brain: cost', () => {
     assert.ok(mean < 15, `mean think ${mean.toFixed(2)} ms`); // the fastest tick is 50 ms
   });
 
+  test('a charging laser line: bots turn away from it and get off it; its shooter crosses freely', () => {
+    // A column laser on x = 10 (shot by z): a, heading right at (9,8), turns
+    // instead of entering it.
+    const e = setup({ a: [[[9, 8], [8, 8], [7, 8]], 'right'], z: [[[10, 15], [10, 16], [10, 17]], 'up'] });
+    e.command({ kind: 'powerUp', id: 'z', item: 'laser' });
+    e.tick();
+    e._debug.setSnake('a', [[9, 8], [8, 8], [7, 8]], 'right');
+    assert.deepEqual(e.getState().lasers.map((l) => [l.axis, l.index]), [['col', 10]]);
+    assert.ok(['up', 'down'].includes(pick(e, 'a')));
+    // On the line, running along it: it leaves.
+    e._debug.setSnake('a', [[10, 8], [10, 9], [10, 10]], 'up');
+    assert.ok(['left', 'right'].includes(pick(e, 'a')));
+    // The shooter's own line is no danger to it: it keeps going straight up it.
+    e._debug.setSnake('z', [[10, 14], [10, 15], [10, 16]], 'up');
+    assert.equal(pick(e, 'z') ?? 'up', 'up');
+  });
+
+  test('a bot crossing near a charging line survives the beam', () => {
+    // a heads straight up column 5; a row laser on y = 6 fires just as it
+    // would get there (going straight, its head is on (5,6) when it fires).
+    // Played out by the brain, it never gets hit.
+    const e = setup({ a: [[[5, 11], [5, 12], [5, 13]], 'up'], b: [[[17, 6], [18, 6], [19, 6]], 'left'], ...far }); // b far off: nothing else to flee
+    e.command({ kind: 'powerUp', id: 'b', item: 'laser' });
+    const brain = createBotBrain({ random: seeded(5), onError: (err) => { throw err; } });
+    let fired = 0;
+    for (let t = 0; t < 6; t++) {
+      for (const [id, dir] of brain.think(e.getState(), ['a'], { skill: 3 })) e.setDirection(id, dir, { replace: true });
+      e.tick();
+      fired += events(e, 'laserFire').length;
+    }
+    assert.equal(fired, 1);
+    assert.equal(player(e, 'a').status, 'alive');
+    assert.equal(e.getState().snakes.find((s) => s.id === 'a').segments.length, 3); // not cut either
+  });
+
   test('fuzz: random boards with every feature, wrapping or not, never throw', () => {
     for (const seed of [1, 2, 3, 4]) {
       const e = createEngine({
@@ -731,6 +766,35 @@ describe('bot brain: cost', () => {
       }
     }
   });
+});
+
+test('fuzz: lasers weighted high, with every feature, never throw', () => {
+  for (const seed of [1, 2, 3]) {
+    const e = createEngine({
+      config: {
+        gridSize: 14 + seed * 4, appleCount: 8, powerUps: true, powerUpChance: 70, bombsPerMinute: 10, ratChance: 15,
+        chickenChance: 15, badgerEverySec: 30, wrapWalls: seed % 2 === 0, corpseApples: true, intermissionMs: 0,
+        weightLaser: 10, weightGun: 3, weightScissors: 3, weightShield: 3, weightGhost: 3,
+      },
+      random: seeded(seed + 100),
+    });
+    const ids = Array.from({ length: 10 }, (_, i) => `b${i}`);
+    for (const id of ids) e.addPlayer(id, id, { bot: true });
+    const brain = createBotBrain({ random: seeded(seed + 200), onError: (err) => { throw err; } });
+    let fired = 0;
+    for (let t = 0; t < 800; t++) {
+      for (const [id, dir] of brain.think(e.getState(), ids, { skill: 1 + (t % 3) })) e.setDirection(id, dir, { replace: true });
+      e.tick();
+      const s = e.getState();
+      fired += s.events.filter((ev) => ev.type === 'laserFire').length;
+      // Never a dead snake's segment, a laser off the board or one charging between rounds.
+      for (const l of s.lasers) {
+        assert.ok(l.index >= 0 && l.index < s.gridSize && l.ticksLeft >= 1);
+        assert.equal(s.phase, 'playing');
+      }
+    }
+    assert.ok(fired > 0, `seed ${seed}: no laser fired`);
+  }
 });
 
 describe('server: bots', () => {

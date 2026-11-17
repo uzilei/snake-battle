@@ -284,17 +284,10 @@ describe('ghost', () => {
 
 // Power-ups on, no random bombs unless a test asks for them.
 const PU = { powerUps: true, bombsPerMinute: 0 };
+// Every weight 0 (from the shared list, so a new power-up is covered) but `type`.
 const onlyWeight = (type) => ({
-  weightGolden: 0,
-  weightGhost: 0,
-  weightGun: 0,
-  weightMagnet: 0,
-  weightFreeze: 0,
-  weightScissors: 0,
-  weightPortal: 0,
-  weightFeast: 0,
-  weightShield: 0,
-  [`weight${type[0].toUpperCase()}${type.slice(1)}`]: 5,
+  ...Object.fromEntries(POWER_UPS.filter((p) => p.defaultWeight !== undefined).map((p) => [weightKey(p.type), 0])),
+  [weightKey(type)]: 5,
 });
 // Two snakes looping forever on a wrapping board, out of each other's way.
 const loopers = {

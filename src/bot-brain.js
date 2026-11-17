@@ -7,7 +7,9 @@
 // Each bot that will move this tick weighs its (up to) three moves, in
 // priority order:
 //   1. Survive: never a move that dies next tick when another one doesn't,
-//      and not one into a pocket too small for the snake. When every move
+//      and not one into a pocket too small for the snake. A charging laser's
+//      line counts as deadly (but for its shooter): don't cross it or stay on
+//      it. When every move
 //      dies, anything but a wall (the engine credits the kill to a snake
 //      that boxed it in either way).
 //   2. Flee: keep away from heads that would win (or tie) a head-on, the
@@ -220,6 +222,11 @@ function buildBoard(state) {
       return Math.min(min, Math.max(0, Math.abs(x - b.x) - bx) + Math.max(0, Math.abs(y - b.y) - by));
     }, Infinity);
 
+  // Charging lasers: their whole row or column is a hazard for every snake
+  // but the shooter's, until it fires.
+  const lasers = state.lasers ?? [];
+  const onLaser = (x, y, id) => lasers.some((l) => l.shooterId !== id && (l.axis === 'row' ? y === l.index : x === l.index));
+
   const bombReach = (POWER_UP_RULES.bombSize - 1) / 2;
   const bombs = state.bombs ?? [];
   const inBomb = (x, y) => bombs.some((b) => Math.abs(x - b.x) <= bombReach && Math.abs(y - b.y) <= bombReach);
@@ -283,6 +290,7 @@ function buildBoard(state) {
     badgerDistance,
     bombs,
     inBomb,
+    onLaser,
     food,
   };
 }
@@ -310,7 +318,7 @@ function decide(board, me, { skill, bombMode, budget, random, reflex = false }) 
     if (ghostNow && othersT === 1) return SAFE;
     const k = key(cell.x, cell.y);
     let tier = SAFE;
-    if (board.deadly[k]) tier = DEADLY;
+    if (board.deadly[k] || board.onLaser(cell.x, cell.y, me.id)) tier = DEADLY;
     if (board.badgerActive && board.inBadger(cell.x, cell.y)) tier = Math.max(tier, canCut ? SAFE : DEADLY);
     const own = board.owner[k] === myIndex;
     if (board.freeAt[k] > (own ? t : othersT)) {

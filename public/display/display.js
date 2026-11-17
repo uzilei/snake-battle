@@ -1215,6 +1215,154 @@ const rings = []; // { x, y, color, start, ms?, r0?, r1?, width? } (sizes in cel
 const flashes = []; // { x, y, w, h, start, ms }: a white flash over a w x h block of cells centered on (x, y)
 let shakeStart = -Infinity;
 
+// ---- lasers ----
+// A charging laser: a thin warning line across the whole board in the
+// shooter's color (brighter), pulsing faster and brighter as the charge
+// runs, with sparks where it meets the board's edges. Timed from the
+// laserCharge event's chargeMs, re-synced every tick from ticksLeft. Then a
+// bright beam with a white core, fading out. The line is always drawn (it's
+// a warning players need); its sparks and the beam's are a particles thing,
+// the shake a screen shake thing.
+const charging = new Map(); // id -> { axis, index, color, start, ms, whine, frozen }
+const beams = []; // { axis, index, color, start }
+const BEAM_HOLD_MS = 250; // full brightness
+const BEAM_FADE_MS = 500; // then fading out
+// A pause stops the clock: `frozen` holds how far the charge had got.
+const chargeAt = (c, now) => (c.frozen ?? clamp((now - c.start) / c.ms, 0, 1));
+const bright = (hex, amount) => mix(hex, '#ffffff', Math.round(amount * 20) / 20); // few shades: mix() caches each
+
+function stopWhine(c) {
+  c.whine?.stop();
+  c.whine = null;
+}
+function startWhine(c, msg, now) {
+  stopWhine(c);
+  const gain = msg.effects?.sounds ? (msg.soundGains?.laserCharge ?? 1) : 0;
+  if (gain > 0 && !msg.paused) c.whine = sfx.whine(gain, c.start + c.ms - now, chargeAt(c, now));
+}
+
+// The charges in `state.lasers` (after this tick's events): new ones the
+// event missed (a /display that just connected), each one re-timed to the
+// ticks it has left, and gone ones called off. A pause freezes them and
+// their whine; a resume picks both up where they were.
+function syncLasers(msg, now, fired) {
+  const s = msg.state;
+  const live = new Set();
+  for (const l of s.lasers ?? []) {
+    live.add(l.id);
+    const left = l.ticksLeft * msg.tickMs;
+    const ms = (l.chargeTicks ?? POWER_UP_RULES.laserChargeTicks) * msg.tickMs;
+    let c = charging.get(l.id);
+    if (!c) {
+      c = { axis: l.axis, index: l.index, color: playerColor(l.colorIndex), start: now + left - ms, ms, whine: null, frozen: null };
+      charging.set(l.id, c);
+      startWhine(c, msg, now);
+    }
+    if (msg.paused) {
+      if (c.frozen === null) {
+        c.frozen = chargeAt(c, now);
+        stopWhine(c);
+      }
+      continue;
+    }
+    if (c.frozen !== null) {
+      c.frozen = null;
+      c.start = now + left - c.ms;
+      startWhine(c, msg, now);
+    }
+  }
+  for (const [id, c] of charging) {
+    if (live.has(id)) continue;
+    if (!fired.has(id)) stopWhine(c); // called off (the round ended)
+    charging.delete(id);
+  }
+  // Sounds switched off mid-charge: quiet at once.
+  if (!msg.effects?.sounds || !(msg.soundGains?.laserCharge > 0)) for (const c of charging.values()) stopWhine(c);
+}
+
+// The line through a laser's row or column, in px.
+function laserLine(l, cell, size) {
+  const at = (l.index + 0.5) * cell;
+  return l.axis === 'row' ? [0, at, size, at] : [at, 0, at, size];
+}
+
+function drawLasers(cell, size, n, now, dt, particlesOn) {
+  ctx.save();
+  ctx.lineCap = 'butt';
+  for (const c of charging.values()) {
+    const p = chargeAt(c, now);
+    // Pulses from 2 to 12 a second as it charges (the phase is the integral
+    // of that rising rate, so it speeds up smoothly).
+    const secs = (p * c.ms) / 1000;
+    const total = c.ms / 1000;
+    const phase = 2 * Math.PI * (2 * secs + (10 * secs * secs) / (2 * Math.max(0.05, total)));
+    const pulse = 0.5 + 0.5 * Math.sin(phase);
+    const [x0, y0, x1, y1] = laserLine(c, cell, size);
+    ctx.globalAlpha = (0.35 + 0.55 * p) * (0.55 + 0.45 * pulse);
+    ctx.strokeStyle = bright(c.color, 0.3 + 0.45 * p);
+    ctx.shadowColor = c.color;
+    ctx.shadowBlur = cell * (0.3 + 0.6 * p);
+    ctx.lineWidth = Math.max(1.5 * dpr, cell * (0.06 + 0.1 * p));
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    // Sparks where it meets the edges of the board, more as it charges.
+    if (particlesOn && c.frozen === null && Math.random() < dt * (10 + 40 * p)) {
+      for (const end of [0, n]) {
+        if (particles.length >= MAX_PARTICLES) break;
+        const along = c.index + 0.5;
+        const inward = end === 0 ? 1 : -1;
+        const a = (Math.random() - 0.5) * 2.2;
+        const v = 2 + Math.random() * 4;
+        const [vx, vy] = [inward * Math.cos(a) * v, Math.sin(a) * v];
+        particles.push({
+          x: c.axis === 'row' ? end : along, y: c.axis === 'row' ? along : end,
+          vx: c.axis === 'row' ? vx : vy, vy: c.axis === 'row' ? vy : vx,
+          born: now, life: 250 + Math.random() * 250, r: 0.05 + Math.random() * 0.06, color: Math.random() < 0.5 ? '#ffffff' : bright(c.color, 0.5),
+        });
+      }
+    }
+  }
+  for (let i = beams.length - 1; i >= 0; i--) {
+    const b = beams[i];
+    const e = now - b.start;
+    if (e >= BEAM_HOLD_MS + BEAM_FADE_MS) {
+      beams.splice(i, 1);
+      continue;
+    }
+    const fade = e < BEAM_HOLD_MS ? 1 : 1 - (e - BEAM_HOLD_MS) / BEAM_FADE_MS;
+    const [x0, y0, x1, y1] = laserLine(b, cell, size);
+    const width = cell * 0.95 * (0.6 + 0.4 * fade);
+    ctx.globalAlpha = fade;
+    ctx.shadowColor = b.color;
+    ctx.shadowBlur = cell * 1.2;
+    ctx.strokeStyle = bright(b.color, 0.35);
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = width * 0.35;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// The beam fires: the flash, sparks all along it.
+function laserFired(c, n, now, fx) {
+  beams.push({ axis: c.axis, index: c.index, color: c.color, start: now });
+  if (fx.particles) {
+    for (let i = 0; i < n; i += 1) {
+      const [x, y] = c.axis === 'row' ? [i, c.index] : [c.index, i];
+      sparks(x, y, now, 2, ['#ffffff', bright(c.color, 0.4), c.color]);
+    }
+  }
+  if (fx.screenShake) shakeStart = now;
+}
+
 function burst(s, now) {
   const color = playerColor(s.colorIndex);
   const colors = [color, darker(color), '#ffffff'];
@@ -1579,6 +1727,7 @@ function onState(msg) {
   const s = msg.state;
   const key = `${s.round}:${s.tick}`;
   playSounds(msg, key !== tickKey);
+  const fired = new Set(); // lasers that fired this tick
   if (key !== tickKey) {
     const now = performance.now();
     const sameRound = latest?.state.round === s.round;
@@ -1755,9 +1904,22 @@ function onState(msg) {
         if (fx.snakeAnimations && killer?.alive) wink(killer, now);
       } else if (ev.type === 'headOn') {
         if (fx.screenShake) shakeStart = now;
+      } else if (ev.type === 'laserCharge') {
+        // Timed by the server's chargeMs; the color comes with the laser in the state.
+        const l = (s.lasers ?? []).find((x) => x.id === ev.id);
+        const c = { axis: ev.axis, index: ev.index, color: l ? playerColor(l.colorIndex) : colorOf(ev.shooterId), start: now, ms: ev.chargeMs, whine: null, frozen: null };
+        stopWhine(charging.get(ev.id) ?? {});
+        charging.set(ev.id, c);
+        startWhine(c, msg, now);
+      } else if (ev.type === 'laserFire') {
+        const c = charging.get(ev.id) ?? { axis: ev.axis, index: ev.index, color: colorOf(ev.shooterId) };
+        fired.add(ev.id);
+        laserFired(c, s.gridSize, now, fx);
       }
     }
   }
+  // Every message (a pause or resume isn't a new tick): the charges as the state has them.
+  syncLasers(msg, performance.now(), fired);
   latest = msg;
   dirty = true;
 }
@@ -1822,6 +1984,7 @@ function drawBoard(msg, now, dt) {
     if (head && s.effect) badges.push({ ...head, effect: s.effect });
   }
   drawProjectiles(state.projectiles ?? [], t, cell);
+  drawLasers(cell, size, n, now, dt, Boolean(msg.effects?.particles));
   drawFlights(heads, cell, n, now, msg.effects);
   drawEffects(cell, now, dt);
   drawEffectBadges(badges, cell, now);

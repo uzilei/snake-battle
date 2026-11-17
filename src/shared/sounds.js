@@ -3,16 +3,25 @@
 // public/display/sfx.js.
 
 export const SOUND_NAMES = Object.freeze([
-  'badgerSpawn', 'count', 'death', 'disappear', 'eat', 'eatCreature', 'explosion', 'hit', 'hurt',
+  'badgerSpawn', 'count', 'death', 'disappear', 'eat', 'eatCreature', 'explosion', 'hit', 'hurt', 'laserFire',
   'moveUp', 'moveDown', 'moveLeft', 'moveRight', 'multikill', 'overkill', 'portal', 'powerUp', 'shoot', 'start',
 ]);
+// A sound whose preset file has another name: sounds/<file>.json.
+const SOUND_FILES = Object.freeze({ laserFire: 'laser' });
+export const soundFile = (name) => SOUND_FILES[name] ?? name;
+
+// Sounds synthesized live on /display instead of from a preset (see
+// public/display/sfx.js), with a volume of their own like the others:
+// laserCharge, a whine rising over a laser's whole charge.
+export const SYNTH_SOUNDS = Object.freeze(['laserCharge']);
+const ALL_SOUNDS = [...SOUND_NAMES, ...SYNTH_SOUNDS];
 
 // Volumes, in percent: a master one, and one per sound on top of it (up to
 // 200%, to bring a quiet sound forward). The four turn sounds share one,
 // 'move', muted by default: with many snakes they play almost every tick.
 // /admin settings, flat like the bot weights: soundVolume, volumeEat,
 // volumeMove, ...
-export const VOLUME_SLIDERS = Object.freeze([...new Set(SOUND_NAMES.map((n) => (n.startsWith('move') ? 'move' : n)))]);
+export const VOLUME_SLIDERS = Object.freeze([...new Set(ALL_SOUNDS.map((n) => (n.startsWith('move') ? 'move' : n)))]);
 // The four turn sounds count as one kind of sound (one volume, and spread
 // over a tick together); every other sound is its own.
 export const soundGroup = (name) => (name.startsWith('move') ? 'move' : name);
@@ -27,7 +36,7 @@ export const SOUND_VOLUME_DEFAULTS = Object.freeze(Object.fromEntries(Object.ent
 // The gain each sound plays at (0 = muted), from the settings.
 export function soundGains(settings) {
   const master = (settings.soundVolume ?? 100) / 100;
-  return Object.fromEntries(SOUND_NAMES.map((n) => [n, master * ((settings[soundVolumeKey(volumeGroup(n))] ?? SOUND_LIMITS[soundVolumeKey(volumeGroup(n))].default) / 100)]));
+  return Object.fromEntries(ALL_SOUNDS.map((n) => [n, master * ((settings[soundVolumeKey(volumeGroup(n))] ?? SOUND_LIMITS[soundVolumeKey(volumeGroup(n))].default) / 100)]));
 }
 
 const MOVE_SOUNDS = { up: 'moveUp', down: 'moveDown', left: 'moveLeft', right: 'moveRight' };
@@ -63,6 +72,7 @@ export function soundsFor(prev, cur, newTick = true) {
         if (ev.item !== 'portal') out.push(ev.item === 'bomb' ? 'explosion' : 'powerUp');
         break;
       case 'shot': out.push('shoot'); break;
+      case 'laserFire': out.push('laserFire'); break; // its charge whine is synthesized (sfx.js)
       case 'projectileEnd': if (ev.hit) out.push('hit'); break;
       case 'cut':
       case 'badgerHit':

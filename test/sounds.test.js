@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { jsfxr } from 'jsfxr';
-import { SOUND_NAMES, soundsFor, spreadOverTick, soundGroup } from '../src/shared/sounds.js';
+import { SOUND_NAMES, SYNTH_SOUNDS, soundFile, soundGains, soundsFor, spreadOverTick, soundGroup } from '../src/shared/sounds.js';
 
 const snake = (id, dir, alive = true) => ({ id, dir, alive, segments: [{ x: 1, y: 1 }] });
 const state = (over = {}) => ({ round: 1, tick: 5, phase: 'playing', events: [], snakes: [], portals: [], ...over });
@@ -10,7 +10,7 @@ const sounds = (prev, cur, newTick) => soundsFor(prev, cur, newTick).sort();
 
 test('every sound has a preset in sounds/ that jsfxr renders', () => {
   for (const name of SOUND_NAMES) {
-    const file = new URL(`../sounds/${name}.json`, import.meta.url);
+    const file = new URL(`../sounds/${soundFile(name)}.json`, import.meta.url);
     assert.ok(existsSync(file), name);
     const sfx = new jsfxr.SoundEffect(JSON.parse(readFileSync(file, 'utf8')));
     const { normalized } = sfx.getRawBuffer();
@@ -43,6 +43,8 @@ test('each event maps to its sound', () => {
     [{ type: 'pickup', id: 'a', item: 'bomb' }, ['explosion']],
     [{ type: 'pickup', id: 'a', item: 'portal' }, []], // it sounds when the portal opens
     [{ type: 'shot', id: 'a' }, ['shoot']],
+    [{ type: 'laserFire', id: 1, axis: 'row', index: 4 }, ['laserFire']],
+    [{ type: 'laserCharge', id: 1, shooterId: 'a', axis: 'row', index: 4, chargeMs: 800 }, []], // synthesized on /display
     [{ type: 'projectileEnd', x: 1, y: 1 }, []],
     [{ type: 'projectileEnd', x: 1, y: 1, hit: true }, ['hit']],
     [{ type: 'cut', id: 'a', byId: 'b' }, ['hurt']],
@@ -136,4 +138,13 @@ test('turning plays the move sound of the new direction', () => {
   }
   // A new round's snakes face wherever they spawned: no turn.
   assert.deepEqual(sounds(state({ round: 1, phase: 'intermission', snakes: [snake('a', 'up')] }), state({ round: 2, phase: 'countdown', countdownRemainingMs: 3000, snakes: [snake('a', 'left')] })), ['count']);
+});
+
+test('laserFire plays laser.json; the charge whine has a volume but no preset', () => {
+  assert.equal(soundFile('laserFire'), 'laser');
+  assert.equal(soundFile('eat'), 'eat');
+  assert.deepEqual(SYNTH_SOUNDS, ['laserCharge']);
+  const gains = soundGains({ soundVolume: 50, volumeLaserCharge: 200, volumeLaserFire: 0 });
+  assert.equal(gains.laserCharge, 1);
+  assert.equal(gains.laserFire, 0);
 });
