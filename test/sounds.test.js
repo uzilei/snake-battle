@@ -42,10 +42,14 @@ test('each event maps to its sound', () => {
     [{ type: 'pickup', id: 'a', item: 'golden' }, ['powerUp']],
     [{ type: 'pickup', id: 'a', item: 'bomb' }, ['explosion']],
     [{ type: 'pickup', id: 'a', item: 'portal' }, []], // it sounds when the portal opens
+    [{ type: 'pickup', id: 'a', item: 'gun' }, []], // its shot sounds instead
+    [{ type: 'pickup', id: 'a', item: 'laser' }, []], // its charge whine sounds instead
+    [{ type: 'pickup', id: 'a', item: 'feast' }, ['eatCreature']],
+    [{ type: 'pickup', id: 'a', item: 'shield' }, ['powerUp']],
     [{ type: 'shot', id: 'a' }, ['shoot']],
     [{ type: 'laserFire', id: 1, axis: 'row', index: 4 }, ['laserFire']],
     [{ type: 'laserCharge', id: 1, shooterId: 'a', axis: 'row', index: 4, chargeMs: 800 }, []], // synthesized on /display
-    [{ type: 'projectileEnd', x: 1, y: 1 }, []],
+    [{ type: 'projectileEnd', x: 1, y: 1 }, ['hit']], // a wall, or another projectile
     [{ type: 'projectileEnd', x: 1, y: 1, hit: true }, ['hit']],
     [{ type: 'cut', id: 'a', byId: 'b' }, ['hurt']],
     [{ type: 'badgerHit', id: 'a', badgerId: 1, hp: 2 }, ['hurt']],

@@ -41,6 +41,11 @@ export function soundGains(settings) {
 
 const MOVE_SOUNDS = { up: 'moveUp', down: 'moveDown', left: 'moveLeft', right: 'moveRight' };
 
+// What picking up a power-up plays, when it isn't the plain 'powerUp': null
+// for the ones with a sound of their own instead (the portal when it opens,
+// the gun's shot, the laser's charge whine), so the two don't play at once.
+const PICKUP_SOUNDS = Object.freeze({ bomb: 'explosion', portal: null, gun: null, laser: null, feast: 'eatCreature' });
+
 // The countdown number /display shows (3, 2, 1).
 const countdownNumber = (s) => Math.max(1, Math.ceil(s.countdownRemainingMs / 1000));
 
@@ -67,13 +72,14 @@ export function soundsFor(prev, cur, newTick = true) {
         if (!ev.item) out.push('eat');
         else if (ev.item === 'rat' || ev.item === 'chicken') out.push('eatCreature');
         break; // a power-up or bomb sounds through its 'pickup'
-      case 'pickup':
-        // A portal sounds when it opens (below); a bomb goes off.
-        if (ev.item !== 'portal') out.push(ev.item === 'bomb' ? 'explosion' : 'powerUp');
+      case 'pickup': {
+        const sound = Object.hasOwn(PICKUP_SOUNDS, ev.item) ? PICKUP_SOUNDS[ev.item] : 'powerUp';
+        if (sound) out.push(sound);
         break;
+      }
       case 'shot': out.push('shoot'); break;
       case 'laserFire': out.push('laserFire'); break; // its charge whine is synthesized (sfx.js)
-      case 'projectileEnd': if (ev.hit) out.push('hit'); break;
+      case 'projectileEnd': out.push('hit'); break; // whatever stopped it: a wall, a snake, a creature, another projectile
       case 'cut':
       case 'badgerHit':
       case 'badgerBite':
