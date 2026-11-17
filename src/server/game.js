@@ -341,8 +341,14 @@ export function createGame({
   }
 
   // The round card's places, while it shows: during the intermission, with
-  // the toggle on.
-  const roundCardPlaces = (state) => (settings.roundCard && state.phase === PHASES.INTERMISSION ? roundPlaces(state.players, state.winnerId) : null);
+  // the toggle on. Taken once as the round ends and kept for the whole
+  // break, so someone leaving (or the bots being refreshed) moves nobody up.
+  let cardPlaces = { round: null, places: null };
+  function roundCardPlaces(state) {
+    if (state.phase !== PHASES.INTERMISSION) return null;
+    if (cardPlaces.round !== state.round) cardPlaces = { round: state.round, places: roundPlaces(state.players, state.winnerId) };
+    return settings.roundCard ? cardPlaces.places : null;
+  }
 
   function broadcast() {
     const state = engine.getState();

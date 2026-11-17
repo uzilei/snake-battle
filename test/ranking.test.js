@@ -59,6 +59,33 @@ describe('round card on /play', () => {
     assert.deepEqual(luca.last().players.self.card, { place: 1, length: 6, kills: 0 });
   });
 
+  test('the places are fixed when the round ends: someone leaving during the break moves nobody up', () => {
+    const game = createGame({ log: () => {} });
+    game.settings.roundCard = true;
+    game.engine.updateConfig({ intermissionMs: 3000 });
+    const phones = ['Anna', 'Luca', 'Mia'].map((name, i) => {
+      const sent = [];
+      const conn = game.connect({ send: (m) => sent.push(m), close: () => {} });
+      const send = (o) => conn.message(JSON.stringify(o));
+      send({ t: 'hello', role: 'player' });
+      send({ t: 'join', name, session: `session-${i}-abcdefghijklmnop` });
+      return { conn, last: () => sent.filter((m) => m.t === 'me').at(-1) };
+    });
+    game.tickOnce();
+    game.engine._debug.setSnake('p1', [[29, 5], [28, 5], [27, 5]], 'right'); // into the wall
+    game.engine._debug.setSnake('p2', [[8, 15], [7, 15], [6, 15], [5, 15], [4, 15], [3, 15]], 'right');
+    game.engine._debug.setSnake('p3', [[29, 9], [28, 9], [27, 9], [26, 9]], 'right'); // into the wall, longer
+    game.tickOnce();
+    assert.equal(game.engine.getState().phase, 'intermission');
+    const anna = phones[0];
+    assert.equal(anna.last().players.self.card.place, 3);
+    phones[2].conn.disconnect(); // Mia (2nd) leaves
+    game.engine.removePlayer('p3');
+    game.tickOnce();
+    assert.equal(game.engine.getState().phase, 'intermission');
+    assert.equal(anna.last().players.self.card.place, 3);
+  });
+
   test('off by default: no card', () => {
     const [anna] = twoPhones(false);
     assert.equal(anna.last().players.self.card, undefined);
