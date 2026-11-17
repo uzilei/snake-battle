@@ -275,6 +275,37 @@ for (const key of ['timeLimitWinner', 'bombMode']) {
     e.target.blur();
   });
 }
+// A reset button at the end of each category with settings, and one under
+// the power-up weights: each puts only those values back to their defaults
+// (the server knows which: RESET_GROUPS in src/server/game.js).
+const RESET_CARDS = {
+  'cat-settings': 'settings',
+  'cat-display': 'display',
+  'cat-sounds': 'sounds',
+  'cat-rules': 'rules',
+  'cat-powerups': 'powerUps',
+  'cat-creatures': 'creatures',
+  'cat-bots': 'bots',
+  'cat-global': 'global',
+};
+function resetButton(text, confirmText, category) {
+  const row = document.createElement('div');
+  row.className = 'controls';
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = text;
+  b.addEventListener('click', () => {
+    if (confirm(confirmText())) send({ t: 'resetCategory', category });
+  });
+  row.append(b);
+  return row;
+}
+for (const [card, category] of Object.entries(RESET_CARDS)) {
+  const name = () => $(card).querySelector('summary h2').textContent;
+  $(card).querySelector('.card-body').append(resetButton(A.resetCategory, () => fmt(A.confirmResetCategory, { name: name() }), category));
+}
+$('sliders-weights').after(resetButton(A.resetWeights, () => A.confirmResetWeights, 'powerUpWeights'));
+
 for (const stat of RESET_STATS) {
   $(`btn-reset-${stat}`).addEventListener('click', () => {
     if (confirm(A.confirmReset[stat])) send({ t: 'resetRecords', stat });

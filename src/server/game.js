@@ -18,6 +18,7 @@ import { SOUND_LIMITS, SOUND_VOLUME_DEFAULTS, soundGains } from '../shared/sound
 import { BOT_HIDDEN_SKILL, BOT_LIMITS, BOT_NAME_PATTERN, BOT_SKILLS, MAX_SNAKES, botName, botTarget, botWeightKey, pickBotSkill, validReservedBots, normalizeReservedBots } from '../shared/bots.js';
 import { createBotBrain, queueBotMoves } from '../bot-brain.js';
 import { roundPlaces } from '../shared/ranking.js';
+import { WEIGHTED_POWER_UPS, weightKey } from '../shared/powerups.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
 // (most wins, most kills, highest score), shown only when it is enabled.
@@ -143,6 +144,26 @@ export function sidePanelNav(mode, state, recordsOn = false) {
   return { prev, next };
 }
 
+// What each "reset" button on /admin puts back to its default: the values
+// of one category (card) of the page, or of one group inside it (the
+// power-up weights). Not in any: the language (it stays, as with the full
+// reset) and the reserved bot names (a list people typed, not a setting).
+// Only the full reset touches those.
+export const RESET_GROUPS = Object.freeze({
+  settings: { config: ['tickMs', 'appleCount', 'growthPerApple', 'maxPlayers', 'gridSize', 'countdownMs', 'spawnShieldSec', 'intermissionMs'] },
+  display: { settings: ['sidePanel', 'keyboardPlayers', 'displayButtons', 'hats', 'roundCard', ...EFFECT_SETTINGS.filter((k) => k !== 'sounds'), 'fruits'] },
+  sounds: { settings: ['sounds', ...Object.keys(SOUND_LIMITS)] },
+  rules: {
+    config: ['corpseApples', 'wrapWalls', 'timeLimitWin', 'roundTimeLimitSec', 'timeLimitWinner', 'targetLengthWin', 'targetLength', 'lastPersonWins'],
+    settings: ['corpseStyle'],
+  },
+  powerUps: { config: ['powerUps', 'powerUpChance', ...WEIGHTED_POWER_UPS.map((p) => weightKey(p.type))] },
+  powerUpWeights: { config: WEIGHTED_POWER_UPS.map((p) => weightKey(p.type)) },
+  creatures: { config: ['ratChance', 'chickenChance', 'badgerEverySec', 'badgerLifetimeSec', 'badgerHealth', 'bombsPerMinute', 'bombMode'], settings: ['badgerName'] },
+  bots: { settings: ['bots', 'botFill', 'botLevels', ...BOT_SKILLS.map(botWeightKey)] },
+  global: { settings: ['leaderboard', 'leaderboardStat'] },
+});
+
 // The /admin settings that aren't engine config, as they are on a fresh start.
 const defaultSettings = () => ({
   sidePanel: 'auto',
@@ -182,9 +203,12 @@ export function createGame({
   const settings = defaultSettings();
   // The neutral defaults with `defaults` on top, each value validated like
   // an /admin change.
+  // The defaults a reset goes back to: the neutral ones with `defaults` on top.
+  const defaultConfigValues = () => ({ ...createDefaultConfig(), ...defaults?.config });
+  const defaultSettingValues = () => ({ ...defaultSettings(), ...pickValidSettings(defaults?.settings) });
   function applyDefaults() {
-    engine.updateConfig({ ...createDefaultConfig(), ...defaults?.config });
-    Object.assign(settings, defaultSettings(), pickValidSettings(defaults?.settings));
+    engine.updateConfig(defaultConfigValues());
+    Object.assign(settings, defaultSettingValues());
   }
   applyDefaults();
 
@@ -737,6 +761,19 @@ export function createGame({
         settings.locale = locale;
         kickKeyboardPlayers(); // keyboard players are off by default
         log('[admin] all settings reset to defaults');
+        break;
+      }
+      // One category of /admin (or the power-up weights) back to its
+      // defaults, the same ones the full reset uses.
+      case 'resetCategory': {
+        if (typeof msg.category !== 'string' || !Object.hasOwn(RESET_GROUPS, msg.category)) return badMessage(client);
+        const group = RESET_GROUPS[msg.category];
+        const config = defaultConfigValues();
+        const values = defaultSettingValues();
+        engine.updateConfig(Object.fromEntries((group.config ?? []).map((k) => [k, config[k]])));
+        for (const k of group.settings ?? []) settings[k] = structuredClone(values[k]);
+        if (!settings.keyboardPlayers) kickKeyboardPlayers();
+        log(`[admin] ${msg.category} reset to defaults`);
         break;
       }
       case 'resetRecords':

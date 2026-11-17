@@ -138,6 +138,11 @@ export const STRINGS_EN = Object.freeze({
     resetSettings: 'Reset settings to defaults',
     confirmResetSettings:
       'Put every setting back to its default? Sliders, rules, win conditions, power-ups, side column, global leaderboard (on/off) and effects go back to how they were on first start. Round rules change from the next round. The global leaderboard data, the banned words, the language and the password are not touched.',
+    // One per category, and one for the power-up weights alone.
+    resetCategory: 'Reset this section to defaults',
+    confirmResetCategory: 'Put the “{name}” settings back to their defaults? Nothing else changes.',
+    resetWeights: 'Reset weights to defaults',
+    confirmResetWeights: 'Put the power-up weights back to their defaults?',
     settings: 'Settings',
     tickMs: 'Speed (ms per step, less = faster)',
     appleCount: 'Number of apples',

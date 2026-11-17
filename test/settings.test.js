@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createGame } from '../src/server/game.js';
+import { createGame, RESET_GROUPS } from '../src/server/game.js';
 import { loadSettings } from '../src/server/settings-store.js';
 import { loadRecords } from '../src/server/records.js';
 import { loadWordList } from '../src/server/profanity.js';
@@ -268,5 +268,91 @@ describe('expo defaults (what index.js starts with)', () => {
     const game = createGame({ log: quiet });
     assert.deepEqual(game.config, createDefaultConfig());
     assert.equal(game.config.powerUps, false);
+  });
+});
+
+describe('reset one /admin category', () => {
+  const CARDS = ['settings', 'display', 'sounds', 'rules', 'powerUps', 'creatures', 'bots', 'global'];
+
+  test('every config value and setting is in exactly one category (but the language and reserved bots)', () => {
+    const game = createGame({ log: quiet });
+    const keys = [...Object.keys(game.config), ...Object.keys(game.settings)].filter((k) => k !== 'locale' && k !== 'reservedBots');
+    const owners = (k) => CARDS.filter((c) => [...(RESET_GROUPS[c].config ?? []), ...(RESET_GROUPS[c].settings ?? [])].includes(k));
+    for (const k of keys) assert.deepEqual(owners(k).length, 1, `${k}: ${owners(k)}`);
+    // And nothing listed that isn't a real key.
+    for (const [name, g] of Object.entries(RESET_GROUPS)) {
+      for (const k of g.config ?? []) assert.ok(k in game.config, `${name}: ${k}`);
+      for (const k of g.settings ?? []) assert.ok(k in game.settings, `${name}: ${k}`);
+    }
+    // The weights button covers part of the power-ups card.
+    for (const k of RESET_GROUPS.powerUpWeights.config) assert.ok(RESET_GROUPS.powerUps.config.includes(k));
+  });
+
+  test('the power-up weights alone go back to their defaults', () => {
+    const game = createGame({ log: quiet });
+    const send = admin(game);
+    send({ t: 'config', values: { powerUps: true, powerUpChance: 60, weightGolden: 0, weightGun: 7, tickMs: 120 } });
+    send({ t: 'resetCategory', category: 'powerUpWeights' });
+    const d = createDefaultConfig();
+    assert.equal(game.config.weightGolden, d.weightGolden);
+    assert.equal(game.config.weightGun, d.weightGun);
+    assert.equal(game.config.powerUps, true); // the rest of the card stays
+    assert.equal(game.config.powerUpChance, 60);
+    assert.equal(game.config.tickMs, 120); // and other cards
+  });
+
+  test('a whole card goes back to its defaults, other cards are untouched', () => {
+    const game = createGame({ log: quiet });
+    const send = admin(game);
+    send({ t: 'config', values: CHANGES.config });
+    send({ t: 'settings', ...CHANGES.settings });
+    send({ t: 'resetCategory', category: 'powerUps' });
+    const d = createDefaultConfig();
+    assert.equal(game.config.powerUps, d.powerUps);
+    assert.equal(game.config.powerUpChance, d.powerUpChance);
+    assert.equal(game.config.weightShield, d.weightShield);
+    assert.equal(game.config.bombsPerMinute, 9); // creatures card
+    assert.equal(game.config.tickMs, 120);
+    send({ t: 'resetCategory', category: 'display' });
+    assert.equal(game.settings.hats, true);
+    assert.deepEqual(game.settings.fruits, [...FRUIT_CODES]);
+    assert.equal(game.settings.sounds, true); // the sounds card
+    assert.equal(game.settings.soundVolume, 40);
+    assert.equal(game.settings.leaderboard, true); // the global card
+    assert.equal(game.settings.locale, 'en');
+    assert.deepEqual(game.settings.reservedBots, CHANGES.settings.reservedBots);
+  });
+
+  test('it goes back to the same defaults as the full reset (the expo ones)', () => {
+    const game = createGame({ log: quiet, defaults: EXPO_DEFAULTS });
+    const send = admin(game);
+    send({ t: 'config', values: CHANGES.config });
+    send({ t: 'settings', ...CHANGES.settings });
+    for (const c of CARDS) send({ t: 'resetCategory', category: c });
+    assert.deepEqual(game.config, { ...EXPO_DEFAULTS.config });
+    assert.deepEqual(game.settings, { ...EXPO_DEFAULTS.settings, locale: 'en', reservedBots: CHANGES.settings.reservedBots, fruits: [...EXPO_DEFAULTS.settings.fruits] });
+  });
+
+  test('keyboard players go when the display card turns them off', () => {
+    const game = createGame({ log: quiet });
+    const send = admin(game);
+    send({ t: 'settings', keyboardPlayers: true });
+    const display = game.connect({ send: () => {}, close: () => {} });
+    display.message(JSON.stringify({ t: 'hello', role: 'display' }));
+    display.message(JSON.stringify({ t: 'join', slot: 'wasd' }));
+    assert.equal(game.engine.getState().players.length, 1);
+    send({ t: 'resetCategory', category: 'display' });
+    assert.equal(game.settings.keyboardPlayers, false);
+    assert.equal(game.engine.getState().players.length, 0);
+  });
+
+  test('an unknown category, or a non-admin, changes nothing', () => {
+    const game = createGame({ log: quiet });
+    const send = admin(game);
+    send({ t: 'config', values: { weightGun: 7 } });
+    for (const category of ['nope', '__proto__', 'constructor', 5, null]) send({ t: 'resetCategory', category });
+    const phone = game.connect({ send: () => {}, close: () => {} });
+    phone.message(JSON.stringify({ t: 'resetCategory', category: 'powerUpWeights' }));
+    assert.equal(game.config.weightGun, 7);
   });
 });

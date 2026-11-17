@@ -160,6 +160,11 @@ const STRINGS_IT = Object.freeze({
     resetSettings: 'Ripristina impostazioni predefinite',
     confirmResetSettings:
       'Riportare tutte le impostazioni ai valori predefiniti? Cursori, regole, condizioni di vittoria, power-up, colonna laterale, classifica globale (attivazione) ed effetti tornano come al primo avvio. Le regole del round cambiano dal prossimo round. I dati della classifica globale, le parole vietate, la lingua e la password non vengono toccati.',
+    // One per category, and one for the power-up weights alone.
+    resetCategory: 'Ripristina predefiniti di questa sezione',
+    confirmResetCategory: 'Riportare ai valori predefiniti le impostazioni di «{name}»? Il resto non cambia.',
+    resetWeights: 'Ripristina pesi predefiniti',
+    confirmResetWeights: 'Riportare i pesi dei power-up ai valori predefiniti?',
     settings: 'Impostazioni',
     tickMs: 'Velocità (ms per passo, meno = più veloce)',
     appleCount: 'Numero di mele',
