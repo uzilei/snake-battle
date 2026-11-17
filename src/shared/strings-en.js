@@ -202,7 +202,6 @@ export const STRINGS_EN = Object.freeze({
       'The global leaderboard is off, so the screen shows the round scoreboard. To see it, turn it on under “Global leaderboard”.',
     keyboardPlayers: 'Keyboard players on the screen (WASD and arrows)',
     hats: 'Players’ hats on the snakes (picked on /play)',
-    roundCard: 'End-of-round card on the phones (place, length, kills)',
     displayButtons: 'Mouse and ← → buttons on the screen to switch the column (not in “Automatic”)',
     effects: 'Visual effects',
     effectsHint: 'Graphics only, apply at once.',

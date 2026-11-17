@@ -70,7 +70,6 @@ const SETTING_RULES = Object.freeze({
   leaderboardStat: (v) => LEADERBOARD_STATS.includes(v),
   displayButtons: isBoolean,
   hats: isBoolean,
-  roundCard: isBoolean,
   corpseStyle: (v) => CORPSE_STYLES.includes(v),
   locale: (v) => LOCALES.includes(v),
   bots: inLimits(BOT_LIMITS.bots),
@@ -151,7 +150,7 @@ export function sidePanelNav(mode, state, recordsOn = false) {
 // Only the full reset touches those.
 export const RESET_GROUPS = Object.freeze({
   settings: { config: ['tickMs', 'appleCount', 'growthPerApple', 'maxPlayers', 'gridSize', 'countdownMs', 'spawnShieldSec', 'intermissionMs'] },
-  display: { settings: ['sidePanel', 'keyboardPlayers', 'displayButtons', 'hats', 'roundCard', ...EFFECT_SETTINGS.filter((k) => k !== 'sounds'), 'fruits'] },
+  display: { settings: ['sidePanel', 'keyboardPlayers', 'displayButtons', 'hats', ...EFFECT_SETTINGS.filter((k) => k !== 'sounds'), 'fruits'] },
   sounds: { settings: ['sounds', ...Object.keys(SOUND_LIMITS)] },
   rules: {
     config: ['corpseApples', 'wrapWalls', 'timeLimitWin', 'roundTimeLimitSec', 'timeLimitWinner', 'targetLengthWin', 'targetLength', 'lastPersonWins'],
@@ -172,7 +171,6 @@ const defaultSettings = () => ({
   leaderboardStat: 'auto', // applies immediately, like sidePanel
   displayButtons: false, // mouse cursor and side panel buttons on /display
   hats: true, // /display draws the hats players picked on /play
-  roundCard: false, // between rounds, each phone shows its place, length and kills
   corpseStyle: 'fruit', // how /display draws corpse apples (CORPSE_STYLES)
   locale: DEFAULT_LOCALE, // language of every page (LOCALES)
   badgerName: '', // drawn under the honey badger, like a boss name
@@ -340,14 +338,13 @@ export function createGame({
     return out;
   }
 
-  // The round card's places, while it shows: during the intermission, with
-  // the toggle on. Taken once as the round ends and kept for the whole
+  // The round card's places, while it shows: during the intermission. Taken once as the round ends and kept for the whole
   // break, so someone leaving (or the bots being refreshed) moves nobody up.
   let cardPlaces = { round: null, places: null };
   function roundCardPlaces(state) {
     if (state.phase !== PHASES.INTERMISSION) return null;
     if (cardPlaces.round !== state.round) cardPlaces = { round: state.round, places: roundPlaces(state.players, state.winnerId) };
-    return settings.roundCard ? cardPlaces.places : null;
+    return cardPlaces.places;
   }
 
   function broadcast() {

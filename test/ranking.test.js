@@ -34,9 +34,8 @@ describe('round places', () => {
 });
 
 describe('round card on /play', () => {
-  function twoPhones(roundCard) {
+  function twoPhones() {
     const game = createGame({ log: () => {} });
-    game.settings.roundCard = roundCard;
     const phones = ['Anna', 'Luca'].map((name, i) => {
       const sent = [];
       const conn = game.connect({ send: (m) => sent.push(m), close: () => {} });
@@ -54,14 +53,13 @@ describe('round card on /play', () => {
   }
 
   test('between rounds each phone gets its place, length and kills', () => {
-    const [anna, luca] = twoPhones(true);
+    const [anna, luca] = twoPhones();
     assert.deepEqual(anna.last().players.self.card, { place: 2, length: 3, kills: 0 });
     assert.deepEqual(luca.last().players.self.card, { place: 1, length: 6, kills: 0 });
   });
 
   test('the places are fixed when the round ends: someone leaving during the break moves nobody up', () => {
     const game = createGame({ log: () => {} });
-    game.settings.roundCard = true;
     game.engine.updateConfig({ intermissionMs: 3000 });
     const phones = ['Anna', 'Luca', 'Mia'].map((name, i) => {
       const sent = [];
@@ -86,8 +84,14 @@ describe('round card on /play', () => {
     assert.equal(anna.last().players.self.card.place, 3);
   });
 
-  test('off by default: no card', () => {
-    const [anna] = twoPhones(false);
-    assert.equal(anna.last().players.self.card, undefined);
+  test('no card while a round is on', () => {
+    const game = createGame({ log: () => {} });
+    const sent = [];
+    const conn = game.connect({ send: (m) => sent.push(m), close: () => {} });
+    conn.message(JSON.stringify({ t: 'hello', role: 'player' }));
+    conn.message(JSON.stringify({ t: 'join', name: 'Anna', session: 'session-0-abcdefghijklmnop' }));
+    game.tickOnce();
+    assert.equal(game.engine.getState().phase, 'playing');
+    assert.equal(sent.filter((m) => m.t === 'me').at(-1).players.self.card, undefined);
   });
 });

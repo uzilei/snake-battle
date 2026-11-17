@@ -225,7 +225,6 @@ const STRINGS_IT = Object.freeze({
       'La classifica globale è spenta, quindi lo schermo mostra la classifica del round. Per vederla attivala in «Classifica globale».',
     keyboardPlayers: 'Giocatori da tastiera sullo schermo (WASD e frecce)',
     hats: 'Cappelli dei giocatori sui serpenti (scelti su /play)',
-    roundCard: 'Scheda di fine round sui telefoni (posizione, lunghezza, eliminazioni)',
     displayButtons: 'Mouse e pulsanti ← → sullo schermo per cambiare la colonna (non in «Automatica»)',
     effects: 'Effetti grafici',
     effectsHint: 'Solo grafica, valgono subito.',

@@ -42,7 +42,7 @@ export const EXPO_DEFAULTS = Object.freeze({
     weightPortal: 2,
     weightFeast: 3,
     weightShield: 3,
-    weightLaser: 0, // new: off until turned up on /admin
+    weightLaser: 1,
   }),
   settings: Object.freeze({
     sidePanel: 'auto',
@@ -51,7 +51,6 @@ export const EXPO_DEFAULTS = Object.freeze({
     leaderboardStat: 'auto',
     displayButtons: true,
     hats: true,
-    roundCard: false,
     corpseStyle: 'fruit',
     locale: 'it',
     badgerName: 'Torquato Tasso',
