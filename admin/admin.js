@@ -124,6 +124,7 @@ const RULE_TOGGLES = {
   corpseApples: 'config',
   displayButtons: 'settings',
   hats: 'settings',
+  roundCard: 'settings',
   wrapWalls: 'config',
   timeLimitWin: 'config',
   targetLengthWin: 'config',

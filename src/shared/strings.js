@@ -114,6 +114,14 @@ const STRINGS_IT = Object.freeze({
     dirDown: 'Giù',
     dirLeft: 'Sinistra',
     dirRight: 'Destra',
+    // The round card, between rounds: "🥉 3° posto · lunghezza 42 · 2 eliminazioni".
+    // {ord}: the ordinal ending for {n}, by Intl.PluralRules ordinal category.
+    cardPlace: '{n}{ord} posto',
+    cardOrdinals: { one: '°', two: '°', few: '°', other: '°' },
+    cardLength: 'lunghezza {n}',
+    cardKillsOne: '1 eliminazione',
+    cardKillsMany: '{n} eliminazioni',
+    cardTitle: 'Il tuo round',
   },
 
   // ---- /admin/login ------------------------------------------------------
@@ -212,6 +220,7 @@ const STRINGS_IT = Object.freeze({
       'La classifica globale è spenta, quindi lo schermo mostra la classifica del round. Per vederla attivala in «Classifica globale».',
     keyboardPlayers: 'Giocatori da tastiera sullo schermo (WASD e frecce)',
     hats: 'Cappelli dei giocatori sui serpenti (scelti su /play)',
+    roundCard: 'Scheda di fine round sui telefoni (posizione, lunghezza, eliminazioni)',
     displayButtons: 'Mouse e pulsanti ← → sullo schermo per cambiare la colonna (non in «Automatica»)',
     effects: 'Effetti grafici',
     effectsHint: 'Solo grafica, valgono subito.',

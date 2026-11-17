@@ -67,6 +67,8 @@ On /play's name screen players can pick a hat: none, 🧢, 👒, 🎩 or 🎓 (T
 
 With "Mouse e pulsanti ← →" enabled on /admin (on in the expo setup), /display shows the mouse cursor (it hides after a few seconds without movement) and, when the side column isn't on "Automatica", buttons in its bottom corners that switch to the previous or next panel. Any device that opens /display can press them while the toggle is on.
 
+Between rounds, with the "Scheda di fine round sui telefoni" toggle on (off by default), every phone that played the round shows a round card: its place, length and kills, for example "🥉 3° posto · lunghezza 42 · 2 eliminazioni". First place gets 🏆, second 🥈, third 🥉. The places follow the /display scoreboard (alive first, then longer first), except that the round's winner is always first; snakes with the same status and length share a place. The ranking lives in `src/shared/ranking.js`, shared by /display and the server.
+
 At startup the server prints the URLs for `/display`, `/play`, `/admin` and `/admin/print`.
 
 ## Power-ups

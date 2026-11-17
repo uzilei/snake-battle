@@ -13,6 +13,7 @@ import { FRUIT_CODES } from '/shared/fruits.js';
 import { HATS } from '/shared/hats.js';
 import { BOT_SKILL_TWEMOJI, BOT_SKILL_EMOJI, BOT_HIDDEN_SKILL, BOT_ROBOT_TWEMOJI } from '/shared/bots.js';
 import { soundsFor, spreadOverTick } from '/shared/sounds.js';
+import { compareRound } from '/shared/ranking.js';
 import * as sfx from './sfx.js';
 
 const $ = (id) => document.getElementById(id);
@@ -2174,16 +2175,11 @@ function updateOverlay(msg) {
   setOverlay();
 }
 
-const STATUS_ORDER = { alive: 0, dead: 1, queued: 2 };
-
 // hats: playerId -> hat id (null when the hats toggle is off).
 const KILL_ICON = '/twemoji/1f3af.svg'; // 🎯: kills, in the scoreboard
 function updateLeaderboard(state, hats, botSkills) {
   $('lb-round').textContent = state.round > 0 ? fmt(T.round, { n: state.round }) : '';
-  const players = [...state.players].sort(
-    (a, b) =>
-      STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.length - a.length || Number(a.bot) - Number(b.bot) || a.name.localeCompare(b.name),
-  );
+  const players = [...state.players].sort(compareRound);
   const list = $('lb-list');
   list.replaceChildren(
     ...players.map((p) => {

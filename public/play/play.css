@@ -171,3 +171,34 @@ button.big:disabled { opacity: 0.6; }
 .lost h1 { margin: 0; font-size: 2rem; }
 .lost p { margin: 0; font-size: 1.1rem; max-width: 26em; }
 .lost button.big { font-size: 1.8rem; padding: 22px 40px; }
+
+/* ---- round card (between rounds) ---- */
+.round-card {
+  margin-top: 22px;
+  padding: 16px 22px 18px;
+  border-radius: 20px;
+  background: rgba(7, 10, 18, 0.82);
+  color: #f2f4f8;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  max-width: 92vw;
+  pointer-events: none;
+}
+.round-card .card-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.round-card .card-place {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 6px 0 4px;
+  font-size: 2.6rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.round-card .card-place img { width: 1.15em; height: 1.15em; }
+.round-card .card-stats { font-size: 1.25rem; font-weight: 700; }

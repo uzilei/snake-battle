@@ -2,7 +2,7 @@
 // player's color. The server validates everything; this page only sends
 // { t: 'join', name, session } and { t: 'dir', dir }.
 
-import { STRINGS, LOCALE, setLocale } from '/shared/strings.js';
+import { STRINGS, LOCALE, fmt, setLocale } from '/shared/strings.js';
 import startLocale from '/locale.js';
 import { playerColor, contrastText } from '/shared/colors.js';
 import { MAX_NAME_LENGTH } from '/shared/limits.js';
@@ -59,6 +59,7 @@ function sessionToken() {
 const session = sessionToken();
 
 // ---- static text --------------------------------------------------------------
+let card = null; // the round card shown, or null (see showCard)
 $('name-input').maxLength = MAX_NAME_LENGTH;
 function applyText() {
   P = STRINGS.play;
@@ -77,6 +78,7 @@ function applyText() {
     b.setAttribute('aria-label', P[`dir${b.dataset.dir[0].toUpperCase()}${b.dataset.dir.slice(1)}`]);
   }
   for (const b of document.querySelectorAll('#hats button')) labelHat(b);
+  if (card) showCard(card); // in the new language
 }
 applyText();
 
@@ -182,6 +184,7 @@ function connect() {
         lastDir = null;
         lastRound = null;
         showGame();
+        showCard(null);
         break;
       case 'error':
         if (!joined) {
@@ -242,6 +245,29 @@ function onMe(msg) {
     applyColor();
   }
   setStatus(msg.paused);
+  showCard(msg.phase === 'intermission' ? p.card : null);
+}
+
+// ---- round card -------------------------------------------------------------------------
+// Between rounds (an /admin toggle): this player's place, length and kills,
+// to read while waiting, and to screenshot. The top three get a medal.
+const MEDALS = { 1: { twemoji: '1f3c6', emoji: '🏆' }, 2: { twemoji: '1f948', emoji: '🥈' }, 3: { twemoji: '1f949', emoji: '🥉' } };
+function showCard(next) {
+  card = next ?? null;
+  $('round-card').hidden = !card;
+  $('swipe-hint').hidden = Boolean(card);
+  if (!card) return;
+  const ord = P.cardOrdinals[new Intl.PluralRules(LOCALE, { type: 'ordinal' }).select(card.place)] ?? P.cardOrdinals.other;
+  $('card-title').textContent = P.cardTitle;
+  $('card-place').textContent = fmt(P.cardPlace, { n: card.place, ord });
+  const medal = MEDALS[card.place];
+  $('card-medal').hidden = !medal;
+  if (medal) {
+    $('card-medal').src = `/twemoji/${medal.twemoji}.svg`;
+    $('card-medal').alt = medal.emoji;
+  }
+  const kills = card.kills === 1 ? P.cardKillsOne : fmt(P.cardKillsMany, { n: card.kills });
+  $('card-stats').textContent = `${fmt(P.cardLength, { n: card.length })} · ${kills}`;
 }
 
 // ---- hat picker -----------------------------------------------------------------------

@@ -92,6 +92,14 @@ export const STRINGS_EN = Object.freeze({
     dirDown: 'Down',
     dirLeft: 'Left',
     dirRight: 'Right',
+    // The round card, between rounds: "🥉 3rd place · length 42 · 2 kills".
+    // {ord}: the ordinal ending for {n}, by Intl.PluralRules ordinal category.
+    cardPlace: '{n}{ord} place',
+    cardOrdinals: { one: 'st', two: 'nd', few: 'rd', other: 'th' },
+    cardLength: 'length {n}',
+    cardKillsOne: '1 kill',
+    cardKillsMany: '{n} kills',
+    cardTitle: 'Your round',
   },
 
   // ---- /admin/login ------------------------------------------------------
@@ -189,6 +197,7 @@ export const STRINGS_EN = Object.freeze({
       'The global leaderboard is off, so the screen shows the round scoreboard. To see it, turn it on under “Global leaderboard”.',
     keyboardPlayers: 'Keyboard players on the screen (WASD and arrows)',
     hats: 'Players’ hats on the snakes (picked on /play)',
+    roundCard: 'End-of-round card on the phones (place, length, kills)',
     displayButtons: 'Mouse and ← → buttons on the screen to switch the column (not in “Automatic”)',
     effects: 'Visual effects',
     effectsHint: 'Graphics only, apply at once.',

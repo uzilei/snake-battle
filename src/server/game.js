@@ -17,6 +17,7 @@ import { cleanName } from '../shared/names.js';
 import { SOUND_LIMITS, SOUND_VOLUME_DEFAULTS, soundGains } from '../shared/sounds.js';
 import { BOT_HIDDEN_SKILL, BOT_LIMITS, BOT_NAME_PATTERN, BOT_SKILLS, MAX_SNAKES, botName, botTarget, botWeightKey, pickBotSkill, validReservedBots, normalizeReservedBots } from '../shared/bots.js';
 import { createBotBrain, queueBotMoves } from '../bot-brain.js';
+import { roundPlaces } from '../shared/ranking.js';
 
 // 'leaderboard' is the live scoreboard; 'records' is the global leaderboard
 // (most wins, most kills, highest score), shown only when it is enabled.
@@ -68,6 +69,7 @@ const SETTING_RULES = Object.freeze({
   leaderboardStat: (v) => LEADERBOARD_STATS.includes(v),
   displayButtons: isBoolean,
   hats: isBoolean,
+  roundCard: isBoolean,
   corpseStyle: (v) => CORPSE_STYLES.includes(v),
   locale: (v) => LOCALES.includes(v),
   bots: inLimits(BOT_LIMITS.bots),
@@ -149,6 +151,7 @@ const defaultSettings = () => ({
   leaderboardStat: 'auto', // applies immediately, like sidePanel
   displayButtons: false, // mouse cursor and side panel buttons on /display
   hats: true, // /display draws the hats players picked on /play
+  roundCard: false, // between rounds, each phone shows its place, length and kills
   corpseStyle: 'fruit', // how /display draws corpse apples (CORPSE_STYLES)
   locale: DEFAULT_LOCALE, // language of every page (LOCALES)
   badgerName: '', // drawn under the honey badger, like a boss name
@@ -299,25 +302,33 @@ export function createGame({
     return out;
   }
 
-  function localPlayersOf(client, state) {
+  // places: the round card's ranking (roundCardPlaces), or null for none.
+  function localPlayersOf(client, state, places = null) {
     const out = {};
     for (const [slot, id] of client.owned) {
       const p = state.players.find((x) => x.id === id);
       if (!p) continue;
       const snake = state.snakes.find((x) => x.id === id);
       out[slot] = { id, name: p.name, colorIndex: p.colorIndex, status: p.status, dir: snake?.dir ?? null };
+      // Between rounds, for those who played it: how their round went.
+      if (places?.has(id)) out[slot].card = { place: places.get(id), length: p.length, kills: p.kills };
     }
     return out;
   }
+
+  // The round card's places, while it shows: during the intermission, with
+  // the toggle on.
+  const roundCardPlaces = (state) => (settings.roundCard && state.phase === PHASES.INTERMISSION ? roundPlaces(state.players, state.winnerId) : null);
 
   function broadcast() {
     const state = engine.getState();
     const display = displayMessage(state);
     const admin = adminMessage(state);
+    const places = roundCardPlaces(state);
     for (const c of clients) {
       if (c.role === 'display') safeSend(c, { ...display, localPlayers: localPlayersOf(c, state) });
       else if (c.role === 'admin') safeSend(c, admin);
-      else if (c.role === 'player') safeSend(c, { t: 'me', locale: settings.locale, phase: state.phase, round: state.round, paused, players: localPlayersOf(c, state) });
+      else if (c.role === 'player') safeSend(c, { t: 'me', locale: settings.locale, phase: state.phase, round: state.round, paused, players: localPlayersOf(c, state, places) });
     }
   }
 
